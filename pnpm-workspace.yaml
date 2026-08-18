@@ -1,0 +1,7 @@
+# esbuild ships a prebuilt binary its postinstall links into place; the rest are
+# native addons this project never reaches — the browser bundle uses the JS
+# fallbacks — so they stay unbuilt.
+allowBuilds:
+  esbuild: true
+  '@reown/appkit': false
+  secp256k1: false

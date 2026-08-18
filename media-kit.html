@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Esbee — media kit</title>
+<meta name="description" content="The Esbee name, mark, palette and voice.">
+<link rel="icon" type="image/svg+xml" href="esbee.svg">
+<link rel="mask-icon" href="esbee.svg" color="#c67139">
+<link rel="stylesheet" href="styles.css">
+<style>
+  html { scroll-behavior: smooth; }
+  body { margin: 0; }
+  a:hover { color: var(--color-accent-700); }
+  .wrap { max-width: 68ch; margin: 0 auto; padding: clamp(32px,6vw,72px) clamp(16px,4vw,40px); }
+  .swatches { display: grid; grid-template-columns: repeat(auto-fit,minmax(150px,1fr)); gap: var(--space-3); }
+  .swatch { border-radius: var(--radius-md); overflow: hidden; background: var(--color-surface); }
+  .swatch .chip { height: 72px; }
+  .swatch .meta { padding: var(--space-2) var(--space-3); font-size: 13px; }
+  .mark { display: flex; align-items: center; gap: var(--space-4); flex-wrap: wrap; }
+  .mark img { width: 96px; height: 96px; }
+  .mark .small { width: 16px; height: 16px; }
+  dt { font-family: var(--font-heading); margin-top: var(--space-3); }
+  dd { margin: 0 0 var(--space-2); color: color-mix(in srgb, var(--color-text) 72%, transparent); }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <p><a href="index.html">← Esbee DAO</a></p>
+  <h1>Media kit</h1>
+  <p class="text-muted">
+    The name, the mark, the palette and the voice — everything needed to refer
+    to Esbee without asking first.
+  </p>
+
+  <hr class="hr">
+
+  <h2 id="voice">Voice &amp; naming</h2>
+
+  <h3>The name</h3>
+  <p>
+    <strong>Esbee</strong> is a bee. It survives being spoken, which an acronym
+    does not, and it reads as a name rather than a claim — no <em>Protocol</em>,
+    <em>Labs</em>, <em>Finance</em> or <em>Capital</em> doing the work.
+  </p>
+  <p>What makes it worth keeping is what a bee already is — the thing the contract is:</p>
+  <dl>
+    <dt>A hive</dt>
+    <dd>is a membership that acts as one — what a DAO claims to be, and what quadratic voting is trying to make true.</dd>
+    <dt>Workers and store</dt>
+    <dd>put in and hold: the pool's members deposit, the treasury holds.</dd>
+    <dt>Honey</dt>
+    <dd>is yield that accrues slowly and is drawn down later, which is a six-month bond almost exactly.</dd>
+    <dt>A honeycomb cell</dt>
+    <dd>is a ready-made mark: geometric, legible at 16px, and unlike most crypto logos it is not a coin, a shield, or a chain.</dd>
+  </dl>
+
+  <h3>Writing it</h3>
+  <p>
+    <strong>Esbee</strong>, capital E, never <em>ESBEE</em> or <em>esBee</em>.
+    <strong>Esbee DAO</strong> for the governance contract;
+    <strong>the pool</strong> or <strong>bond-staker</strong> for the ledger it
+    operates. Write it as a word — not as initials, and not with the letters
+    spaced or separated.
+  </p>
+  <p class="text-muted">
+    One caveat worth stating plainly: a search turned up no crypto or DAO
+    project using the name, which is a first signal and not a clearance. A real
+    trademark and handle check is still owed before anything is printed on
+    anything.
+  </p>
+
+  <hr class="hr">
+
+  <h2 id="og">The mark &amp; social assets</h2>
+
+  <div class="mark">
+    <img src="esbee.svg" alt="The Esbee mark: a honeycomb cell holding a bee">
+    <img class="small" src="esbee.svg" alt="The same mark at 16 pixels">
+    <p class="text-muted" style="flex:1 1 22ch;margin:0">
+      A honeycomb cell, with a hint of neighbouring cells above and below, and
+      three tapering bands beneath that read as a bee once noticed and as
+      nothing at all until then.
+    </p>
+  </div>
+  <p>
+    The strokes sit on the cell's own diagonals, so at small sizes the mark reads
+    as structure and only resolves into a bee up close. It carries its own
+    palette and flips with <code>prefers-color-scheme</code>, so it can sit
+    directly on a page without a plate behind it.
+  </p>
+  <p><a href="esbee.svg" download>Download esbee.svg</a></p>
+
+  <h3>Palette</h3>
+  <div class="swatches">
+    <div class="swatch"><div class="chip" style="background:#f5ead8"></div><div class="meta"><strong>Ground</strong><br>#f5ead8</div></div>
+    <div class="swatch"><div class="chip" style="background:#ebddc5"></div><div class="meta"><strong>Surface</strong><br>#ebddc5</div></div>
+    <div class="swatch"><div class="chip" style="background:#201e1d"></div><div class="meta"><strong>Ink</strong><br>#201e1d</div></div>
+    <div class="swatch"><div class="chip" style="background:#c67139"></div><div class="meta"><strong>Accent</strong><br>#c67139</div></div>
+    <div class="swatch"><div class="chip" style="background:#7a8a5e"></div><div class="meta"><strong>Accent 2</strong><br>#7a8a5e</div></div>
+  </div>
+  <p class="text-muted" style="margin-top:var(--space-3)">
+    The mark itself ships a two-tone pair that flips with the reader's theme:
+    ink <code>#1c1a17</code> / <code>#f2eee6</code> for the comb, accent
+    <code>#d1620a</code> / <code>#f08a3c</code> for the letters — bitcoin
+    orange, warmed.
+  </p>
+
+  <h3>Type</h3>
+  <p>
+    <strong style="font-family:var(--font-heading);font-size:1.15em">Caprasimo</strong>
+    for headings, <strong>Figtree</strong> for everything else. Both ship with
+    this site under the SIL Open Font License.
+  </p>
+
+  <hr class="hr">
+
+  <p class="text-muted" style="font-size:13px">
+    This page is assembled from the project's brand guide rather than from the
+    Esbee Media Kit design file — it uses the same tokens as the rest of the
+    site, but it is not that design. Replace it when that file is available.
+  </p>
+
+</div>
+</body>
+</html>

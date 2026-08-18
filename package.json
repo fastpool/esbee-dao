@@ -1,0 +1,23 @@
+{
+  "name": "esbee-dao-site",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "The Esbee DAO website.",
+  "scripts": {
+    "build": "./node_modules/esbuild/bin/esbuild src/app.ts --bundle --splitting --format=esm --target=es2022 --outdir=dist --sourcemap --minify",
+    "typecheck": "tsc --noEmit",
+    "test": "tsx smoke-test.ts",
+    "check": "pnpm run typecheck && pnpm run build && pnpm run test",
+    "dev": "pnpm run build && python3 -m http.server 8080"
+  },
+  "devDependencies": {
+    "@stacks/connect": "^8.2.7",
+    "@stacks/transactions": "^7.6.0",
+    "@types/node": "^26.2.0",
+    "esbuild": "^0.28.2",
+    "linkedom": "^0.18.0",
+    "tsx": "^4.23.12",
+    "typescript": "^7.0.2"
+  }
+}

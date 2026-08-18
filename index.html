@@ -1,0 +1,584 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Esbee DAO — a hive that holds the bond</title>
+<meta name="description" content="Esbee DAO is the operator seat of a pooled sBTC + STX staker for pox-5 Bitcoin Staking Bonds, held by its members rather than by a key.">
+<link rel="icon" type="image/svg+xml" href="esbee.svg">
+<link rel="mask-icon" href="esbee.svg" color="#c67139">
+<link rel="stylesheet" href="styles.css">
+<style>
+html { scroll-behavior: smooth; }
+body { margin: 0; }
+a:hover { color: var(--color-accent-700); }
+@keyframes esbee-drift { 0%,100% { transform: translateY(0) rotate(0deg); } 50% { transform: translateY(-10px) rotate(-3deg); } }
+@keyframes esbee-fill { from { width: 0; } }
+</style>
+</head>
+<body>
+<div id="app"></div>
+<!-- Wallet and transaction feedback. Outside the template so a re-render
+     cannot clear it mid-transaction. -->
+<div id="notice" hidden role="status" aria-live="polite"
+     style="position:fixed;left:50%;transform:translateX(-50%);bottom:18px;z-index:80;
+            max-width:min(92vw,64ch);padding:10px 16px;border-radius:16px;
+            background:var(--color-surface);color:var(--color-text);
+            box-shadow:var(--shadow-lg);font:14px/1.45 var(--font-body);
+            overflow-wrap:anywhere"></div>
+<noscript>
+  <div style="max-width:60ch;margin:12vh auto;padding:0 24px;font-family:var(--font-body)">
+    <h1>Esbee DAO</h1>
+    <p>This page renders its proposal floor in the browser, so it needs JavaScript.
+    The contracts it describes do not: everything here is a view onto
+    <code>esbee-dao.clar</code> and <code>bond-staker.clar</code>.</p>
+  </div>
+</noscript>
+
+<!-- The design, verbatim. `sc-for`, `sc-if` and `{{ }}` are resolved by app.js;
+     keeping them means this markup still diffs cleanly against the canvas. -->
+<template id="tpl">
+<div style="background:var(--color-bg);color:var(--color-text);font-family:var(--font-body);min-height:100vh;overflow-x:hidden">
+
+<header style="position:sticky;top:0;z-index:40;background:color-mix(in srgb, var(--color-bg) 88%, transparent);backdrop-filter:blur(12px);border-bottom:1px solid color-mix(in srgb, var(--color-text) 8%, transparent)">
+  <div style="max-width:1240px;margin:0 auto;padding:12px clamp(16px,4vw,40px);display:flex;align-items:center;gap:clamp(12px,3vw,32px);flex-wrap:wrap">
+    <a href="#top" style="display:flex;align-items:center;gap:10px;text-decoration:none;color:var(--color-text);margin-right:auto">
+      <svg width="34" height="34" sc-camel-view-box="0 0 64 64" style="display:block">
+        <path d="M32 3 L59 18 L59 46 L32 61 L5 46 L5 18 Z" style="fill:var(--color-surface);stroke:var(--color-text);stroke-width:3.4;stroke-linejoin:round"></path>
+        <ellipse cx="20" cy="26" rx="8" ry="4.4" transform="rotate(-32 20 26)" style="fill:var(--color-text);opacity:.22"></ellipse>
+        <ellipse cx="44" cy="26" rx="8" ry="4.4" transform="rotate(32 44 26)" style="fill:var(--color-text);opacity:.22"></ellipse>
+        <ellipse cx="32" cy="38" rx="9.5" ry="13" style="fill:var(--color-accent)"></ellipse>
+        <path d="M23.6 33 h16.8 M24.4 42 h15.2" style="stroke:var(--color-text);stroke-width:3.2;stroke-linecap:round"></path>
+        <circle cx="32" cy="24" r="5.4" style="fill:var(--color-text)"></circle>
+      </svg>
+      <span style="font-family:var(--font-heading);font-size:21px;letter-spacing:-0.01em">Esbee<span style="color:var(--color-accent)">.</span></span>
+    </a>
+    <nav style="display:flex;align-items:center;gap:clamp(10px,2vw,24px);flex-wrap:wrap;font-size:14px">
+      <a href="#pool" style="text-decoration:none;color:var(--color-text);white-space:nowrap" style-hover="color:var(--color-accent)">The pool</a>
+      <a href="#govern" style="text-decoration:none;color:var(--color-text);white-space:nowrap" style-hover="color:var(--color-accent)">Governance</a>
+      <a href="#vote" style="text-decoration:none;color:var(--color-text);white-space:nowrap" style-hover="color:var(--color-accent)">Vote</a>
+      <a href="#trust" style="text-decoration:none;color:var(--color-text);white-space:nowrap" style-hover="color:var(--color-accent)">Trust</a>
+      <a href="media-kit.html" style="text-decoration:none;color:var(--color-text);white-space:nowrap" style-hover="color:var(--color-accent)">Media kit</a>
+    </nav>
+    <div class="seg" style="flex:none">
+      <sc-for list="{{ networks }}" as="n">
+        <button class="seg-opt" sc-camel-on-click="{{ n.choose }}" title="{{ n.note }}" style="background:{{ n.bg }};color:{{ n.fg }};border:0;font:inherit;font-size:12.5px;cursor:pointer">{{ n.label }}</button>
+      </sc-for>
+    </div>
+    <button class="btn btn-primary" sc-camel-on-click="{{ openWallet }}" style="font-size:14px;padding:9px 18px;white-space:nowrap">{{ walletLabel }}</button>
+  </div>
+</header>
+
+<section id="top" style="position:relative;background:var(--color-surface);overflow:hidden">
+  <svg width="100%" height="100%" aria-hidden="true" style="position:absolute;inset:0;opacity:.5">
+    <defs>
+      <pattern id="combHero" width="51.96" height="90" sc-camel-pattern-units="userSpaceOnUse">
+        <g style="fill:none;stroke:var(--color-accent);stroke-width:1.3">
+          <path d="M25.98 -30 L51.96 -15 L51.96 15 L25.98 30 L0 15 L0 -15 Z"></path>
+          <path d="M0 15 L25.98 30 L25.98 60 L0 75 L-25.98 60 L-25.98 30 Z"></path>
+          <path d="M51.96 15 L77.94 30 L77.94 60 L51.96 75 L25.98 60 L25.98 30 Z"></path>
+          <path d="M25.98 60 L51.96 75 L51.96 105 L25.98 120 L0 105 L0 75 Z"></path>
+        </g>
+      </pattern>
+    </defs>
+    <rect width="100%" height="100%" fill="url(#combHero)"></rect>
+  </svg>
+  <div style="position:relative;max-width:1240px;margin:0 auto;padding:clamp(44px,8vw,104px) clamp(16px,4vw,40px) clamp(52px,8vw,110px);display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:clamp(28px,5vw,64px);align-items:center">
+    <div>
+      <div style="display:inline-flex;align-items:center;gap:8px;background:var(--color-accent-2-200);color:var(--color-accent-2-800);border-radius:999px;padding:5px 14px;font-size:12px;letter-spacing:.03em;margin-bottom:clamp(16px,3vw,28px)">
+        <span style="width:7px;height:7px;border-radius:50%;background:var(--color-accent-2-600);display:block"></span>
+        Pre-launch · the genesis bond has not been staked
+      </div>
+      <h1 style="font-size:clamp(40px,7.2vw,80px);line-height:.98;letter-spacing:-0.02em;margin:0 0 clamp(14px,2.5vw,24px);max-width:14ch">A hive that holds the bond.</h1>
+      <p style="font-size:clamp(16px,1.7vw,20px);line-height:1.5;max-width:46ch;margin:0 0 clamp(22px,4vw,34px);color:color-mix(in srgb, var(--color-text) 78%, transparent)">Esbee is a pooled staker for Bitcoin Staking Bonds. Workers put in sBTC and the STX it takes to stand beside it; the pool rolls from one bond to the next without ever unwinding, and the honey is split by the shares you held while it was earned.</p>
+      <div style="display:flex;flex-wrap:wrap;gap:12px">
+        <a class="btn btn-primary" href="#pool" style="font-size:15px;padding:12px 24px">How the pool works</a>
+        <a class="btn btn-secondary" href="#vote" style="font-size:15px;padding:12px 24px">See the DAO vote</a>
+      </div>
+    </div>
+    <div style="display:flex;justify-content:center">
+      <div style="position:relative;width:min(100%,440px);aspect-ratio:1;border-radius:50%;background:radial-gradient(circle at 34% 30%, var(--color-accent-200), var(--color-accent-300) 62%, var(--color-accent-400));display:grid;place-items:center;box-shadow:var(--shadow-lg)">
+        <svg sc-camel-view-box="0 0 64 64" style="width:52%;animation:esbee-drift 6s ease-in-out infinite">
+          <path d="M32 3 L59 18 L59 46 L32 61 L5 46 L5 18 Z" style="fill:var(--color-bg);stroke:var(--color-text);stroke-width:3.2;stroke-linejoin:round"></path>
+          <ellipse cx="20" cy="26" rx="8.4" ry="4.6" transform="rotate(-32 20 26)" style="fill:var(--color-text);opacity:.2"></ellipse>
+          <ellipse cx="44" cy="26" rx="8.4" ry="4.6" transform="rotate(32 44 26)" style="fill:var(--color-text);opacity:.2"></ellipse>
+          <ellipse cx="32" cy="38" rx="9.5" ry="13" style="fill:var(--color-accent)"></ellipse>
+          <path d="M23.6 33 h16.8 M24.4 42 h15.2" style="stroke:var(--color-text);stroke-width:3.2;stroke-linecap:round"></path>
+          <circle cx="32" cy="24" r="5.4" style="fill:var(--color-text)"></circle>
+        </svg>
+        <div style="position:absolute;bottom:-14px;right:-6px;background:var(--color-bg);border-radius:999px;padding:9px 18px;font-family:var(--font-heading);font-size:14px;box-shadow:var(--shadow-md)">Esbee</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section style="max-width:1240px;margin:0 auto;padding:clamp(28px,5vw,56px) clamp(16px,4vw,40px)">
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:clamp(10px,2vw,18px)">
+    <div class="card" style="background:var(--color-surface);padding:20px 22px;gap:4px">
+      <span style="font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--color-accent)">Pooled sats</span>
+      <span style="font-family:var(--font-heading);font-size:clamp(26px,3.4vw,36px);line-height:1.05">{{ statSats }}</span>
+      <span class="text-muted" style="font-size:12px">queued, fully withdrawable</span>
+    </div>
+    <div class="card" style="background:var(--color-surface);padding:20px 22px;gap:4px">
+      <span style="font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--color-accent)">Members</span>
+      <span style="font-family:var(--font-heading);font-size:clamp(26px,3.4vw,36px);line-height:1.05">{{ statMembers }}</span>
+      <span class="text-muted" style="font-size:12px">committed shares</span>
+    </div>
+    <div class="card" style="background:var(--color-surface);padding:20px 22px;gap:4px">
+      <span style="font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--color-accent)">Epoch</span>
+      <span style="font-family:var(--font-heading);font-size:clamp(26px,3.4vw,36px);line-height:1.05">{{ statEpoch }}</span>
+      <span class="text-muted" style="font-size:12px">first bond not yet bound</span>
+    </div>
+    <div class="card" style="background:var(--color-surface);padding:20px 22px;gap:4px">
+      <span style="font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--color-accent)">Honey paid</span>
+      <span style="font-family:var(--font-heading);font-size:clamp(26px,3.4vw,36px);line-height:1.05">{{ statHoney }}</span>
+      <span class="text-muted" style="font-size:12px">rewards settled to date</span>
+    </div>
+  </div>
+  <div style="margin-top:clamp(14px,2vw,20px);background:var(--color-surface);border-radius:28px;padding:clamp(18px,3vw,26px) clamp(20px,3vw,30px);display:flex;flex-wrap:wrap;gap:18px;align-items:center;justify-content:space-between">
+    <div>
+      <div style="font-family:var(--font-heading);font-size:19px">Launch floor</div>
+      <p class="text-muted" style="margin:2px 0 0;font-size:13px;max-width:52ch">Nobody presses a launch button. <code style="font-family:ui-monospace,monospace;font-size:12px">stake</code> is permissionless — it runs the moment enough of a pool has gathered, and refuses below the floor set for the genesis bond.</p>
+    </div>
+    <div style="min-width:min(100%,320px);flex:1">
+      <div style="height:14px;border-radius:999px;background:var(--color-neutral-300);overflow:hidden">
+        <div style="height:100%;width:0%;background:var(--color-accent);border-radius:999px"></div>
+      </div>
+      <div style="display:flex;justify-content:space-between;font-size:12px;margin-top:7px" class="text-muted"><span>0 sats gathered</span><span>floor: half the allocation</span></div>
+    </div>
+  </div>
+</section>
+
+<section style="max-width:1240px;margin:0 auto;padding:clamp(40px,7vw,88px) clamp(16px,4vw,40px)">
+  <h2 style="font-size:clamp(28px,4.2vw,46px);max-width:20ch;margin:0 0 10px">The name is not decoration. It is the model.</h2>
+  <p class="text-muted" style="max-width:56ch;margin:0 0 clamp(24px,4vw,40px);font-size:16px">Esbee is a bee, and a bee was already what this contract is.</p>
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:clamp(12px,2vw,20px)">
+    <div class="card elev-sm" style="padding:clamp(22px,3vw,30px);gap:10px">
+      <div style="width:46px;height:46px;border-radius:50%;background:var(--color-accent-200);display:grid;place-items:center;font-family:var(--font-heading);color:var(--color-accent-800);font-size:18px">01</div>
+      <h3 style="margin:6px 0 0;font-size:23px">The hive</h3>
+      <p style="margin:0;font-size:15px;line-height:1.55;opacity:.85">A membership that acts as one. That is what a DAO claims to be, and what quadratic weight is trying to make true rather than assume.</p>
+    </div>
+    <div class="card elev-sm" style="padding:clamp(22px,3vw,30px);gap:10px">
+      <div style="width:46px;height:46px;border-radius:50%;background:var(--color-accent-2-200);display:grid;place-items:center;font-family:var(--font-heading);color:var(--color-accent-2-800);font-size:18px">02</div>
+      <h3 style="margin:6px 0 0;font-size:23px">Workers and store</h3>
+      <p style="margin:0;font-size:15px;line-height:1.55;opacity:.85">Workers put in; the store holds. Members deposit sBTC and STX, the treasury holds the principal, and the ledger never has to net a reserve off a payout.</p>
+    </div>
+    <div class="card elev-sm" style="padding:clamp(22px,3vw,30px);gap:10px">
+      <div style="width:46px;height:46px;border-radius:50%;background:var(--color-accent-200);display:grid;place-items:center;font-family:var(--font-heading);color:var(--color-accent-800);font-size:18px">03</div>
+      <h3 style="margin:6px 0 0;font-size:23px">Honey</h3>
+      <p style="margin:0;font-size:15px;line-height:1.55;opacity:.85">Yield that accrues slowly and is drawn down later — which is a six-month bond, almost exactly. It is split by shares, not by who is standing there when it lands.</p>
+    </div>
+  </div>
+</section>
+
+<sc-if value="{{ bond.show }}">
+  <div style="margin-top:clamp(12px,2vw,18px);background:var(--color-surface);border-radius:var(--radius-lg);padding:clamp(20px,3vw,28px)">
+    <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:baseline;margin-bottom:8px">
+      <span style="font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--color-accent)">{{ bond.kicker }}</span>
+      <span style="font-family:var(--font-heading);font-size:clamp(20px,2.4vw,26px);line-height:1.1">{{ bond.headline }}</span>
+    </div>
+    <p class="text-muted" style="margin:0 0 14px;font-size:14px;line-height:1.55;max-width:70ch">{{ bond.lead }}</p>
+    <sc-for list="{{ bond.rows }}" as="r">
+      <div style="display:flex;flex-wrap:wrap;gap:8px 14px;align-items:baseline;padding:9px 0;border-top:1px solid var(--color-divider)">
+        <span style="flex:1 1 16ch;font-size:13.5px;color:{{ r.fg }}">{{ r.icon }} {{ r.label }}</span>
+        <span style="font-family:ui-monospace,monospace;font-size:12.5px;opacity:.75">{{ r.value }}</span>
+        <span style="font-size:12.5px;color:var(--color-accent-700)">{{ r.when }}</span>
+      </div>
+    </sc-for>
+  </div>
+</sc-if>
+
+<section id="pool" style="background:var(--color-surface);position:relative;overflow:hidden">
+  <div style="max-width:1240px;margin:0 auto;padding:clamp(44px,7vw,96px) clamp(16px,4vw,40px)">
+    <h2 style="font-size:clamp(28px,4.2vw,46px);margin:0 0 10px;max-width:18ch">How the pool works</h2>
+    <p class="text-muted" style="max-width:58ch;margin:0 0 clamp(28px,4vw,48px);font-size:16px">Each bond the pool stakes into is an epoch. pox-5 lets one bond's term end exactly where the next begins, so the pool rolls straight across — moving only the net difference and resizing the STX lock in place.</p>
+
+    <div style="background:var(--color-bg);border-radius:28px;padding:clamp(22px,4vw,38px);margin-bottom:clamp(16px,2.5vw,26px)">
+      <div style="display:flex;gap:6px;align-items:stretch;flex-wrap:wrap">
+        <div style="flex:1 1 180px;background:var(--color-accent-200);border-radius:20px;padding:16px 20px">
+          <div style="font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--color-accent-800);opacity:.8">Bond N</div>
+          <div style="font-family:var(--font-heading);font-size:20px;margin-top:4px">Epoch 0</div>
+        </div>
+        <div style="flex:0 0 auto;display:grid;place-items:center;padding:0 4px">
+          <div style="font-family:var(--font-heading);font-size:12px;color:var(--color-accent);writing-mode:horizontal-tb;text-align:center">roll ⟶</div>
+        </div>
+        <div style="flex:1 1 180px;background:var(--color-accent-300);border-radius:20px;padding:16px 20px">
+          <div style="font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--color-accent-800);opacity:.8">Bond N+6</div>
+          <div style="font-family:var(--font-heading);font-size:20px;margin-top:4px">Epoch 1</div>
+        </div>
+        <div style="flex:0 0 auto;display:grid;place-items:center;padding:0 4px">
+          <div style="font-family:var(--font-heading);font-size:12px;color:var(--color-accent);text-align:center">roll ⟶</div>
+        </div>
+        <div style="flex:1 1 180px;background:var(--color-accent-200);border-radius:20px;padding:16px 20px">
+          <div style="font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--color-accent-800);opacity:.8">Bond N+12</div>
+          <div style="font-family:var(--font-heading);font-size:20px;margin-top:4px">Epoch 2</div>
+        </div>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:16px;margin-top:22px">
+        <p style="margin:0;font-size:14px;line-height:1.6;opacity:.85"><strong style="font-family:var(--font-heading);font-weight:400">Positions move at the roll,</strong> so your record never describes a position the pool has already left.</p>
+        <p style="margin:0;font-size:14px;line-height:1.6;opacity:.85"><strong style="font-family:var(--font-heading);font-weight:400">Rewards move when an epoch settles,</strong> a cycle later — so the bond you were actually in is the one that pays you.</p>
+        <p style="margin:0;font-size:14px;line-height:1.6;opacity:.85"><strong style="font-family:var(--font-heading);font-weight:400">A stash bridges the gap.</strong> Leave at a roll and you get your principal back at once, and the final cycle's honey when it arrives.</p>
+      </div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:clamp(12px,2vw,20px)">
+      <div style="background:var(--color-bg);border-radius:28px;padding:clamp(20px,3vw,28px)">
+        <span class="tag tag-accent">sats</span>
+        <h4 style="margin:12px 0 6px;font-size:21px">What you get back</h4>
+        <p style="margin:0;font-size:14px;line-height:1.6;opacity:.8">The sBTC you deposited. It is held by the treasury as principal, never as reward.</p>
+      </div>
+      <div style="background:var(--color-bg);border-radius:28px;padding:clamp(20px,3vw,28px)">
+        <span class="tag tag-accent-2">ustx</span>
+        <h4 style="margin:12px 0 6px;font-size:21px">The other leg</h4>
+        <p style="margin:0;font-size:14px;line-height:1.6;opacity:.8">Every bond prices sats in STX. pox-5 locks the staker's STX, so the pool holds it and returns it on Stacks.</p>
+      </div>
+      <div style="background:var(--color-bg);border-radius:28px;padding:clamp(20px,3vw,28px)">
+        <span class="tag tag-neutral">shares</span>
+        <h4 style="margin:12px 0 6px;font-size:21px">Your weight in an epoch</h4>
+        <p style="margin:0;font-size:14px;line-height:1.6;opacity:.8">One share per committed satoshi, struck at the roll. Leave, and you keep the shares of the epoch you were part of — and its final honey.</p>
+      </div>
+    </div>
+
+    <h3 style="font-size:clamp(22px,3vw,32px);margin:clamp(36px,5vw,60px) 0 6px">Two ways in</h3>
+    <p class="text-muted" style="margin:0 0 24px;font-size:15px;max-width:56ch">Deposit sBTC you already hold, or arrive with L1 bitcoin. The second route is three steps and the order is the whole point.</p>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:clamp(12px,2vw,20px)">
+      <div style="background:var(--color-bg);border-radius:28px;padding:clamp(22px,3vw,30px)">
+        <h4 style="margin:0 0 8px;font-size:22px">With sBTC</h4>
+        <p style="margin:0 0 14px;font-size:14px;line-height:1.6;opacity:.8">Enter an amount in sats. The STX leg is quoted from the live bond, and one call moves both.</p>
+        <div style="display:flex;flex-direction:column;gap:8px">
+          <div style="display:flex;justify-content:space-between;font-size:13px;padding:11px 16px;background:var(--color-surface);border-radius:999px"><span class="text-muted">sats</span><span style="font-family:var(--font-heading)">your deposit</span></div>
+          <div style="display:flex;justify-content:space-between;font-size:13px;padding:11px 16px;background:var(--color-surface);border-radius:999px"><span class="text-muted">STX leg</span><span style="font-family:var(--font-heading)">quoted at bind</span></div>
+        </div>
+      </div>
+      <div style="background:var(--color-bg);border-radius:28px;padding:clamp(22px,3vw,30px)">
+        <h4 style="margin:0 0 14px;font-size:22px">With L1 bitcoin</h4>
+        <div style="display:flex;flex-direction:column;gap:12px">
+          <div style="display:flex;gap:12px;align-items:flex-start">
+            <span style="flex:none;width:26px;height:26px;border-radius:50%;background:var(--color-accent);color:var(--color-bg);display:grid;place-items:center;font-family:var(--font-heading);font-size:13px">1</span>
+            <p style="margin:0;font-size:14px;line-height:1.55;opacity:.85"><strong style="font-family:var(--font-heading);font-weight:400">Announce</strong> the txid of the transaction you are about to broadcast. This takes the STX leg too.</p>
+          </div>
+          <div style="display:flex;gap:12px;align-items:flex-start">
+            <span style="flex:none;width:26px;height:26px;border-radius:50%;background:var(--color-accent);color:var(--color-bg);display:grid;place-items:center;font-family:var(--font-heading);font-size:13px">2</span>
+            <p style="margin:0;font-size:14px;line-height:1.55;opacity:.85"><strong style="font-family:var(--font-heading);font-weight:400">Broadcast</strong> to the treasury address. Never to the ledger — sBTC landing there is taken for honey and split.</p>
+          </div>
+          <div style="display:flex;gap:12px;align-items:flex-start">
+            <span style="flex:none;width:26px;height:26px;border-radius:50%;background:var(--color-accent);color:var(--color-bg);display:grid;place-items:center;font-family:var(--font-heading);font-size:13px">3</span>
+            <p style="margin:0;font-size:14px;line-height:1.55;opacity:.85"><strong style="font-family:var(--font-heading);font-weight:400">Confirm</strong> once the signers have swept it. Permissionless — a keeper can do this for you.</p>
+          </div>
+          <p class="text-muted" style="margin:2px 0 0;font-size:13px;line-height:1.5">Announcing before broadcasting is what makes the deposit yours: until the transaction is out, nobody else knows its txid to claim it first.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="govern" style="max-width:1240px;margin:0 auto;padding:clamp(44px,7vw,96px) clamp(16px,4vw,40px)">
+  <h2 style="font-size:clamp(28px,4.2vw,46px);margin:0 0 10px;max-width:20ch">Governance: the seat, held by the hive</h2>
+  <p class="text-muted" style="max-width:60ch;margin:0 0 clamp(28px,4vw,46px);font-size:16px">The operator seat can be held by a contract instead of a key. <code style="font-family:ui-monospace,monospace;font-size:14px">esbee-dao</code> puts five of the operator's powers behind a vote of the pool's own members.</p>
+
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:clamp(16px,3vw,32px);align-items:start;margin-bottom:clamp(36px,5vw,64px)">
+    <div>
+      <h3 style="font-size:clamp(21px,2.6vw,28px);margin:0 0 8px">Weight is the square root of your sats</h3>
+      <p style="margin:0 0 18px;font-size:15px;line-height:1.6;opacity:.85">A member ten thousand times larger gets a hundred times the say, not ten thousand. And only committed shares count — a queued deposit is withdrawable on demand, so counting it would let anyone rent a majority for one transaction.</p>
+      <p class="text-muted" style="margin:0;font-size:13.5px;line-height:1.55">Deposit, vote, withdraw is not a strategy here. It is a no-op.</p>
+    </div>
+    <div style="background:var(--color-surface);border-radius:28px;padding:clamp(22px,3vw,30px);display:flex;flex-direction:column;gap:18px">
+      <sc-for list="{{ weightDemo }}" as="row" hint-placeholder-count="3">
+        <div>
+          <div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:7px"><span style="font-family:var(--font-heading)">{{ row.label }}</span><span class="text-muted">weight {{ row.weight }}</span></div>
+          <div style="display:flex;flex-direction:column;gap:5px">
+            <div style="height:9px;border-radius:999px;background:var(--color-neutral-300);overflow:hidden"><div style="height:100%;border-radius:999px;background:var(--color-neutral-600);width:{{ row.stakeW }}"></div></div>
+            <div style="height:9px;border-radius:999px;background:var(--color-neutral-300);overflow:hidden"><div style="height:100%;border-radius:999px;background:var(--color-accent);width:{{ row.sayW }}"></div></div>
+          </div>
+        </div>
+      </sc-for>
+      <div style="display:flex;gap:16px;font-size:12px" class="text-muted">
+        <span style="display:flex;align-items:center;gap:6px"><span style="width:10px;height:10px;border-radius:3px;background:var(--color-neutral-600)"></span>stake</span>
+        <span style="display:flex;align-items:center;gap:6px"><span style="width:10px;height:10px;border-radius:3px;background:var(--color-accent)"></span>say</span>
+      </div>
+    </div>
+  </div>
+
+  <h3 style="font-size:clamp(21px,2.8vw,30px);margin:0 0 6px">Five powers, one mandate each</h3>
+  <p class="text-muted" style="margin:0 0 22px;font-size:15px;max-width:58ch">Every proposal is a set of parameters for one operator call, raised through a typed entry point — so a mandate won for one power can never be spent on another.</p>
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(215px,1fr));gap:12px;margin-bottom:clamp(36px,5vw,60px)">
+    <sc-for list="{{ powers }}" as="p" hint-placeholder-count="5">
+      <div class="card" style="padding:20px 22px;gap:6px;background:var(--color-surface)">
+        <code style="font-family:ui-monospace,monospace;font-size:12px;color:var(--color-accent-700)">{{ p.call }}</code>
+        <div style="font-family:var(--font-heading);font-size:17px;line-height:1.2">{{ p.title }}</div>
+        <p style="margin:0;font-size:13px;line-height:1.55;opacity:.78">{{ p.body }}</p>
+      </div>
+    </sc-for>
+  </div>
+  <div style="background:var(--color-accent-2-200);border-radius:28px;padding:clamp(22px,3vw,30px);display:flex;gap:18px;flex-wrap:wrap;align-items:center;margin-bottom:clamp(36px,5vw,60px)">
+    <div style="flex:1 1 300px">
+      <h4 style="margin:0 0 6px;font-size:20px;color:var(--color-accent-2-900)">Binding a bond is deliberately not one of them</h4>
+      <p style="margin:0;font-size:14.5px;line-height:1.6;color:var(--color-accent-2-900);opacity:.85"><code style="font-family:ui-monospace,monospace;font-size:13.5px">bind-bond</code> has to land inside a window pox-5 fixes, and a vote that takes a voting period plus an execution delay to clear cannot be relied on to hit it. The seat holds both: a key that binds, and the DAO for everything a vote can be trusted to time.</p>
+    </div>
+  </div>
+
+  <h3 style="font-size:clamp(21px,2.8vw,30px);margin:0 0 6px">Six gates. A proposal clears all of them or none.</h3>
+  <p class="text-muted" style="margin:0 0 22px;font-size:15px;max-width:58ch">Every gate is returned as its own field, so you can see which line a proposal is still behind rather than a bare pass or fail.</p>
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:12px">
+    <sc-for list="{{ gates }}" as="g" hint-placeholder-count="6">
+      <div style="background:var(--color-surface);border-radius:24px;padding:22px;display:flex;gap:14px;align-items:flex-start">
+        <svg sc-camel-view-box="0 0 52 52" style="width:40px;flex:none">
+          <path d="M26 3 L47 15 L47 37 L26 49 L5 37 L5 15 Z" style="fill:none;stroke:var(--color-accent);stroke-width:2.75;stroke-linejoin:round"></path>
+          <text x="26" y="33" text-anchor="middle" style="font-family:var(--font-heading);font-size:19px;fill:var(--color-accent-800)">{{ g.n }}</text>
+        </svg>
+        <div>
+          <div style="font-family:var(--font-heading);font-size:17px;line-height:1.2;margin-bottom:4px">{{ g.label }}</div>
+          <p style="margin:0;font-size:13px;line-height:1.55;opacity:.78">{{ g.body }}</p>
+        </div>
+      </div>
+    </sc-for>
+  </div>
+</section>
+
+<section id="vote" style="background:var(--color-surface);position:relative">
+  <div style="max-width:1240px;margin:0 auto;padding:clamp(44px,7vw,96px) clamp(16px,4vw,40px)">
+    <div style="display:flex;flex-wrap:wrap;gap:18px;align-items:flex-end;justify-content:space-between;margin-bottom:8px">
+      <h2 style="font-size:clamp(28px,4.2vw,46px);margin:0;max-width:16ch">The vote floor</h2>
+      <span class="tag tag-accent-2" style="font-size:12px;padding:6px 14px">Testnet rehearsal · mainnet pool has not staked</span>
+    </div>
+    <p class="text-muted" style="max-width:60ch;margin:0 0 clamp(24px,4vw,38px);font-size:16px">Connect to see your weight and cast a vote. These proposals run against the testnet deployment — mainnet has no committed shares yet, so nothing here is binding.</p>
+
+    <div style="background:var(--color-bg);border-radius:28px;padding:clamp(20px,3vw,28px);display:flex;flex-wrap:wrap;gap:20px;align-items:center;justify-content:space-between;margin-bottom:clamp(16px,2.5vw,24px)">
+      <sc-if value="{{ connected }}" hint-placeholder-val="{{ false }}">
+        <div style="display:flex;flex-wrap:wrap;gap:clamp(20px,4vw,44px);align-items:center">
+          <div style="display:flex;align-items:center;gap:12px">
+            <span style="width:40px;height:40px;border-radius:50%;background:var(--color-accent-300);display:grid;place-items:center;font-family:var(--font-heading);font-size:15px;color:var(--color-accent-900)">SP</span>
+            <div>
+              <div style="font-family:ui-monospace,monospace;font-size:13.5px">SP2J8XK…9K4T</div>
+              <div class="text-muted" style="font-size:12px">Leather · testnet</div>
+            </div>
+          </div>
+          <div>
+            <div class="text-muted" style="font-size:11px;letter-spacing:.09em;text-transform:uppercase">Committed sats</div>
+            <div style="font-family:var(--font-heading);font-size:22px">{{ memberSatsLabel }}</div>
+          </div>
+          <div>
+            <div class="text-muted" style="font-size:11px;letter-spacing:.09em;text-transform:uppercase">Your weight</div>
+            <div style="font-family:var(--font-heading);font-size:22px;color:var(--color-accent-700)">{{ memberWeight }}</div>
+          </div>
+          <div>
+            <div class="text-muted" style="font-size:11px;letter-spacing:.09em;text-transform:uppercase">Share of the hive</div>
+            <div style="font-family:var(--font-heading);font-size:22px">{{ memberShare }}</div>
+          </div>
+        </div>
+        <button class="btn btn-secondary" sc-camel-on-click="{{ disconnect }}" style="font-size:13px">Disconnect</button>
+      </sc-if>
+      <sc-if value="{{ disconnected }}" hint-placeholder-val="{{ true }}">
+        <div>
+          <div style="font-family:var(--font-heading);font-size:20px">No wallet connected</div>
+          <p class="text-muted" style="margin:4px 0 0;font-size:14px;max-width:46ch">Proposals and tallies read straight from the node. Only casting a vote needs a wallet.</p>
+        </div>
+        <button class="btn btn-primary" sc-camel-on-click="{{ openWallet }}" style="font-size:14px;padding:11px 22px">Connect wallet</button>
+      </sc-if>
+    </div>
+
+    <sc-if value="{{ noSelection }}" hint-placeholder-val="{{ true }}">
+      <div style="display:flex;flex-direction:column;gap:12px">
+        <sc-for list="{{ proposals }}" as="p" hint-placeholder-count="4">
+          <div style="background:var(--color-bg);border-radius:28px;padding:clamp(20px,3vw,28px);display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:clamp(16px,3vw,32px);align-items:center">
+            <div>
+              <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:10px">
+                <span style="font-family:var(--font-heading);font-size:13px;color:var(--color-accent)">#{{ p.id }}</span>
+                <span style="font-size:11.5px;letter-spacing:.03em;padding:4px 12px;border-radius:999px;background:{{ p.tone.bg }};color:{{ p.tone.fg }}">{{ p.state }}</span>
+                <code style="font-family:ui-monospace,monospace;font-size:11.5px;opacity:.6">{{ p.kind }}</code>
+              </div>
+              <h4 style="margin:0 0 6px;font-size:clamp(19px,2.2vw,24px);line-height:1.2">{{ p.title }}</h4>
+              <p class="text-muted" style="margin:0;font-size:14px;line-height:1.55;max-width:54ch">{{ p.blurb }}</p>
+            </div>
+            <div style="display:flex;flex-direction:column;gap:12px">
+              <div>
+                <div style="display:flex;justify-content:space-between;font-size:12.5px;margin-bottom:6px"><span style="color:var(--color-accent-2-700)">For {{ p.yesLabel }}</span><span class="text-muted">Against {{ p.noLabel }}</span></div>
+                <div style="height:11px;border-radius:999px;background:var(--color-neutral-300);overflow:hidden;display:flex">
+                  <div style="height:100%;background:var(--color-accent-2-600);width:{{ p.yesW }}"></div>
+                  <div style="height:100%;background:var(--color-accent-400);width:{{ p.noW }}"></div>
+                </div>
+              </div>
+              <div style="display:flex;flex-wrap:wrap;gap:6px">
+                <sc-for list="{{ p.chips }}" as="c" hint-placeholder-count="3">
+                  <span style="font-size:11.5px;padding:4px 11px;border-radius:999px;background:{{ c.bg }};color:{{ c.fg }}">{{ c.text }}</span>
+                </sc-for>
+              </div>
+              <div style="display:flex;gap:8px;flex-wrap:wrap">
+                <button class="btn btn-secondary" sc-camel-on-click="{{ p.open }}" style="font-size:13px">Gate-by-gate</button>
+                <sc-if value="{{ p.canVote }}" hint-placeholder-val="{{ true }}">
+                  <button class="btn btn-primary" sc-camel-on-click="{{ p.voteYes }}" style="font-size:13px">Vote for</button>
+                  <button class="btn btn-secondary" sc-camel-on-click="{{ p.voteNo }}" style="font-size:13px">Against</button>
+                </sc-if>
+                <sc-if value="{{ p.showVoted }}" hint-placeholder-val="{{ false }}">
+                  <span style="display:inline-flex;align-items:center;gap:7px;font-size:13px;color:var(--color-accent-2-700);font-family:var(--font-heading)">✓ You voted {{ p.voted }} · {{ memberWeight }}</span>
+                </sc-if>
+              </div>
+            </div>
+          </div>
+        </sc-for>
+      </div>
+    </sc-if>
+
+    <sc-if value="{{ hasSelection }}" hint-placeholder-val="{{ false }}">
+      <div style="background:var(--color-bg);border-radius:28px;padding:clamp(22px,3.5vw,36px)">
+        <button class="btn btn-ghost" sc-camel-on-click="{{ closeDetail }}" style="font-size:13px;margin-bottom:14px">← All proposals</button>
+        <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:12px">
+          <span style="font-family:var(--font-heading);font-size:14px;color:var(--color-accent)">#{{ sel.id }}</span>
+          <span style="font-size:12px;padding:5px 13px;border-radius:999px;background:{{ sel.tone.bg }};color:{{ sel.tone.fg }}">{{ sel.state }}</span>
+          <code style="font-family:ui-monospace,monospace;font-size:12px;opacity:.6">{{ sel.kind }}</code>
+        </div>
+        <h3 style="margin:0 0 10px;font-size:clamp(23px,3.2vw,34px);max-width:24ch">{{ sel.title }}</h3>
+        <p style="margin:0 0 clamp(22px,3vw,32px);font-size:15.5px;line-height:1.6;max-width:64ch;opacity:.85">{{ sel.detail }}</p>
+
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:clamp(18px,3vw,34px);align-items:start">
+          <div>
+            <h5 style="margin:0 0 12px;font-size:12px;letter-spacing:.09em;text-transform:uppercase;color:var(--color-accent);font-family:var(--font-body);font-weight:700">Tally</h5>
+            <div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:7px"><span style="color:var(--color-accent-2-700)">For {{ sel.yesLabel }}</span><span class="text-muted">Against {{ sel.noLabel }}</span></div>
+            <div style="height:14px;border-radius:999px;background:var(--color-neutral-300);overflow:hidden;display:flex;margin-bottom:16px">
+              <div style="height:100%;background:var(--color-accent-2-600);width:{{ sel.yesW }}"></div>
+              <div style="height:100%;background:var(--color-accent-400);width:{{ sel.noW }}"></div>
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+              <div style="background:var(--color-surface);border-radius:20px;padding:14px 16px">
+                <div class="text-muted" style="font-size:11px;letter-spacing:.08em;text-transform:uppercase">Turnout</div>
+                <div style="font-family:var(--font-heading);font-size:20px">{{ sel.turnout }}</div>
+              </div>
+              <div style="background:var(--color-surface);border-radius:20px;padding:14px 16px">
+                <div class="text-muted" style="font-size:11px;letter-spacing:.08em;text-transform:uppercase">Approval</div>
+                <div style="font-family:var(--font-heading);font-size:20px">{{ sel.approval }}</div>
+              </div>
+            </div>
+            <sc-if value="{{ sel.canVote }}" hint-placeholder-val="{{ true }}">
+              <div style="display:flex;gap:8px;margin-top:16px;flex-wrap:wrap">
+                <button class="btn btn-primary" sc-camel-on-click="{{ sel.voteYes }}" style="font-size:14px;padding:11px 22px">Vote for · {{ memberWeight }}</button>
+                <button class="btn btn-secondary" sc-camel-on-click="{{ sel.voteNo }}" style="font-size:14px;padding:11px 22px">Vote against</button>
+              </div>
+            </sc-if>
+            <sc-if value="{{ sel.showVoted }}" hint-placeholder-val="{{ false }}">
+              <div style="margin-top:16px;background:var(--color-accent-2-200);color:var(--color-accent-2-900);border-radius:20px;padding:13px 18px;font-size:14px">Your {{ memberWeight }} is counted <strong style="font-family:var(--font-heading);font-weight:400">{{ sel.voted }}</strong>. A vote is cast once, at the weight held when it was cast.</div>
+            </sc-if>
+            <sc-if value="{{ sel.needsWallet }}" hint-placeholder-val="{{ false }}">
+              <button class="btn btn-primary" sc-camel-on-click="{{ openWallet }}" style="font-size:14px;padding:11px 22px;margin-top:16px">Connect to vote</button>
+            </sc-if>
+          </div>
+          <div>
+            <h5 style="margin:0 0 12px;font-size:12px;letter-spacing:.09em;text-transform:uppercase;color:var(--color-accent);font-family:var(--font-body);font-weight:700">The six gates</h5>
+            <div style="display:flex;flex-direction:column;gap:8px">
+              <sc-for list="{{ sel.gateRows }}" as="g" hint-placeholder-count="6">
+                <div style="display:flex;gap:12px;align-items:center;background:var(--color-surface);border-radius:20px;padding:12px 16px">
+                  <span style="flex:none;width:22px;height:22px;border-radius:50%;background:{{ g.dot }};display:grid;place-items:center;color:var(--color-bg);font-size:12px">{{ g.icon }}</span>
+                  <span style="font-size:14px;flex:1">{{ g.label }}</span>
+                  <span style="font-size:13px;font-family:var(--font-heading);color:{{ g.fg }}">{{ g.value }}</span>
+                </div>
+              </sc-for>
+            </div>
+            <p class="text-muted" style="margin:14px 0 0;font-size:13px;line-height:1.55">Execution is permissionless — the mandate is the vote, not the executor. Anyone can land a proposal that has cleared all six.</p>
+          </div>
+        </div>
+      </div>
+    </sc-if>
+  </div>
+</section>
+
+<section id="trust" style="max-width:1240px;margin:0 auto;padding:clamp(44px,7vw,96px) clamp(16px,4vw,40px)">
+  <h2 style="font-size:clamp(28px,4.2vw,46px);margin:0 0 10px;max-width:22ch">What the operator cannot do</h2>
+  <p class="text-muted" style="max-width:58ch;margin:0 0 clamp(26px,4vw,42px);font-size:16px">The operator picks bonds and signer managers. It never touches a deposit, and it cannot strand the pool by doing nothing.</p>
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px">
+    <sc-for list="{{ trust }}" as="t" hint-placeholder-count="4">
+      <div style="background:var(--color-surface);border-radius:28px;padding:clamp(20px,3vw,28px)">
+        <div style="font-family:var(--font-heading);font-size:18px;margin-bottom:6px">{{ t.title }}</div>
+        <p style="margin:0;font-size:14px;line-height:1.6;opacity:.8">{{ t.body }}</p>
+      </div>
+    </sc-for>
+  </div>
+
+  <h3 style="font-size:clamp(21px,2.8vw,30px);margin:clamp(40px,5vw,64px) 0 18px">Questions worth asking</h3>
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:clamp(12px,2vw,20px)">
+    <sc-for list="{{ faq }}" as="f" hint-placeholder-count="6">
+      <div style="border-top:1px solid var(--color-divider);padding:18px 0">
+        <div style="font-family:var(--font-heading);font-size:18px;margin-bottom:6px;line-height:1.25">{{ f.q }}</div>
+        <p style="margin:0;font-size:14.5px;line-height:1.6;opacity:.82">{{ f.a }}</p>
+      </div>
+    </sc-for>
+  </div>
+</section>
+
+<footer style="background:var(--color-neutral-900);color:var(--color-neutral-200);position:relative;overflow:hidden">
+  <svg width="100%" height="100%" aria-hidden="true" style="position:absolute;inset:0;opacity:.16">
+    <defs>
+      <pattern id="combFoot" width="51.96" height="90" sc-camel-pattern-units="userSpaceOnUse">
+        <g style="fill:none;stroke:var(--color-accent-400);stroke-width:1.2">
+          <path d="M25.98 -30 L51.96 -15 L51.96 15 L25.98 30 L0 15 L0 -15 Z"></path>
+          <path d="M0 15 L25.98 30 L25.98 60 L0 75 L-25.98 60 L-25.98 30 Z"></path>
+          <path d="M51.96 15 L77.94 30 L77.94 60 L51.96 75 L25.98 60 L25.98 30 Z"></path>
+          <path d="M25.98 60 L51.96 75 L51.96 105 L25.98 120 L0 105 L0 75 Z"></path>
+        </g>
+      </pattern>
+    </defs>
+    <rect width="100%" height="100%" fill="url(#combFoot)"></rect>
+  </svg>
+  <div style="position:relative;max-width:1240px;margin:0 auto;padding:clamp(40px,6vw,72px) clamp(16px,4vw,40px) clamp(28px,4vw,44px);display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:clamp(24px,4vw,48px)">
+    <div>
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px">
+        <svg width="30" height="30" sc-camel-view-box="0 0 64 64" style="display:block">
+          <path d="M32 3 L59 18 L59 46 L32 61 L5 46 L5 18 Z" style="fill:none;stroke:var(--color-neutral-200);stroke-width:3.4;stroke-linejoin:round"></path>
+          <ellipse cx="32" cy="38" rx="9.5" ry="13" style="fill:var(--color-accent-400)"></ellipse>
+          <path d="M23.6 33 h16.8 M24.4 42 h15.2" style="stroke:var(--color-neutral-900);stroke-width:3.2;stroke-linecap:round"></path>
+          <circle cx="32" cy="24" r="5.4" style="fill:var(--color-neutral-200)"></circle>
+        </svg>
+        <span style="font-family:var(--font-heading);font-size:20px">Esbee DAO</span>
+      </div>
+      <p style="margin:0;font-size:13.5px;line-height:1.6;opacity:.6;max-width:34ch">A pooled staker for pox-5 Bitcoin Staking Bonds, with the operator seat held by its own members.</p>
+    </div>
+    <div>
+      <div style="font-size:11px;letter-spacing:.1em;text-transform:uppercase;opacity:.5;margin-bottom:12px">The pool</div>
+      <div style="display:flex;flex-direction:column;gap:8px;font-size:14px">
+        <a href="#pool" style="color:var(--color-neutral-200);text-decoration:none" style-hover="color:var(--color-accent-400)">How it works</a>
+        <a href="#govern" style="color:var(--color-neutral-200);text-decoration:none" style-hover="color:var(--color-accent-400)">Governance</a>
+        <a href="#vote" style="color:var(--color-neutral-200);text-decoration:none" style-hover="color:var(--color-accent-400)">Vote</a>
+        <a href="#trust" style="color:var(--color-neutral-200);text-decoration:none" style-hover="color:var(--color-accent-400)">Trust model</a>
+      </div>
+    </div>
+    <div>
+      <div style="font-size:11px;letter-spacing:.1em;text-transform:uppercase;opacity:.5;margin-bottom:12px">Brand</div>
+      <div style="display:flex;flex-direction:column;gap:8px;font-size:14px">
+        <a href="media-kit.html" style="color:var(--color-neutral-200);text-decoration:none" style-hover="color:var(--color-accent-400)">Media kit</a>
+        <a href="media-kit.html#og" style="color:var(--color-neutral-200);text-decoration:none" style-hover="color:var(--color-accent-400)">Social &amp; OG assets</a>
+        <a href="media-kit.html#voice" style="color:var(--color-neutral-200);text-decoration:none" style-hover="color:var(--color-accent-400)">Voice &amp; naming</a>
+      </div>
+    </div>
+    <div>
+      <div style="font-size:11px;letter-spacing:.1em;text-transform:uppercase;opacity:.5;margin-bottom:12px">Status</div>
+      <p style="margin:0;font-size:13.5px;line-height:1.6;opacity:.6">Pre-launch. Contracts unaudited and testnet-only. Nothing here is an offer, and the pool holds no funds.</p>
+    </div>
+  </div>
+  <div style="position:relative;max-width:1240px;margin:0 auto;padding:16px clamp(16px,4vw,40px) clamp(24px,4vw,40px);border-top:1px solid color-mix(in srgb, var(--color-neutral-200) 14%, transparent);font-size:12.5px;opacity:.5">A hive that holds the bond.</div>
+</footer>
+
+<sc-if value="{{ walletOpen }}" hint-placeholder-val="{{ false }}">
+  <div class="dialog-backdrop" style="z-index:60">
+    <div class="dialog" style="gap:14px">
+      <div class="dialog-title">Connect a wallet</div>
+      <div class="dialog-body" style="margin-bottom:2px">Reads work without one. A wallet is only needed to cast a vote — and only committed shares carry weight.</div>
+      <div style="display:flex;flex-direction:column;gap:8px">
+        <button sc-camel-on-click="{{ connect }}" style="display:flex;align-items:center;gap:12px;background:var(--color-bg);border:1px solid var(--color-divider);border-radius:999px;padding:12px 18px;cursor:pointer;font:inherit;font-size:14px;text-align:left" style-hover="border-color:var(--color-accent)">
+          <span style="width:28px;height:28px;border-radius:8px;background:var(--color-accent-300);display:grid;place-items:center;font-family:var(--font-heading);font-size:13px">L</span>Leather<span style="margin-left:auto;font-size:12px;opacity:.5">detected</span>
+        </button>
+        <button sc-camel-on-click="{{ connect }}" style="display:flex;align-items:center;gap:12px;background:var(--color-bg);border:1px solid var(--color-divider);border-radius:999px;padding:12px 18px;cursor:pointer;font:inherit;font-size:14px;text-align:left" style-hover="border-color:var(--color-accent)">
+          <span style="width:28px;height:28px;border-radius:8px;background:var(--color-accent-2-300);display:grid;place-items:center;font-family:var(--font-heading);font-size:13px">X</span>Xverse
+        </button>
+        <button sc-camel-on-click="{{ connect }}" style="display:flex;align-items:center;gap:12px;background:var(--color-bg);border:1px solid var(--color-divider);border-radius:999px;padding:12px 18px;cursor:pointer;font:inherit;font-size:14px;text-align:left" style-hover="border-color:var(--color-accent)">
+          <span style="width:28px;height:28px;border-radius:8px;background:var(--color-neutral-300);display:grid;place-items:center;font-family:var(--font-heading);font-size:13px">A</span>Asigna
+        </button>
+      </div>
+      <div class="dialog-actions"><button class="btn btn-ghost" sc-camel-on-click="{{ closeWallet }}" style="font-size:13px">Cancel</button></div>
+    </div>
+  </div>
+</sc-if>
+
+</div>
+</template>
+
+<script type="module" src="dist/app.js"></script>
+</body>
+</html>
