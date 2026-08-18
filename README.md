@@ -24,6 +24,7 @@ else on the page is a plain static file.
 | `src/chain.ts` | stacks.js: wallet, read-only calls, and every call the DAO has |
 | `src/app.ts` | state, the view model, and the fallback fixtures |
 | `media-kit.html` | the name, mark, palette and voice |
+| `esbee.svg` | the mark — the same artwork the header draws inline, and the favicon |
 | `styles.css`, `fonts/` | the design system's tokens and its two typefaces |
 
 ### The wallet SDK is not in the initial load
@@ -52,17 +53,40 @@ Two canvas-only affordances do get translated, because a browser would ignore
 them: `style-hover` becomes a real `:hover` rule, and `hint-placeholder-*` is
 dropped.
 
-## Pointing it at a deployment
+## Networks
 
-The contracts have no fixed address yet, so the page takes one. Either fill in
-`DEPLOYMENTS` in `src/config.ts`, or pass it per visit:
+**Testnet is live**, at `STFCGF789WX1B737VQYAQ6BG3QYVMJGPDJN4TJFM` —
+`vault-1` for the pool, `esbee-dao` for the seat. The header carries a
+testnet/mainnet switch; the choice is remembered, and switching reloads rather
+than trying to invalidate every address, cached read and wallet session in
+place.
 
-    ?network=testnet&deployer=ST3YOUR…DEPLOYER
-    ?network=testnet&deployer=ST3YOUR…DEPLOYER&pool=vault-1
+**Mainnet needs one line.** Fill in `deployer` for `mainnet` in
+`src/config.ts` and the switch starts working — a network with no deployer
+falls back to the rehearsal rather than erroring, which is what the switch shows
+today.
+
+    ?network=mainnet                     // override the remembered choice
+    ?network=testnet&deployer=ST3OTHER…  // point at a throwaway deployment
 
 `pool` defaults to `vault-1` on testnet and `bond-staker` on mainnet — the pool
 takes whatever name its pox-5 allowlist grant spells, so it is configuration
 rather than a constant.
+
+## The bond countdown
+
+Under the stats, the page answers *how long do I wait* from the contract's own
+heights — `get-bound-bond` and `get-live-epoch`, against the chain tip. It has
+three states because the contract does:
+
+| | |
+| --- | --- |
+| nothing bound | deposits are closed and there is nothing to wait for. This is testnet today |
+| bound, not staked | when the notice ends, when the stake window opens, when deposits close and the bond starts, when the term ends |
+| live | what was staked, and when the principal unlocks |
+
+Every row is a burn height read from chain plus a duration derived from it at
+~10 minutes a block. Nothing is inferred from a calendar.
 
 **With a deployer set**, every number on the page is read from chain
 (`get-proposal-count`, `get-proposal`, `get-status`, `get-vote`, `get-weight`,
@@ -103,6 +127,8 @@ field renamed in Clarity shows up here as a type error rather than as
 - no dead local links
 - `chain.ts` names every public and read-only function the contract has
 - the entry chunk stays small and free of the wallet SDK
+- `esbee.svg` and the header draw the same cell, so the mark cannot drift
+- the name is never spelled as initials
 
 `pnpm run typecheck` is `tsc --noEmit` under `strict`. The port caught one real
 bug on its own: `render.ts` used the global `Node.ELEMENT_NODE`, which exists in

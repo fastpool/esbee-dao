@@ -528,13 +528,18 @@ function viewModel(): Scope {
   const sel = proposals.find((p) => p.id === state.sel) ?? null;
 
   const totals = state.pool?.totals ?? null;
-  const bonded = totals ? num(totals["bonded-sats"]) : 0;
+  // The caption under this one reads "queued, fully withdrawable", so it is the
+  // queue -- not the committed position, which is a different number.
+  const queued = totals ? num(totals["queued-sats"]) : 0;
 
   return {
-    statSats: totals ? `${(bonded / 1e8).toFixed(2)} BTC` : "0",
-    statMembers: state.pool ? String(num(state.pool.config?.["epoch-count"] ?? 0)) : "0",
+    statSats: totals ? `${(queued / 1e8).toFixed(4)} BTC` : "0",
+    // No member count exists on chain: the ledger keys members by principal and
+    // never counts them, so an honest dash beats a number that means something
+    // else. Counting them is an indexer's job, over the contract's prints.
+    statMembers: state.pool ? "—" : "0",
     statEpoch: live ? String(live.epoch) : "—",
-    statHoney: totals ? `${(num(totals["unclaimed-rewards"]) / 1e8).toFixed(2)} BTC` : "0",
+    statHoney: totals ? `${(num(totals["unclaimed-rewards"]) / 1e8).toFixed(4)} BTC` : "0",
 
     connected: state.connected,
     disconnected: !state.connected,
