@@ -4,15 +4,19 @@
   <desc id="desc">A honeycomb cell holding a bee.</desc>
 
   <!--
-    The mark, and the only one: this is the same artwork the site's header
-    draws inline, kept here as a file for the favicon and anywhere an <img> is
+    The mark, and the only one: the same artwork the site's header draws
+    inline, kept here as a file for the favicon and anywhere an image is
     wanted. `smoke-test.ts` compares the cell path against the header's so the
     two cannot drift apart.
 
-    Colours are literal rather than `var(--color-*)`: a favicon is fetched as a
-    standalone document, where the page's custom properties do not exist. They
-    are the values `styles.css` defines, and they invert with the viewer's theme
-    so the mark sits on a light or dark ground without a plate behind it.
+    Colours are literal rather than CSS custom properties: a favicon is fetched
+    as a standalone document, where the page's variables do not exist. They are
+    the values `styles.css` defines, and they invert with the viewer's theme so
+    the mark sits on a light or dark ground without a plate behind it.
+
+    Mind the comments here. This file is parsed as XML, not HTML, so a double
+    hyphen inside a comment is a parse error and the whole mark fails to
+    render: an invalid favicon simply does not appear.
   -->
   <style>
     .cell   { fill: #ebddc5; stroke: #201e1d; stroke-width: 3.4; stroke-linejoin: round; }

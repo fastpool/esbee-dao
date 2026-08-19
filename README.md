@@ -9,6 +9,8 @@ not a brochure.
     pnpm install
     pnpm run dev          # build, then http://localhost:8080
     pnpm run check        # typecheck, build, test
+    pnpm run shot         # render both pages to shots/*.png
+    pnpm run icons        # rasterise esbee.svg to icons/*.png
 
 TypeScript, bundled with esbuild. `pnpm run build` writes `dist/`; everything
 else on the page is a plain static file.
@@ -98,6 +100,37 @@ explains itself, and says so in the FAQ. The fixtures are not invented
 governance: every proposal shown is one of the contract's five kinds, and the
 copy describes what that call actually does.
 
+## Joining the pool
+
+The "Two ways in" cards are working forms, not illustrations.
+
+**With sBTC** — an amount in sats, the STX leg quoted live from the bound bond
+(`get-required-ustx`, debounced as you type), and one `deposit` call that moves
+both. The button only appears while a bond is bound and its start height is
+still ahead; otherwise the card says why not.
+
+**With L1 bitcoin** — the contract's five steps, with buttons for the three that
+are Stacks transactions: commit, reveal, confirm. The treasury address is read
+from `get-deposit-address` rather than written down. The salt is generated in
+the browser and kept in `localStorage` against the txid, because it has to
+survive between the commit and the reveal and stay secret until it.
+
+**Your position**, once a wallet is connected: queued, committed, released and
+unclaimed honey, with Withdraw / Claim buttons that appear only when there is
+something to act on.
+
+### Post-conditions
+
+Calls where the member *sends* carry explicit post-conditions in deny mode —
+`deposit` names exactly the sBTC and the STX it moves, so the wallet refuses
+anything else. Calls that only move assets the other way (`withdraw`, the two
+claims) have nothing for the member to over-send and use allow mode rather than
+enumerating the contract's own outgoing transfers.
+
+The inputs are uncontrolled and read when a button is pressed: a re-render
+replaces the field being typed into, and the caret would go with it. The live
+quote writes straight into the DOM for the same reason.
+
 ### What the page can send
 
 | | |
@@ -133,6 +166,32 @@ field renamed in Clarity shows up here as a type error rather than as
 `pnpm run typecheck` is `tsc --noEmit` under `strict`. The port caught one real
 bug on its own: `render.ts` used the global `Node.ELEMENT_NODE`, which exists in
 a browser but not in the DOM the tests render through.
+
+## Seeing it, and rasterising it
+
+Both are the same tool: headless Chrome, from Playwright's cache
+(`pnpm exec playwright install chromium` if it is not there — it needs no
+system packages beyond that download). Set `CHROME=` to point at another.
+
+`pnpm run shot` serves the site and screenshots it. Worth doing after any change
+to the mark or the renderer: the test suite proves the markup resolves, but it
+cannot see. Three bugs got through it and were obvious the moment something
+drew them —
+
+- a missing `viewBox`, so every mark rendered at user-space size and clipped;
+- `patternUnits` dropped, so the honeycomb backgrounds did not tile;
+- a `--` inside an XML comment in `esbee.svg`, which is a parse error rather
+  than a comment, so the favicon did not render **at all**.
+
+The last one is why `smoke-test.ts` now checks the mark's comments: an invalid
+favicon fails silently and looks like a caching problem.
+
+`pnpm run icons` rasterises the mark to `icons/icon-{32,180,512}.png`, linked as
+the fallback for browsers that will not take an SVG favicon. They are the
+light-theme mark — a PNG cannot follow the reader's theme, which is what the SVG
+is for. A browser is the right rasteriser here precisely because it agrees with
+what a browser will draw: librsvg and resvg each support a different subset of
+the CSS this mark uses.
 
 ## Provenance
 

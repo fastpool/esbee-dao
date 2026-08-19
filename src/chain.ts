@@ -8,10 +8,12 @@
 // here pulls in stacks.js, and most visitors never connect a wallet.
 import {
   Cl,
+  Pc,
   cvToHex,
   cvToValue,
   hexToCV,
   type ClarityValue,
+  type PostCondition,
 } from "@stacks/transactions";
 import {
   connect as walletConnect,
@@ -34,6 +36,7 @@ export interface ContractId {
 
 export const dao = (): ContractId => ({ address: config.deployer, name: config.dao });
 export const pool = (): ContractId => ({ address: config.deployer, name: config.pool });
+export const bridge = (): ContractId => ({ address: config.deployer, name: "bond-bridge" });
 
 /// --- wallet -----------------------------------------------------------------
 
@@ -104,6 +107,7 @@ export async function call(
   contract: ContractId,
   functionName: string,
   functionArgs: ClarityValue[] = [],
+  conditions?: PostCondition[],
 ): Promise<string | null> {
   if (!account) throw new Error("Connect a wallet first");
   const result = (await request("stx_callContract", {
@@ -111,8 +115,129 @@ export async function call(
     functionName,
     functionArgs,
     network: config.network,
+    // Deny is the default and the right one where the member is *sending*: the
+    // wallet then refuses anything the conditions below do not name. Calls that
+    // only move assets the other way -- a claim, a withdrawal -- have nothing
+    // for the member to over-send, and pass `allow` rather than enumerate the
+    // contract's own outgoing transfers.
+    ...(conditions
+      ? { postConditions: conditions, postConditionMode: "deny" as const }
+      : { postConditionMode: "allow" as const }),
   })) as { txid?: string; txId?: string };
   return result?.txid ?? result?.txId ?? null;
+}
+
+/** Exactly what a deposit of `sats` moves out of the member's wallet. */
+function depositConditions(sats: number, ustx: number): PostCondition[] {
+  const me = account!;
+  const [sbtcAddress, sbtcName] = net().sbtc.split(".") as [string, string];
+  const conditions: PostCondition[] = [
+    Pc.principal(me)
+      .willSendEq(sats)
+      .ft(`${sbtcAddress}.${sbtcName}` as `${string}.${string}`, "sbtc-token"),
+  ];
+  if (ustx > 0) conditions.push(Pc.principal(me).willSendEq(ustx).ustx());
+  return conditions;
+}
+
+/// --- joining the pool ------------------------------------------------------------
+
+export const poolCalls = {
+  /** Both legs in one call: the sBTC and the STX the bound bond prices it at. */
+  deposit: (sats: number, ustx: number) =>
+    call(pool(), "deposit", [Cl.uint(sats)], depositConditions(sats, ustx)),
+  /** Top up the STX leg alone, when a roll has repriced the position. */
+  depositStx: (ustx: number) =>
+    call(pool(), "deposit-stx", [Cl.uint(ustx)], [
+      Pc.principal(account!).willSendEq(ustx).ustx(),
+    ]),
+  /** Take back everything still queued. Committed shares are not touched. */
+  withdraw: () => call(pool(), "withdraw"),
+  requestExit: () => call(pool(), "request-exit"),
+  cancelExit: () => call(pool(), "cancel-exit"),
+  claimRewards: (member: string) =>
+    call(pool(), "claim-rewards", [Cl.principal(member)]),
+  claimPrincipal: (member: string) =>
+    call(pool(), "claim-principal", [Cl.principal(member)]),
+};
+
+export const bridgeCalls = {
+  commit: (digest: string, sats: number, ustx: number) =>
+    call(
+      bridge(),
+      "commit-btc-deposit",
+      [Cl.bufferFromHex(strip(digest)), Cl.uint(sats)],
+      // The commit takes the STX leg; the sats arrive later, on bitcoin.
+      ustx > 0 ? [Pc.principal(account!).willSendEq(ustx).ustx()] : undefined,
+    ),
+  reveal: (txid: string, voutIndex: number, salt: string) =>
+    call(bridge(), "reveal-btc-deposit", [
+      Cl.bufferFromHex(strip(txid)),
+      Cl.uint(voutIndex),
+      Cl.bufferFromHex(strip(salt)),
+    ]),
+  confirm: (txid: string, voutIndex: number) =>
+    call(bridge(), "confirm-btc-deposit", [
+      Cl.bufferFromHex(strip(txid)),
+      Cl.uint(voutIndex),
+    ]),
+  cancelCommitment: (member: string, digest: string) =>
+    call(bridge(), "cancel-btc-commitment", [
+      Cl.principal(member),
+      Cl.bufferFromHex(strip(digest)),
+    ]),
+  cancelDeposit: (txid: string, voutIndex: number) =>
+    call(bridge(), "cancel-btc-deposit", [
+      Cl.bufferFromHex(strip(txid)),
+      Cl.uint(voutIndex),
+    ]),
+};
+
+/** The STX leg the bound bond prices `sats` at. */
+export const quote = (sats: number): Promise<Plain> =>
+  readOnly(pool(), "get-required-ustx", [Cl.uint(sats)]);
+
+/** Where L1 bitcoin has to be sent. Never the ledger's own address. */
+export const depositAddress = (): Promise<Plain> =>
+  readOnly(bridge(), "get-deposit-address");
+
+/** What to commit to, computed by the contract so a client cannot disagree. */
+export const depositDigest = (
+  txid: string,
+  voutIndex: number,
+  salt: string,
+): Promise<Plain> =>
+  readOnly(bridge(), "get-deposit-digest", [
+    Cl.bufferFromHex(strip(txid)),
+    Cl.uint(voutIndex),
+    Cl.bufferFromHex(strip(salt)),
+  ]);
+
+export interface MemberPosition {
+  settled: Record<string, Plain> | null;
+  principal: Record<string, Plain> | null;
+  rewards: number;
+  sbtc: number;
+}
+
+/** Everything the join panel says about the connected member. */
+export async function loadMember(): Promise<MemberPosition | null> {
+  if (!configured() || !account) return null;
+  const [sbtcAddress, sbtcName] = net().sbtc.split(".") as [string, string];
+  const [settled, principal, rewards, sbtc] = await Promise.all([
+    readOnly(pool(), "get-settled-member", [Cl.principal(account)]),
+    readOnly(pool(), "get-claimable-principal", [Cl.principal(account)]),
+    readOnly(pool(), "get-claimable-rewards", [Cl.principal(account)]),
+    readOnly({ address: sbtcAddress, name: sbtcName }, "get-balance", [
+      Cl.principal(account),
+    ]).catch(() => 0),
+  ]);
+  return {
+    settled: settled as Record<string, Plain> | null,
+    principal: principal as Record<string, Plain> | null,
+    rewards: Number(rewards ?? 0),
+    sbtc: Number(sbtc ?? 0),
+  };
 }
 
 /// --- the DAO's own calls -------------------------------------------------------

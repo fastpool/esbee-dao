@@ -13,12 +13,26 @@ export type NetworkName = "testnet" | "mainnet" | "devnet";
 export interface NetworkInfo {
   api: string;
   explorer: string;
+  /** sBTC is the same contract name on every network, at a different address. */
+  sbtc: string;
 }
 
 export const NETWORKS: Record<NetworkName, NetworkInfo> = {
-  testnet: { api: "https://api.testnet.hiro.so", explorer: "https://explorer.hiro.so" },
-  mainnet: { api: "https://api.hiro.so", explorer: "https://explorer.hiro.so" },
-  devnet: { api: "http://localhost:3999", explorer: "http://localhost:8000" },
+  testnet: {
+    api: "https://api.testnet.hiro.so",
+    explorer: "https://explorer.hiro.so",
+    sbtc: "SN3VMHXEN64ZZF71JQ5VESXDWTR301XTTXGF4J8F1.sbtc-token",
+  },
+  mainnet: {
+    api: "https://api.hiro.so",
+    explorer: "https://explorer.hiro.so",
+    sbtc: "SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-token",
+  },
+  devnet: {
+    api: "http://localhost:3999",
+    explorer: "http://localhost:8000",
+    sbtc: "SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-token",
+  },
 };
 
 interface Deployment {

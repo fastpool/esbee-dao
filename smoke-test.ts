@@ -8,7 +8,7 @@
 //      mustache in the output.
 //
 //   pnpm test
-import { readFileSync } from "node:fs";
+import { readFileSync, existsSync as built, statSync, readdirSync } from "node:fs";
 import { parseHTML } from "linkedom";
 
 const fail: string[] = [];
@@ -87,6 +87,16 @@ const scope: Record<string, unknown> = {
   gates: [{ n: "1", label: "Voting period", body: "body" }],
   trust: [{ title: "It cannot reach a deposit", body: "body" }],
   faq: [{ q: "Question?", a: "Answer." }],
+  join: {
+    open: true, closed: false, connected: true,
+    closedWhy: "closed because", depositTo: "ST1.bond-treasury",
+    quote: "10,000,000 sats needs 5.00 STX", balance: "1.0000 BTC",
+    queuedSats: "0.1000 BTC", queuedUstx: "5.00 STX", committed: "0.0000 BTC",
+    releasedSats: "0.0000 BTC", rewards: "0.0000 BTC",
+    hasQueued: true, hasReleased: true, hasRewards: true,
+    deposit: () => {}, withdraw: () => {}, commit: () => {}, reveal: () => {},
+    confirm: () => {}, claimPrincipal: () => {}, claimRewards: () => {},
+  },
   bond: {
     show: true,
     kicker: "Next bond",
@@ -132,6 +142,15 @@ for (const phrase of [
 }
 
 check(mount!.querySelectorAll("svg").length > 0, "svg icons render in their namespace");
+
+// The join controls the member actually presses.
+for (const id of ["join-sats", "join-quote", "btc-txid", "btc-vout"]) {
+  check(Boolean(mount!.querySelector(`#${id}`)), `the join form has #${id}`);
+}
+check(
+  mount!.querySelectorAll("button").length >= 8,
+  "deposit, withdraw, the three bridge steps and the claims are all buttons",
+);
 // Without this the marks keep their user-space size and get clipped -- a broken
 // logo that looks like a styling problem rather than a missing attribute.
 check(!out.includes("sc-camel-"), "no sc-camel-* attributes survive into the output");
@@ -190,6 +209,19 @@ for (const banned of ["S · B", "S-B", "S + B", "gives S and B", "an S and a B",
 const markFile = readFileSync("esbee.svg", "utf8");
 const CELL = 'd="M32 3 L59 18 L59 46 L32 61 L5 46 L5 18 Z"';
 check(markFile.includes(CELL), "esbee.svg draws the header's cell");
+
+// The mark is parsed as XML, not HTML: a stray `--` inside a comment is a parse
+// error and the favicon silently does not render at all. Cheap to assert, and
+// invisible without a browser.
+const commentBodies = [...markFile.matchAll(/<!--([\s\S]*?)-->/g)].map((m) => m[1]!);
+check(
+  commentBodies.every((body) => !body.includes("--")),
+  "no double hyphen inside the mark's XML comments",
+);
+check(
+  (markFile.match(/<!--/g) ?? []).length === (markFile.match(/-->/g) ?? []).length,
+  "the mark's comments are balanced",
+);
 check(pages[0]!.includes(CELL), "the header draws it inline too");
 // Comments stripped first: the file explains *why* it avoids custom properties,
 // and the explanation names them.
@@ -202,6 +234,9 @@ check(
   pages.every((page) => !page.includes("favicon.svg")),
   "there is one mark file, not a separate favicon",
 );
+for (const icon of ["icons/icon-32.png", "icons/icon-180.png"]) {
+  check(built(icon), `${icon} exists for the browsers that will not take an SVG`);
+}
 
 /// --- 4. the chain layer is wired to the real contract -------------------------
 
@@ -224,7 +259,6 @@ check(chainSource.includes("@stacks/transactions"), "chain.ts uses @stacks/trans
 // The whole point of splitting `chain.ts` out: stacks.js and the wallet SDK are
 // ~1.4 MB, and a reader who never connects should not download them. If someone
 // makes the chain import static again this is the check that notices.
-const { existsSync: built, statSync, readdirSync } = await import("node:fs");
 if (built("dist/app.js")) {
   const eager = new Set<string>();
   const walk = (file: string): number => {

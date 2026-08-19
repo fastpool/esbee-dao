@@ -20,6 +20,7 @@ import {
 } from "./config.js";
 import { num } from "./plain.js";
 import type {
+  MemberPosition,
   Floor,
   FloorEntry,
   PoolState,
@@ -92,6 +93,12 @@ interface State {
   pool: PoolState | null;
   notice: string;
   memberSats: number;
+  member: MemberPosition | null;
+  /** The treasury address L1 bitcoin has to be sent to. */
+  depositTo: string;
+  /** Last quoted STX leg, in uSTX, for whatever is typed in the sats field. */
+  quotedFor: number;
+  quotedUstx: number;
 }
 
 /// --- state ------------------------------------------------------------------
@@ -106,6 +113,10 @@ const state: State = {
   pool: null,
   notice: "",
   memberSats: 10_000_000, // only used to size the rehearsal's weight
+  member: null,
+  depositTo: "",
+  quotedFor: 0,
+  quotedUstx: 0,
 };
 
 function setState(patch: Partial<State> | ((s: State) => Partial<State>)): void {
@@ -453,6 +464,167 @@ function bondPanel(): BondPanel {
   };
 }
 
+/// --- joining --------------------------------------------------------------------
+
+const SALT_KEY = "esbee:salt";
+
+const field = (id: string): string =>
+  (document.getElementById(id) as HTMLInputElement | null)?.value.trim() ?? "";
+
+const satsField = (): number => Math.floor(Number(field("join-sats")) || 0);
+
+/**
+ * The salt has to survive between the commit and the reveal, and stay secret
+ * until it. So it lives in this browser and nowhere else -- lose it before
+ * revealing and the commitment can only be cancelled, not used.
+ */
+function saltFor(txid: string, vout: number): string {
+  const key = `${SALT_KEY}:${txid}:${vout}`;
+  const kept = localStorage.getItem(key);
+  if (kept) return kept;
+  const bytes = crypto.getRandomValues(new Uint8Array(32));
+  const salt = [...bytes].map((b) => b.toString(16).padStart(2, "0")).join("");
+  localStorage.setItem(key, salt);
+  return salt;
+}
+
+const known = (txid: string, vout: number): string | null =>
+  localStorage.getItem(`${SALT_KEY}:${txid}:${vout}`);
+
+async function withWallet(label: string, run: () => Promise<string | null>) {
+  if (!state.connected) return setState({ walletOpen: true });
+  try {
+    setState({ notice: `Confirm ${label} in your wallet…` });
+    const txid = await run();
+    setState({ notice: txid ? `${label} submitted — ${txid}` : `${label} submitted` });
+    if (txid) window.open(explorerTx(txid), "_blank", "noopener");
+    void refresh();
+  } catch (error) {
+    setState({ notice: `${label} failed: ${message(error)}` });
+  }
+}
+
+async function doDeposit(): Promise<void> {
+  const sats = satsField();
+  if (sats <= 0) return setState({ notice: "Enter an amount in sats first." });
+  const api = await chainApi();
+  const ustx = Number(await api.quote(sats));
+  await withWallet("the deposit", () => api.poolCalls.deposit(sats, ustx));
+}
+
+async function doCommit(): Promise<void> {
+  const sats = satsField();
+  const txid = field("btc-txid");
+  const vout = Number(field("btc-vout") || 0);
+  if (sats <= 0 || !txid) {
+    return setState({ notice: "An amount and the txid you are about to broadcast." });
+  }
+  const api = await chainApi();
+  const salt = saltFor(txid, vout);
+  const digest = String(await api.depositDigest(txid, vout, salt));
+  const ustx = Number(await api.quote(sats));
+  await withWallet("the commitment", () => api.bridgeCalls.commit(digest, sats, ustx));
+}
+
+async function doReveal(): Promise<void> {
+  const txid = field("btc-txid");
+  const vout = Number(field("btc-vout") || 0);
+  const salt = known(txid, vout);
+  if (!salt) {
+    return setState({
+      notice: "No salt stored here for that txid — commit again from this browser.",
+    });
+  }
+  const api = await chainApi();
+  await withWallet("the reveal", () => api.bridgeCalls.reveal(txid, vout, salt));
+}
+
+async function doConfirm(): Promise<void> {
+  const txid = field("btc-txid");
+  const vout = Number(field("btc-vout") || 0);
+  if (!txid) return setState({ notice: "Which txid?" });
+  const api = await chainApi();
+  await withWallet("the confirmation", () => api.bridgeCalls.confirm(txid, vout));
+}
+
+const poolAction = (label: string, pick: (api: Awaited<ReturnType<typeof chainApi>>) => Promise<string | null>) =>
+  () => void withWallet(label, async () => pick(await chainApi()));
+
+interface JoinPanel {
+  open: boolean;
+  closed: boolean;
+  connected: boolean;
+  closedWhy: string;
+  depositTo: string;
+  quote: string;
+  balance: string;
+  queuedSats: string;
+  queuedUstx: string;
+  committed: string;
+  releasedSats: string;
+  rewards: string;
+  hasQueued: boolean;
+  hasReleased: boolean;
+  hasRewards: boolean;
+  deposit: () => void;
+  withdraw: () => void;
+  commit: () => void;
+  reveal: () => void;
+  confirm: () => void;
+  claimPrincipal: () => void;
+  claimRewards: () => void;
+}
+
+function joinPanel(): JoinPanel {
+  const bond = state.pool?.bond ?? null;
+  const burn = state.pool?.burn ?? 0;
+  const open = Boolean(bond?.bound) && burn < num(bond?.["start-height"] ?? 0);
+  const m = state.member;
+  const settled = m?.settled ?? null;
+
+  const btc = (sats: number) => `${(sats / 1e8).toFixed(4)} BTC`;
+  const stx = (ustx: number) => `${(ustx / 1e6).toFixed(2)} STX`;
+
+  const queuedSats = settled ? num(settled["queued-sats"]) : 0;
+  const releasedSats = m?.principal ? num(m.principal["released-sats"]) : 0;
+
+  return {
+    open,
+    closed: !open,
+    connected: state.connected,
+    closedWhy: !configured()
+      ? "This page has no deployment configured, so nothing here would be sent."
+      : !bond?.bound
+        ? "Deposits open when the operator binds a bond. Nothing is locked meanwhile."
+        : "This bond has started; the next window opens when the pool binds again.",
+    depositTo: state.depositTo,
+    quote:
+      state.quotedFor > 0
+        ? `${fmt(state.quotedFor)} sats needs ${stx(state.quotedUstx)}`
+        : "enter an amount",
+    balance: m ? btc(m.sbtc) : "—",
+    queuedSats: btc(queuedSats),
+    queuedUstx: settled ? stx(num(settled["queued-ustx"])) : "0.00 STX",
+    committed: settled ? btc(num(settled["bonded-sats"])) : "0.0000 BTC",
+    releasedSats: btc(releasedSats),
+    rewards: btc(m?.rewards ?? 0),
+    hasQueued: queuedSats > 0,
+    hasReleased: releasedSats > 0,
+    hasRewards: (m?.rewards ?? 0) > 0,
+    deposit: () => void doDeposit(),
+    withdraw: poolAction("the withdrawal", (api) => api.poolCalls.withdraw()),
+    commit: () => void doCommit(),
+    reveal: () => void doReveal(),
+    confirm: () => void doConfirm(),
+    claimPrincipal: poolAction("the claim", (api) =>
+      api.poolCalls.claimPrincipal(state.account!),
+    ),
+    claimRewards: poolAction("the claim", (api) =>
+      api.poolCalls.claimRewards(state.account!),
+    ),
+  };
+}
+
 /// --- the view model ---------------------------------------------------------------
 
 function decorate(p: ProposalBase, weight: number, hiveWeight: number): ProposalView {
@@ -556,6 +728,7 @@ function viewModel(): Scope {
     closeDetail: () => setState({ sel: null }),
 
     bond: bondPanel(),
+    join: joinPanel(),
 
     // Switching network is a reload, so the choice is a link-like button rather
     // than a control that pretends to toggle state in place.
@@ -638,8 +811,13 @@ async function refresh(): Promise<void> {
   if (!configured()) return;
   try {
     const api = await chainApi();
-    const [floor, pool] = await Promise.all([api.loadFloor(), api.loadPool()]);
-    setState({ floor, pool });
+    const [floor, pool, member, depositTo] = await Promise.all([
+      api.loadFloor(),
+      api.loadPool(),
+      api.loadMember(),
+      api.depositAddress().catch(() => ""),
+    ]);
+    setState({ floor, pool, member, depositTo: String(depositTo ?? "") });
   } catch (error) {
     setState({ notice: `Could not read the DAO: ${message(error)}` });
   }
@@ -659,6 +837,49 @@ function render(): void {
     bar.textContent = state.notice;
     bar.hidden = !state.notice;
   }
+
+  wireQuote();
+}
+
+/**
+ * Quote the STX leg as the amount is typed.
+ *
+ * Written straight into the DOM rather than through `setState`: a re-render
+ * replaces the input the member is typing into, and the caret goes with it.
+ * The inputs stay uncontrolled for the same reason -- their values are read
+ * when a button is pressed, not held in state.
+ */
+let quoting: ReturnType<typeof setTimeout> | null = null;
+function wireQuote(): void {
+  const input = document.getElementById("join-sats") as HTMLInputElement | null;
+  const out = document.getElementById("join-quote");
+  if (!input || !out || input.dataset.wired === "1") return;
+  input.dataset.wired = "1";
+
+  input.addEventListener("input", () => {
+    const sats = Math.floor(Number(input.value) || 0);
+    if (quoting) clearTimeout(quoting);
+    if (sats <= 0) {
+      out.textContent = "enter an amount";
+      return;
+    }
+    out.textContent = "quoting…";
+    quoting = setTimeout(async () => {
+      if (!configured()) {
+        out.textContent = "no deployment configured";
+        return;
+      }
+      try {
+        const api = await chainApi();
+        const ustx = Number(await api.quote(sats));
+        state.quotedFor = sats;
+        state.quotedUstx = ustx;
+        out.textContent = `${fmt(sats)} sats needs ${(ustx / 1e6).toFixed(2)} STX`;
+      } catch (error) {
+        out.textContent = `could not quote: ${message(error)}`;
+      }
+    }, 350);
+  });
 }
 
 // Paint first, then reach for the chain: the page reads the same either way,
