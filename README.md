@@ -55,6 +55,42 @@ Two canvas-only affordances do get translated, because a browser would ignore
 them: `style-hover` becomes a real `:hover` rule, and `hint-placeholder-*` is
 dropped.
 
+## Deploying (Netlify)
+
+`netlify.toml` has it. From this repo the defaults are right; if it is deployed
+from a repo that contains this folder alongside others, set the base directory
+to `esbee-dao`.
+
+| | |
+| --- | --- |
+| build command | `pnpm run build` |
+| publish directory | `dist` |
+| node version | 22, pinned in `netlify.toml` |
+| package manager | pnpm, from `pnpm-lock.yaml` and `packageManager` |
+
+`pnpm run build` assembles the whole site into `dist/` — the two pages, the
+stylesheet, the mark, the fonts, the icons and the bundle — so the host
+publishes one directory and none of the sources, `node_modules` or tests go
+with it.
+
+**`pnpm run icons` and `pnpm run shot` are not part of the build.** Both drive
+headless Chrome, which a build image does not have; `icons/` is committed for
+exactly that reason. Regenerate them locally when the mark changes.
+
+### Caching
+
+Every file esbuild emits is content-hashed, **including the entry** —
+`app-LQCYHYTH.js` rather than `app.js`, with the pages rewritten to match at
+build time. That is what makes the cache rules simple and safe: all of
+`/*.js` is `immutable`, because a change produces a different name. Left
+unhashed, the entry would be the one file that must never be cached hard, and
+getting that single rule wrong pins a stale bundle on every returning visitor.
+
+The pages and the stylesheet keep their names and revalidate on each visit.
+
+`dist/` is about 5 MB on disk, but a visitor downloads **~23 kB**: the rest is
+lazy wallet chunks and sourcemaps that only devtools asks for.
+
 ## Networks
 
 **Testnet is live**, at `STFCGF789WX1B737VQYAQ6BG3QYVMJGPDJN4TJFM` —

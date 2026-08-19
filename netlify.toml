@@ -1,0 +1,67 @@
+# Netlify deploys the folder `pnpm run build` assembles, and nothing else --
+# no sources, no node_modules, no tests.
+#
+# Set the base directory to this folder if the site is deployed from a repo
+# that contains it alongside others; from its own repo the default is right.
+
+[build]
+  command = "pnpm run build"
+  publish = "dist"
+
+[build.environment]
+  # esbuild and tsx want a modern Node; pin it so a deploy cannot drift onto a
+  # version the local build never used.
+  NODE_VERSION = "22"
+  # Netlify reads pnpm-lock.yaml, and `packageManager` in package.json pins the
+  # version corepack installs.
+  NETLIFY_USE_PNPM = "true"
+
+# `pnpm run icons` and `pnpm run shot` are deliberately not part of the build:
+# both drive headless Chrome, which is not there. `icons/` is committed for
+# exactly that reason.
+
+# ── caching ────────────────────────────────────────────────────────────────
+# Every file esbuild emits carries a content hash, the entry bundle included,
+# so all of them can be cached forever: a change produces a different name and
+# the HTML points at it. No rule here has to be more specific than another.
+[[headers]]
+  for = "/*.js"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
+
+[[headers]]
+  for = "/fonts/*"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
+
+[[headers]]
+  for = "/icons/*"
+  [headers.values]
+    Cache-Control = "public, max-age=604800"
+
+# The pages and the stylesheet keep their names, so they are what a deploy has
+# to be able to replace. They revalidate on every visit; a 304 is cheap.
+[[headers]]
+  for = "/*.html"
+  [headers.values]
+    Cache-Control = "public, max-age=0, must-revalidate"
+
+[[headers]]
+  for = "/styles.css"
+  [headers.values]
+    Cache-Control = "public, max-age=0, must-revalidate"
+
+[[headers]]
+  for = "/esbee.svg"
+  [headers.values]
+    Cache-Control = "public, max-age=604800"
+
+# ── headers ────────────────────────────────────────────────────────────────
+# The page talks to a Stacks node and a wallet extension, and nothing else.
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy = "strict-origin-when-cross-origin"
+    X-Frame-Options = "DENY"
+    Permissions-Policy = "camera=(), microphone=(), geolocation=(), payment=()"

@@ -182,11 +182,13 @@ check(
 /// --- 3b. every local link resolves ------------------------------------------
 
 const { existsSync } = await import("node:fs");
+// `app.js` is a name the build resolves to a content-hashed file, so it is
+// checked against dist/ in the bundle section rather than here.
 const deadLinks = [...html.matchAll(/(?:href|src)="([^"]+)"/g)]
   .map((m) => m[1])
   .filter((h) => !/^(https?:|#|data:|mailto:)/.test(h))
   .map((h) => h.split("#")[0])
-  .filter((h) => h && !existsSync(h));
+  .filter((h) => h && h !== "app.js" && !existsSync(h));
 check(deadLinks.length === 0, `no dead local links${deadLinks.length ? ` (${[...new Set(deadLinks)].join(", ")})` : ""}`);
 
 /// --- 3c. the naming rule ------------------------------------------------------
@@ -259,7 +261,8 @@ check(chainSource.includes("@stacks/transactions"), "chain.ts uses @stacks/trans
 // The whole point of splitting `chain.ts` out: stacks.js and the wallet SDK are
 // ~1.4 MB, and a reader who never connects should not download them. If someone
 // makes the chain import static again this is the check that notices.
-if (built("dist/app.js")) {
+const entryFile = built("dist") ? readdirSync("dist").find((f) => /^app-[A-Z0-9]+\.js$/.test(f)) : undefined;
+if (entryFile) {
   const eager = new Set<string>();
   const walk = (file: string): number => {
     if (eager.has(file) || !built(`dist/${file}`)) return 0;
@@ -269,7 +272,7 @@ if (built("dist/app.js")) {
     for (const m of text.matchAll(/(?:from|import)"\.\/([^"]+)"/g)) bytes += walk(m[1]);
     return bytes;
   };
-  const eagerBytes = walk("app.js");
+  const eagerBytes = walk(entryFile);
   const totalBytes = readdirSync("dist")
     .filter((f) => f.endsWith(".js"))
     .reduce((n, f) => n + statSync(`dist/${f}`).size, 0);
@@ -279,9 +282,16 @@ if (built("dist/app.js")) {
     `initial load is ${(eagerBytes / 1024).toFixed(1)} kB of ${(totalBytes / 1024).toFixed(0)} kB built`,
   );
   check(
-    !eager.has("app.js") || !readFileSync("dist/app.js", "utf8").includes("@stacks"),
+    !readFileSync(`dist/${entryFile}`, "utf8").includes("@stacks"),
     "the wallet SDK is not in the entry chunk",
   );
+  // What Netlify publishes has to name the hashed bundle, not the placeholder.
+  const deployed = readFileSync("dist/index.html", "utf8");
+  check(deployed.includes(`src="${entryFile}"`), "dist/index.html names the hashed entry");
+  check(!deployed.includes('src="app.js"'), "and not the unhashed placeholder");
+  for (const asset of ["styles.css", "esbee.svg", "fonts", "icons"]) {
+    check(built(`dist/${asset}`), `dist/ carries ${asset}`);
+  }
 } else {
   ok.push("skipped bundle checks (run `pnpm run build` first)");
 }

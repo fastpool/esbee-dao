@@ -5,11 +5,11 @@
   "type": "module",
   "description": "The Esbee DAO website.",
   "scripts": {
-    "build": "./node_modules/esbuild/bin/esbuild src/app.ts --bundle --splitting --format=esm --target=es2022 --outdir=dist --sourcemap --minify",
+    "build": "node scripts/build.mjs",
     "typecheck": "tsc --noEmit",
     "test": "tsx smoke-test.ts",
     "check": "pnpm run typecheck && pnpm run build && pnpm run test",
-    "dev": "pnpm run build && python3 -m http.server 8080",
+    "dev": "pnpm run build && python3 -m http.server 8080 --directory dist",
     "icons": "node scripts/make-icons.mjs",
     "shot": "node scripts/screenshot.mjs"
   },
@@ -21,5 +21,6 @@
     "linkedom": "^0.18.0",
     "tsx": "^4.23.12",
     "typescript": "^7.0.2"
-  }
+  },
+  "packageManager": "pnpm@11.9.0"
 }

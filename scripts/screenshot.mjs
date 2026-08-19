@@ -52,10 +52,11 @@ if (!chrome) {
   process.exit(1);
 }
 
-// Served rather than opened from disk: the page loads ES modules, and a
-// file:// origin refuses those.
+// `dist/` rather than the repo: that is what gets deployed, and the pages there
+// point at the hashed bundle. Served rather than opened from disk, because the
+// page loads ES modules and a file:// origin refuses those.
 const server = spawn("python3", ["-m", "http.server", String(PORT), "--bind", "127.0.0.1"], {
-  cwd: root,
+  cwd: join(root, "dist"),
   stdio: "ignore",
 });
 const stop = () => server.kill();
