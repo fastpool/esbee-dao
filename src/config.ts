@@ -15,6 +15,8 @@ export interface NetworkInfo {
   explorer: string;
   /** sBTC is the same contract name on every network, at a different address. */
   sbtc: string;
+  /** pox-5, whose boot address differs between mainnet and the rest. */
+  pox: string;
 }
 
 export const NETWORKS: Record<NetworkName, NetworkInfo> = {
@@ -22,16 +24,19 @@ export const NETWORKS: Record<NetworkName, NetworkInfo> = {
     api: "https://api.testnet.hiro.so",
     explorer: "https://explorer.hiro.so",
     sbtc: "SN3VMHXEN64ZZF71JQ5VESXDWTR301XTTXGF4J8F1.sbtc-token",
+    pox: "ST000000000000000000002AMW42H.pox-5",
   },
   mainnet: {
     api: "https://api.hiro.so",
     explorer: "https://explorer.hiro.so",
     sbtc: "SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-token",
+    pox: "SP000000000000000000002Q6VF78.pox-5",
   },
   devnet: {
     api: "http://localhost:3999",
     explorer: "http://localhost:8000",
     sbtc: "SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-token",
+    pox: "ST000000000000000000002AMW42H.pox-5",
   },
 };
 

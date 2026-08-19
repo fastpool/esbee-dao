@@ -119,12 +119,25 @@ three states because the contract does:
 
 | | |
 | --- | --- |
-| nothing bound | deposits are closed and there is nothing to wait for. This is testnet today |
+| nothing bound | what is running, why the pool cannot join it, and when the next chance comes. This is testnet today |
 | bound, not staked | when the notice ends, when the stake window opens, when deposits close and the bond starts, when the term ends |
 | live | what was staked, and when the principal unlocks |
 
 Every row is a burn height read from chain plus a duration derived from it at
 ~10 minutes a block. Nothing is inferred from a calendar.
+
+The unbound state reads pox-5 directly rather than the pool, because the pool
+has nothing to say yet. `bond-period-to-burn-height` for two indices gives the
+whole schedule — the periods are evenly spaced — so both the running index and
+the next one fall out of arithmetic instead of walking indices one call at a
+time.
+
+**A running bond is closed to new members**, and the card says so rather than
+implying a queue. pox-5 writes a bond's allowlist once, inside `setup-bond`, so
+a staker that was not approved before the bond opened cannot be added to it
+however much room is left. What the pool can act on is the *next* period, and
+the card reports whether that one has been set up with the pool allowlisted —
+the actual gate, and invisible if it only showed a countdown.
 
 **With a deployer set**, every number on the page is read from chain
 (`get-proposal-count`, `get-proposal`, `get-status`, `get-vote`, `get-weight`,

@@ -412,6 +412,76 @@ export interface LiveEpoch {
   "reward-index": number;
 }
 
+/** A bond period as pox-5 describes it, whether or not the pool is in it. */
+export interface BondPeriod {
+  index: number;
+  start: number;
+  cycle: number;
+  /** When the bond's own term ends and L1 collateral unlocks. */
+  unlock: number;
+  staked: number;
+  /** This pool's allowance on it. `null` means it is not on the allowlist. */
+  allowance: number | null;
+  active: boolean;
+}
+
+export interface BondSchedule {
+  /** The period that has most recently opened -- what is running now. */
+  current: BondPeriod | null;
+  /** The next one to open, which is the pool's next chance to bind. */
+  next: BondPeriod;
+}
+
+/**
+ * Where the chain is in pox-5's bond schedule.
+ *
+ * Read from pox-5 rather than the pool, because when nothing is bound the pool
+ * has nothing to say -- and what a reader wants to know is what is running and
+ * when the next chance comes.
+ *
+ * Bond periods are evenly spaced, so two reads give the whole schedule and the
+ * indices fall out of arithmetic instead of walking one call at a time.
+ */
+export async function loadSchedule(burn: number): Promise<BondSchedule | null> {
+  const [poxAddress, poxName] = net().pox.split(".") as [string, string];
+  const pox = { address: poxAddress, name: poxName };
+  const staker = `${config.deployer}.${config.pool}`;
+
+  const heightOf = async (index: number) =>
+    Number(await readOnly(pox, "bond-period-to-burn-height", [Cl.uint(index)]));
+
+  const [first, second] = await Promise.all([heightOf(0), heightOf(1)]);
+  const spacing = second - first;
+  if (!Number.isFinite(spacing) || spacing <= 0) return null;
+
+  const period = async (index: number): Promise<BondPeriod> => {
+    const [start, cycle, unlock, staked, allowance, active] = await Promise.all([
+      heightOf(index),
+      readOnly(pox, "bond-period-to-reward-cycle", [Cl.uint(index)]),
+      readOnly(pox, "get-bond-l1-unlock-height", [Cl.uint(index)]),
+      readOnly(pox, "get-total-sbtc-staked-for-bond", [Cl.uint(index)]),
+      readOnly(pox, "get-bond-allowance", [Cl.uint(index), Cl.principal(staker)]),
+      readOnly(pox, "is-bond-active-at-height", [Cl.uint(index), Cl.uint(burn)]),
+    ]);
+    return {
+      index,
+      start,
+      cycle: Number(cycle),
+      unlock: Number(unlock),
+      staked: Number(staked),
+      allowance: allowance === null ? null : Number(allowance),
+      active: active === true,
+    };
+  };
+
+  const nextIndex = Math.max(0, Math.ceil((burn - first + 1) / spacing));
+  const [next, current] = await Promise.all([
+    period(nextIndex),
+    nextIndex > 0 ? period(nextIndex - 1) : Promise.resolve(null),
+  ]);
+  return { current, next };
+}
+
 export interface PoolState {
   totals: Record<string, Plain> | null;
   live: LiveEpoch | null;
@@ -419,6 +489,8 @@ export interface PoolState {
   /** The next bond, and where the chain is relative to its deadlines. */
   bond: BoundBond | null;
   burn: number;
+  /** Read from pox-5, so the page can say what is running even when unbound. */
+  schedule: BondSchedule | null;
 }
 
 /**
@@ -440,5 +512,6 @@ export async function loadPool(): Promise<PoolState | null> {
     config: cfg as Record<string, Plain> | null,
     bond: bond as unknown as BoundBond | null,
     burn,
+    schedule: await loadSchedule(burn).catch(() => null),
   };
 }

@@ -452,15 +452,75 @@ function bondPanel(): BondPanel {
     };
   }
 
+  // Nothing bound. What a reader wants to know is what is running, why they
+  // cannot join it, and when the next chance comes -- all of which is pox-5's
+  // to answer, not the pool's.
+  const schedule = pool.schedule;
+  if (!schedule) {
+    return {
+      show: true,
+      kicker: "No bond",
+      headline: "Nothing bound yet",
+      lead: `Deposits are closed until the operator binds a bond. Chain tip is burn ${fmt(burn)}.`,
+      rows: [],
+    };
+  }
+
+  const { current, next } = schedule;
+  const btc = (sats: number) => `${(sats / 1e8).toFixed(2)} BTC`;
+
+  // A bond's membership is fixed before it opens: pox-5 only writes the
+  // allowlist inside `setup-bond`, so nobody can be added to a running bond.
+  // That is why a closed bond stays closed however much room is left in it.
+  const closed = Boolean(current?.active);
+
   return {
     show: true,
-    kicker: "No bond",
-    headline: "Nothing bound yet",
-    lead:
-      `The pool is deployed and initialised, but no bond is bound — so deposits ` +
-      `are closed and there is nothing to wait for yet. When the operator binds ` +
-      `one, its windows and term appear here. Chain tip is burn ${fmt(burn)}.`,
-    rows: [],
+    kicker: closed ? "Closed to new members" : "No bond",
+    headline: closed
+      ? `Bond ${current!.index} is running`
+      : `Bond ${next.index} opens at ${fmt(next.start)}`,
+    lead: closed
+      ? `Bond ${current!.index} opened at burn ${fmt(current!.start)} and runs to ` +
+        `${fmt(current!.unlock)}, ${relative(current!.unlock, burn)}. Its members were ` +
+        `approved before it opened — pox-5 writes a bond's allowlist once, when the ` +
+        `bond is set up, so no staker can be added to one that is already running. ` +
+        `The pool's next chance is bond ${next.index} at burn ${fmt(next.start)}, ` +
+        `${relative(next.start, burn)}` +
+        `${next.allowance === null ? ", once it has been set up with the pool allowlisted" : ""}.`
+      : `Deposits are closed until the operator binds a bond. Bond ${next.index} ` +
+        `opens at burn ${fmt(next.start)}, ${relative(next.start, burn)}.`,
+    rows: [
+      row("Chain tip", `burn ${fmt(burn)}`, "now", true),
+      ...(current
+        ? [
+            row(
+              `Bond ${current.index} · cycle ${current.cycle}`,
+              current.staked > 0 ? `${btc(current.staked)} staked` : "nothing staked",
+              current.active ? "running" : "closed",
+              current.active,
+            ),
+            row(
+              `Bond ${current.index} term ends`,
+              `burn ${fmt(current.unlock)}`,
+              relative(current.unlock, burn),
+              burn >= current.unlock,
+            ),
+          ]
+        : []),
+      row(
+        `Bond ${next.index} opens`,
+        `burn ${fmt(next.start)}`,
+        relative(next.start, burn),
+        burn >= next.start,
+      ),
+      row(
+        `Pool allowlisted for bond ${next.index}`,
+        next.allowance === null ? "not yet" : btc(next.allowance),
+        next.allowance === null ? "needs setup-bond" : "ready to bind",
+        next.allowance !== null,
+      ),
+    ],
   };
 }
 
