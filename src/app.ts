@@ -826,6 +826,17 @@ async function faucet(kind: FaucetKind): Promise<void> {
   }
 }
 
+/**
+ * Whether the connected address belongs to the network the page is on.
+ *
+ * The same one-character test `chain.ts` makes before it will sign anything --
+ * repeated here rather than imported because this module must not pull the
+ * chain layer in, and the answer decides what a reader is shown, not what is
+ * sent. `chain.ts` remains the one that refuses.
+ */
+const walletMatchesNetwork = (address: string): boolean =>
+  /^S[PM]/.test(address) === (config.network === "mainnet");
+
 const poolAction = (label: string, pick: (api: Awaited<ReturnType<typeof chainApi>>) => Promise<string | null>) =>
   () => void withWallet(label, async () => pick(await chainApi()));
 
@@ -852,6 +863,9 @@ interface JoinPanel {
   confirm: () => void;
   claimPrincipal: () => void;
   claimRewards: () => void;
+  /** The wallet is on another chain: nothing here would send. */
+  wrongNetwork: boolean;
+  networkWarning: string;
   /** Testnet only: both legs are a click away, so a reader can actually join. */
   faucets: boolean;
   faucetStx: () => void;
@@ -870,6 +884,7 @@ function joinPanel(): JoinPanel {
 
   const queuedSats = settled ? num(settled["queued-sats"]) : 0;
   const releasedSats = m?.principal ? num(m.principal["released-sats"]) : 0;
+  const mismatched = Boolean(state.account) && !walletMatchesNetwork(state.account!);
 
   return {
     open,
@@ -905,9 +920,16 @@ function joinPanel(): JoinPanel {
     claimRewards: poolAction("the claim", (api) =>
       api.poolCalls.claimRewards(state.account!),
     ),
+    wrongNetwork: mismatched,
+    networkWarning: mismatched
+      ? `Your wallet is a ${/^S[PM]/.test(state.account!) ? "mainnet" : "testnet"} ` +
+        `address and this page is on ${config.network}. Switch the wallet's network ` +
+        `and reconnect — nothing here would reach ${config.network} otherwise.`
+      : "",
     // An address, not just a connection: the rehearsal connects without one,
-    // and the faucet has nowhere to send to.
-    faucets: config.network === "testnet" && Boolean(state.account),
+    // and the faucet has nowhere to send to. A mainnet address is no use to a
+    // testnet faucet either.
+    faucets: config.network === "testnet" && Boolean(state.account) && !mismatched,
     faucetStx: () => void faucet("stx"),
     faucetSbtc: () => void faucet("sbtc"),
   };

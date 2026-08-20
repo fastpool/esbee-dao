@@ -97,6 +97,7 @@ const scope: Record<string, unknown> = {
     hasQueued: true, hasReleased: true, hasRewards: true,
     deposit: () => {}, withdraw: () => {}, commit: () => {}, reveal: () => {},
     confirm: () => {}, claimPrincipal: () => {}, claimRewards: () => {},
+    wrongNetwork: true, networkWarning: "Your wallet is a mainnet address",
     faucets: true, faucetStx: () => {}, faucetSbtc: () => {},
   },
   stage: {

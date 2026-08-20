@@ -73,6 +73,30 @@ stylesheet, the mark, the fonts, the icons and the bundle — so the host
 publishes one directory and none of the sources, `node_modules` or tests go
 with it.
 
+### The Hiro key stays on the server
+
+An anonymous read shares its rate limit with everyone else reading anonymously,
+which on a busy day is a 429 for a visitor who did nothing wrong. A key fixes
+that, and a key in the bundle is not a key — so `netlify/functions/hiro.mjs`
+holds it instead:
+
+    /api/testnet/v2/info   ->   https://api.testnet.hiro.so/v2/info
+                                + x-hiro-api-key
+
+Set `HIRO_API_KEY` under **Site configuration → Environment variables**. Without
+it the function still proxies, anonymously, so a preview deploy or a fork is
+degraded rather than broken.
+
+Only `/v2/` and `/extended/` are forwarded, only on GET, HEAD and POST, and only
+to the two Hiro hosts — a path cannot name a third. The faucets are excluded on
+purpose: they are rate-limited per IP, and behind a function every visitor
+shares one, so the page calls those directly from the browser where the limit is
+the reader's own.
+
+`scripts/build.mjs` points the bundle at `/api` only when `NETLIFY` is set, so a
+local build talks to Hiro directly and needs no function running. `API_PROXY=`
+in the environment overrides both, for a build deployed somewhere else again.
+
 **`pnpm run icons` and `pnpm run shot` are not part of the build.** Both drive
 headless Chrome, which a build image does not have; `icons/` is committed for
 exactly that reason. Regenerate them locally when the mark changes.

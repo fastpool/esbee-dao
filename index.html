@@ -266,6 +266,9 @@ a:hover { color: var(--color-accent-700); }
           <div style="display:flex;justify-content:space-between;font-size:13px;padding:11px 16px;background:var(--color-surface);border-radius:999px">
             <span class="text-muted">your sBTC</span><span style="font-family:var(--font-heading)">{{ join.balance }}</span>
           </div>
+          <sc-if value="{{ join.wrongNetwork }}">
+            <p style="margin:2px 0 0;font-size:13px;line-height:1.5;color:var(--color-accent-800)">{{ join.networkWarning }}</p>
+          </sc-if>
           <sc-if value="{{ join.faucets }}">
             <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
               <span class="text-muted" style="font-size:12.5px">Testnet faucet</span>

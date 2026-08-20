@@ -22,7 +22,7 @@ import {
   isConnected,
   request,
 } from "@stacks/connect";
-import { config, configured, net } from "./config.js";
+import { apiBase, config, configured, net } from "./config.js";
 import { num, plain, type Plain } from "./plain.js";
 
 export { num, plain, type Plain };
@@ -74,7 +74,7 @@ export async function readOnly(
 ): Promise<Plain> {
   const { address, name } = contract;
   const response = await fetch(
-    `${net().api}/v2/contracts/call-read/${address}/${name}/${fn}`,
+    `${apiBase()}/v2/contracts/call-read/${address}/${name}/${fn}`,
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -91,13 +91,66 @@ export async function readOnly(
 
 /** The chain tip, for turning the contract's burn heights into "1d 6h left". */
 export async function burnHeight(): Promise<number> {
-  const info = (await (await fetch(`${net().api}/v2/info`)).json()) as {
+  const info = (await (await fetch(`${apiBase()}/v2/info`)).json()) as {
     burn_block_height: number;
   };
   return info.burn_block_height;
 }
 
 /// --- writes ------------------------------------------------------------------
+
+/**
+ * Mainnet principals start SP (standard) or SM (contract); every other network
+ * uses ST and SN. It is one character, and it is the only thing distinguishing
+ * an address that will work from one that will not.
+ */
+const isMainnetAddress = (address: string): boolean => /^S[PM]/.test(address);
+
+/** Whether an address belongs to the network this page is configured for. */
+export const onConfiguredNetwork = (address: string): boolean =>
+  isMainnetAddress(address) === (config.network === "mainnet");
+
+/**
+ * The connected address, once it is established that it belongs to the network
+ * everything else here is about.
+ *
+ * A wallet has its own idea of which network it is on, and it does not have to
+ * agree with the page. Where it disagrees the transaction is not merely wrong,
+ * it is unsendable -- the contract named does not exist on the chain the wallet
+ * would broadcast to -- and the wallet's own error for that is not one a reader
+ * can act on. Better to say which two things disagree, before signing.
+ */
+function signer(): string {
+  const me = account;
+  if (!me) throw new Error("Connect a wallet first");
+  if (!onConfiguredNetwork(me)) {
+    throw new Error(
+      `This wallet is a ${isMainnetAddress(me) ? "mainnet" : "testnet"} address ` +
+        `and the page is on ${config.network}. Switch the wallet's network and reconnect.`,
+    );
+  }
+  return me;
+}
+
+/**
+ * The same check for the token a post condition names.
+ *
+ * A post condition is the one part of a call that says what may leave the
+ * member's wallet, and it names sBTC by contract -- a different contract on
+ * every network. Naming the wrong one does not fail loudly: it produces a
+ * condition about a token the transaction never touches, which is a condition
+ * that cannot be violated and therefore protects nothing.
+ */
+function sbtcContract(): `${string}.${string}` {
+  const [address, name] = net().sbtc.split(".") as [string, string];
+  if (isMainnetAddress(address) !== (config.network === "mainnet")) {
+    throw new Error(
+      `The sBTC contract configured for ${config.network} is on another network ` +
+        `(${address}). Fix NETWORKS in config.ts rather than signing this.`,
+    );
+  }
+  return `${address}.${name}` as `${string}.${string}`;
+}
 
 /**
  * One place for every write, so the wallet call shape is defined once.
@@ -109,7 +162,10 @@ export async function call(
   functionArgs: ClarityValue[] = [],
   conditions?: PostCondition[],
 ): Promise<string | null> {
-  if (!account) throw new Error("Connect a wallet first");
+  signer();
+  // The contract is addressed by `config.deployer`, the post conditions name
+  // `config.network`'s sBTC, and this says which chain to broadcast to. All
+  // three come from the same place, so they cannot drift apart.
   const result = (await request("stx_callContract", {
     contract: `${contract.address}.${contract.name}` as `${string}.${string}`,
     functionName,
@@ -129,12 +185,11 @@ export async function call(
 
 /** Exactly what a deposit of `sats` moves out of the member's wallet. */
 function depositConditions(sats: number, ustx: number): PostCondition[] {
-  const me = account!;
-  const [sbtcAddress, sbtcName] = net().sbtc.split(".") as [string, string];
+  // Both of these throw before anything is built, rather than producing a
+  // condition naming the wrong chain's address or the wrong chain's token.
+  const me = signer();
   const conditions: PostCondition[] = [
-    Pc.principal(me)
-      .willSendEq(sats)
-      .ft(`${sbtcAddress}.${sbtcName}` as `${string}.${string}`, "sbtc-token"),
+    Pc.principal(me).willSendEq(sats).ft(sbtcContract(), "sbtc-token"),
   ];
   if (ustx > 0) conditions.push(Pc.principal(me).willSendEq(ustx).ustx());
   return conditions;
@@ -149,7 +204,7 @@ export const poolCalls = {
   /** Top up the STX leg alone, when a roll has repriced the position. */
   depositStx: (ustx: number) =>
     call(pool(), "deposit-stx", [Cl.uint(ustx)], [
-      Pc.principal(account!).willSendEq(ustx).ustx(),
+      Pc.principal(signer()).willSendEq(ustx).ustx(),
     ]),
   /** Take back everything still queued. Committed shares are not touched. */
   withdraw: () => call(pool(), "withdraw"),
@@ -168,7 +223,7 @@ export const bridgeCalls = {
       "commit-btc-deposit",
       [Cl.bufferFromHex(strip(digest)), Cl.uint(sats)],
       // The commit takes the STX leg; the sats arrive later, on bitcoin.
-      ustx > 0 ? [Pc.principal(account!).willSendEq(ustx).ustx()] : undefined,
+      ustx > 0 ? [Pc.principal(signer()).willSendEq(ustx).ustx()] : undefined,
     ),
   reveal: (txid: string, voutIndex: number, salt: string) =>
     call(bridge(), "reveal-btc-deposit", [

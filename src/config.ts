@@ -112,5 +112,25 @@ export const config = {
 export const configured = (): boolean => Boolean(config.deployer);
 
 export const net = (): NetworkInfo => NETWORKS[config.network];
+
+/**
+ * Where reads go, which is not always the node itself.
+ *
+ * On Netlify the build points this at the site's own `/api/<network>` function,
+ * which attaches the Hiro key server-side: an anonymous read shares its rate
+ * limit with the whole internet, and a key that shipped in the bundle would not
+ * be a secret. Anywhere else -- a local build, a plain static host -- it is the
+ * Hiro host itself, anonymously, so nothing here depends on the proxy existing.
+ *
+ * `scripts/build.mjs` decides, because only a build knows which of the two it
+ * is producing. `typeof` rather than a bare read: undefined is the normal case
+ * for a build that never defined it.
+ */
+declare const __API_PROXY__: string | undefined;
+
+const PROXY = typeof __API_PROXY__ === "string" ? __API_PROXY__ : "";
+
+export const apiBase = (): string =>
+  PROXY ? `${PROXY}/${config.network}` : net().api;
 export const explorerTx = (txid: string): string =>
   `${net().explorer}/txid/${txid}?chain=${config.network}`;

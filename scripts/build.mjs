@@ -19,6 +19,13 @@ import { fileURLToPath } from "node:url";
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const out = join(root, "dist");
 
+// `NETLIFY` is set by Netlify's own build, and `netlify/functions/hiro.mjs` is
+// only there. Keyed off the environment rather than a flag so that neither a
+// deploy nor a local build has to remember to pass anything.
+const API_PROXY = JSON.stringify(
+  process.env.API_PROXY ?? (process.env.NETLIFY ? "/api" : ""),
+);
+
 const PAGES = ["index.html", "media-kit.html"];
 const FILES = ["styles.css", "esbee.svg"];
 const DIRS = ["fonts", "icons"];
@@ -42,6 +49,11 @@ execFileSync(
     // cache immutably, and getting that rule wrong pins a stale bundle on
     // every returning visitor.
     "--entry-names=[name]-[hash]",
+    // Where reads go. On Netlify that is this site's own function, which holds
+    // the Hiro key; everywhere else the empty string leaves `config.ts` talking
+    // to Hiro directly, anonymously. `API_PROXY=` in the environment overrides
+    // both, for a build that is deployed somewhere else again.
+    `--define:__API_PROXY__=${API_PROXY}`,
   ],
   { stdio: "inherit" },
 );

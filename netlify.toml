@@ -16,6 +16,18 @@
   # version corepack installs.
   NETLIFY_USE_PNPM = "true"
 
+# ── the Hiro proxy ─────────────────────────────────────────────────────────
+# `netlify/functions/hiro.mjs` answers /api/<network>/* and forwards to Hiro
+# with this site's key attached. Set HIRO_API_KEY under Site configuration ->
+# Environment variables; it is never in the repo, and never in the bundle.
+#
+# Without the variable the function still proxies, anonymously, so a preview
+# deploy or a fork is degraded rather than broken. `scripts/build.mjs` points
+# the bundle at /api only when NETLIFY is set, so a local build talks to Hiro
+# directly and needs no function to be running.
+[functions]
+  directory = "netlify/functions"
+
 # `pnpm run icons` and `pnpm run shot` are deliberately not part of the build:
 # both drive headless Chrome, which is not there. `icons/` is committed for
 # exactly that reason.
@@ -38,6 +50,13 @@
   for = "/icons/*"
   [headers.values]
     Cache-Control = "public, max-age=604800"
+
+# The proxy answers with the node's own state; the function already says
+# no-store, and this keeps any CDN in front of it from disagreeing.
+[[headers]]
+  for = "/api/*"
+  [headers.values]
+    Cache-Control = "no-store"
 
 # The pages and the stylesheet keep their names, so they are what a deploy has
 # to be able to replace. They revalidate on every visit; a 304 is cheap.
