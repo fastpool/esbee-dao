@@ -91,6 +91,27 @@ export function disconnect(): void {
   account = null;
 }
 
+/**
+ * Sign a plain-text message with the connected wallet.
+ *
+ * The chat uses this once, to tie a chat identity to the member's address:
+ * the wallet shows the text, the member agrees, and the signature is what every
+ * other reader checks. The network check in `signer()` runs first -- a wallet on
+ * the other chain would sign for an address the page is not about -- and the
+ * caller checks the signature against the address it named before publishing.
+ */
+export async function signMessage(
+  message: string,
+): Promise<{ signature: string; publicKey: string }> {
+  signer();
+  const result = (await request("stx_signMessage", { message })) as {
+    signature?: string;
+    publicKey?: string;
+  };
+  if (!result?.signature) throw new Error("The wallet returned no signature");
+  return { signature: result.signature, publicKey: result.publicKey ?? "" };
+}
+
 /// --- reads -------------------------------------------------------------------
 
 /**

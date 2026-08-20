@@ -23,11 +23,174 @@ a:hover { color: var(--color-accent-700); }
 <!-- Wallet and transaction feedback. Outside the template so a re-render
      cannot clear it mid-transaction. -->
 <div id="notice" hidden role="status" aria-live="polite"
-     style="position:fixed;left:50%;transform:translateX(-50%);bottom:18px;z-index:80;
+     style="position:fixed;left:50%;transform:translateX(-50%);z-index:80;
             max-width:min(92vw,64ch);padding:10px 16px;border-radius:16px;
             background:var(--color-surface);color:var(--color-text);
             box-shadow:var(--shadow-lg);font:14px/1.45 var(--font-body);
             overflow-wrap:anywhere"></div>
+<!-- The discussion. Its own mount and template, rendered by src/chat.ts on its
+     own schedule: a message arriving must not re-render the page, and a page
+     re-render must not wipe the log. -->
+<div id="chat"></div>
+<template id="chat-tpl">
+<sc-if value="{{ chatClosed }}">
+  <button class="chat-fab" sc-camel-on-click="{{ toggleChat }}" aria-label="Open the discussion">
+    <svg width="18" height="18" sc-camel-view-box="0 0 24 24" aria-hidden="true" style="display:block"><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3h11A2.5 2.5 0 0 1 20 5.5v8a2.5 2.5 0 0 1-2.5 2.5H10l-4.6 3.7a.6.6 0 0 1-1-.47V16A2.5 2.5 0 0 1 4 13.5Z" style="fill:none;stroke:currentColor;stroke-width:1.8;stroke-linejoin:round"></path></svg>
+    <span>{{ fabLabel }}</span>
+    <sc-if value="{{ hasUnread }}"><span class="chat-badge">{{ unread }}</span></sc-if>
+  </button>
+</sc-if>
+<sc-if value="{{ chatOpen }}">
+  <section class="chat-panel" role="dialog" aria-label="Discussion">
+    <header class="chat-head">
+      <div style="min-width:0;flex:1">
+        <div style="font-family:var(--font-heading);font-size:18px;line-height:1.1">Discussion</div>
+        <div class="text-muted" style="font-size:12px;margin-top:2px">{{ statusLine }}</div>
+      </div>
+      <button class="chat-me" sc-camel-on-click="{{ openIdentity }}" title="Your chat identity">
+        <span class="chat-dot" style="background:{{ myColor }}"></span><span class="chat-me-name">{{ myName }}</span>
+      </button>
+      <button class="btn btn-icon btn-ghost" sc-camel-on-click="{{ toggleChat }}" aria-label="Close the discussion" style="font-size:16px;flex:none">✕</button>
+    </header>
+
+    <div class="chat-tabs">
+      <div class="seg">
+        <button class="seg-opt" sc-camel-on-click="{{ tabs.showPublic }}" style="background:{{ tabs.publicBg }};color:{{ tabs.publicFg }};border:0;font:inherit;font-size:13px;cursor:pointer">Public</button>
+        <button class="seg-opt" sc-camel-on-click="{{ tabs.showMembers }}" style="background:{{ tabs.membersBg }};color:{{ tabs.membersFg }};border:0;font:inherit;font-size:13px;cursor:pointer">Members<span style="font-size:11px;opacity:.7;margin-left:6px">{{ tabs.membersNote }}</span></button>
+      </div>
+    </div>
+
+    <sc-if value="{{ hasTopic }}">
+      <div class="chat-topic">
+        <button class="chat-ref" sc-camel-on-click="{{ openTopic }}" title="Show the proposal">#{{ topicId }} · {{ topicTitle }}</button>
+        <button class="btn btn-ghost" sc-camel-on-click="{{ clearTopic }}" style="font-size:12px;padding:4px 8px;flex:none">all messages</button>
+      </div>
+    </sc-if>
+
+    <div class="chat-log" id="chat-log">
+      <sc-if value="{{ showFailed }}">
+        <div class="chat-gate"><div class="chat-gate-title">Could not load the chat</div><p class="text-muted" style="margin:0;font-size:13px">{{ failedText }}</p></div>
+      </sc-if>
+      <sc-if value="{{ showGate }}">
+        <div class="chat-gate">
+          <div class="chat-gate-title">{{ gateTitle }}</div>
+          <p style="margin:0 0 12px;font-size:13.5px;line-height:1.55;opacity:.85">{{ gateText }}</p>
+          <sc-if value="{{ hasGateAction }}"><button class="btn btn-primary" sc-camel-on-click="{{ gateRun }}" style="font-size:13px">{{ gateAction }}</button></sc-if>
+          <sc-if value="{{ busy }}"><span class="text-muted" style="font-size:12.5px">{{ busyLabel }}</span></sc-if>
+        </div>
+      </sc-if>
+      <sc-if value="{{ showEmpty }}">
+        <p class="text-muted" style="margin:auto;text-align:center;font-size:13.5px;padding:24px">{{ emptyText }}</p>
+      </sc-if>
+      <sc-for list="{{ messages }}" as="m">
+        <div class="chat-msg">
+          <sc-if value="{{ m.showHead }}">
+            <div class="chat-msg-head">
+              <span class="chat-dot" style="background:{{ m.color }}"></span>
+              <span class="chat-name" style="color:{{ m.color }}">{{ m.name }}</span>
+              <sc-if value="{{ m.member }}"><span class="chat-member" title="A wallet holding a position in the pool has signed for this identity">member</span></sc-if>
+              <span class="chat-time">{{ m.time }}</span>
+            </div>
+          </sc-if>
+          <div class="chat-bubble" style="background:{{ m.bg }}"><sc-for list="{{ m.parts }}" as="s"><sc-if value="{{ s.plain }}">{{ s.text }}</sc-if><sc-if value="{{ s.href }}"><a href="{{ s.href }}" target="_blank" rel="noopener noreferrer">{{ s.text }}</a></sc-if></sc-for></div>
+          <sc-if value="{{ m.hasProposal }}"><button class="chat-ref" sc-camel-on-click="{{ m.openProposal }}">#{{ m.proposal }} · {{ m.proposalTitle }}</button></sc-if>
+        </div>
+      </sc-for>
+    </div>
+
+    <sc-if value="{{ hasNotice }}">
+      <div class="chat-notice"><span style="flex:1">{{ notice }}</span><button class="btn btn-ghost" sc-camel-on-click="{{ clearNotice }}" style="font-size:12px;padding:2px 6px">✕</button></div>
+    </sc-if>
+
+    <sc-if value="{{ canWrite }}">
+      <div class="chat-compose">
+        <textarea class="input" id="chat-input" rows="1" placeholder="{{ placeholder }}" autocomplete="off" aria-label="Message">{{ draft }}</textarea>
+        <button class="btn btn-primary" sc-camel-on-click="{{ send }}" style="font-size:13px;flex:none">{{ sendLabel }}</button>
+      </div>
+      <div class="chat-foot text-muted">{{ footLine }}</div>
+    </sc-if>
+
+    <sc-if value="{{ sheetOpen }}">
+      <div class="chat-sheet-backdrop" sc-camel-on-click="{{ closeSheet }}"></div>
+      <div class="chat-sheet">
+        <sc-if value="{{ sheetIdentity }}">
+          <div class="chat-sheet-head"><span>Your chat identity</span><button class="btn btn-ghost" sc-camel-on-click="{{ closeSheet }}" style="font-size:13px;padding:2px 8px">✕</button></div>
+          <div style="display:flex;align-items:center;gap:12px">
+            <span class="chat-dot" style="background:{{ myColor }};width:34px;height:34px"></span>
+            <div style="min-width:0">
+              <div style="font-family:var(--font-heading);font-size:17px">{{ myName }}</div>
+              <div class="text-muted" style="font-family:ui-monospace,monospace;font-size:11.5px;overflow-wrap:anywhere">{{ myKey }}</div>
+            </div>
+          </div>
+          <sc-if value="{{ canRename }}">
+            <div class="field">
+              <label for="chat-name">Display name</label>
+              <div style="display:flex;gap:8px">
+                <input class="input" id="chat-name" value="{{ nameDraft }}" placeholder="{{ myName }}" maxlength="40" autocomplete="off">
+                <button class="btn btn-secondary" sc-camel-on-click="{{ saveName }}" style="font-size:13px;flex:none">Save</button>
+              </div>
+            </div>
+          </sc-if>
+          <sc-if value="{{ cannotRename }}">
+            <p class="text-muted" style="margin:0;font-size:13px">Your name comes with the key you brought. Change it where that key lives.</p>
+          </sc-if>
+          <div class="chat-verified">
+            <sc-if value="{{ verifiedOk }}"><span style="color:var(--color-accent-2-700)">✓</span></sc-if>
+            <span style="flex:1">{{ verifiedLine }}</span>
+            <sc-if value="{{ showVerify }}"><button class="btn btn-primary" sc-camel-on-click="{{ verify }}" style="font-size:12.5px;padding:6px 12px">{{ verifyLabel }}</button></sc-if>
+          </div>
+          <sc-if value="{{ busy }}"><p class="text-muted" style="margin:0;font-size:12.5px">{{ busyLabel }}</p></sc-if>
+          <p class="text-muted" style="margin:0;font-size:13px;line-height:1.5">{{ identityKind }}</p>
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <sc-if value="{{ canBackup }}"><button class="btn btn-secondary" sc-camel-on-click="{{ openBackup }}" style="font-size:13px">Back up this key</button></sc-if>
+            <button class="btn btn-secondary" sc-camel-on-click="{{ openBring }}" style="font-size:13px">Bring your own key</button>
+            <button class="btn btn-ghost" sc-camel-on-click="{{ newKey }}" style="font-size:13px">Start over</button>
+          </div>
+        </sc-if>
+
+        <sc-if value="{{ sheetBring }}">
+          <div class="chat-sheet-head"><span>Bring your own key</span><button class="btn btn-ghost" sc-camel-on-click="{{ closeSheet }}" style="font-size:13px;padding:2px 8px">✕</button></div>
+          <p class="text-muted" style="margin:0;font-size:13px;line-height:1.5">The chat runs on Nostr. If you already have a Nostr identity you can use it here, and your name and messages follow you between devices.</p>
+          <sc-if value="{{ hasExtension }}"><button class="btn btn-secondary" sc-camel-on-click="{{ useExtension }}" style="font-size:13px;align-self:flex-start">Use the browser extension</button></sc-if>
+          <sc-if value="{{ noExtension }}"><p class="text-muted" style="margin:0;font-size:12.5px">No signer extension was found in this browser (Alby, nos2x and the like).</p></sc-if>
+          <div class="field">
+            <label for="chat-bunker">Remote signer — Amber, nsec.app, a bunker</label>
+            <div style="display:flex;gap:8px">
+              <input class="input" id="chat-bunker" placeholder="bunker://…" autocomplete="off" spellcheck="false">
+              <button class="btn btn-secondary" sc-camel-on-click="{{ useBunker }}" style="font-size:13px;flex:none">Connect</button>
+            </div>
+          </div>
+          <sc-if value="{{ remoteWaiting }}">
+            <div class="chat-gate" style="gap:8px">
+              <div style="font-size:13px">Open this link with your signer, then come back. Waiting…</div>
+              <a class="btn btn-primary" href="{{ remoteUri }}" style="font-size:13px;align-self:flex-start">Open in Amber</a>
+              <code style="font-size:11px;overflow-wrap:anywhere;opacity:.7">{{ remoteUri }}</code>
+              <div style="display:flex;gap:8px"><button class="btn btn-secondary" sc-camel-on-click="{{ copyRemote }}" style="font-size:12.5px">Copy link</button><button class="btn btn-ghost" sc-camel-on-click="{{ cancelRemote }}" style="font-size:12.5px">Cancel</button></div>
+            </div>
+          </sc-if>
+          <sc-if value="{{ remoteWaitingNot }}"><button class="btn btn-ghost" sc-camel-on-click="{{ startRemote }}" style="font-size:13px;align-self:flex-start">Or let the signer connect to this page ↗</button></sc-if>
+          <div class="field">
+            <label for="chat-nsec">A secret key you hold</label>
+            <div style="display:flex;gap:8px">
+              <input class="input" id="chat-nsec" type="password" placeholder="nsec1…" autocomplete="off">
+              <button class="btn btn-secondary" sc-camel-on-click="{{ useNsec }}" style="font-size:13px;flex:none">Use it</button>
+            </div>
+          </div>
+          <p class="text-muted" style="margin:0;font-size:12.5px;line-height:1.5">A key you paste is kept in this browser's storage, like the generated one. An extension or a remote signer keeps it out of the page altogether.</p>
+          <sc-if value="{{ busy }}"><p class="text-muted" style="margin:0;font-size:12.5px">{{ busyLabel }}</p></sc-if>
+        </sc-if>
+
+        <sc-if value="{{ sheetBackup }}">
+          <div class="chat-sheet-head"><span>Back up this key</span><button class="btn btn-ghost" sc-camel-on-click="{{ closeSheet }}" style="font-size:13px;padding:2px 8px">✕</button></div>
+          <p style="margin:0;font-size:13.5px;line-height:1.5">Anyone holding this secret can write as you. Keep it somewhere private; paste it into another browser, or a Nostr app, to be the same person there.</p>
+          <code style="font-size:12px;overflow-wrap:anywhere;padding:10px 12px;background:var(--color-surface);border-radius:var(--radius-md);display:block">{{ nsec }}</code>
+          <div style="display:flex;gap:8px"><button class="btn btn-secondary" sc-camel-on-click="{{ copyNsec }}" style="font-size:13px">Copy</button><button class="btn btn-ghost" sc-camel-on-click="{{ openIdentity }}" style="font-size:13px">Back</button></div>
+        </sc-if>
+      </div>
+    </sc-if>
+  </section>
+</sc-if>
+</template>
 <noscript>
   <div style="max-width:60ch;margin:12vh auto;padding:0 24px;font-family:var(--font-body)">
     <h1>Esbee DAO</h1>
@@ -542,6 +705,7 @@ a:hover { color: var(--color-accent-700); }
               </div>
               <div style="display:flex;gap:8px;flex-wrap:wrap">
                 <button class="btn btn-secondary" sc-camel-on-click="{{ p.open }}" style="font-size:13px">Gate-by-gate</button>
+                <button class="btn btn-secondary" sc-camel-on-click="{{ p.discuss }}" style="font-size:13px" title="Talk about this proposal">Discuss</button>
                 <sc-if value="{{ p.canVote }}" hint-placeholder-val="{{ true }}">
                   <button class="btn btn-primary" sc-camel-on-click="{{ p.voteYes }}" style="font-size:13px">Vote for</button>
                   <button class="btn btn-secondary" sc-camel-on-click="{{ p.voteNo }}" style="font-size:13px">Against</button>
@@ -558,7 +722,10 @@ a:hover { color: var(--color-accent-700); }
 
     <sc-if value="{{ hasSelection }}" hint-placeholder-val="{{ false }}">
       <div style="background:var(--color-bg);border-radius:28px;padding:clamp(22px,3.5vw,36px)">
-        <button class="btn btn-ghost" sc-camel-on-click="{{ closeDetail }}" style="font-size:13px;margin-bottom:14px">← All proposals</button>
+        <div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:14px">
+          <button class="btn btn-ghost" sc-camel-on-click="{{ closeDetail }}" style="font-size:13px">← All proposals</button>
+          <button class="btn btn-secondary" sc-camel-on-click="{{ sel.discuss }}" style="font-size:13px">Discuss #{{ sel.id }}</button>
+        </div>
         <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:12px">
           <span style="font-family:var(--font-heading);font-size:14px;color:var(--color-accent)">#{{ sel.id }}</span>
           <span style="font-size:12px;padding:5px 13px;border-radius:999px;background:{{ sel.tone.bg }};color:{{ sel.tone.fg }}">{{ sel.state }}</span>

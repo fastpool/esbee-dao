@@ -21,6 +21,7 @@ import {
   SWITCHABLE,
 } from "./config.js";
 import { num } from "./plain.js";
+import { discuss, mountChat, syncChat } from "./chat.js";
 import type {
   MemberPosition,
   Floor,
@@ -81,6 +82,7 @@ interface ProposalView extends Omit<ProposalBase, "open"> {
   voteYes: () => void;
   voteNo: () => void;
   run: () => void;
+  discuss: () => void;
 }
 
 type Vote = "for" | "against";
@@ -1300,20 +1302,34 @@ function decorate(p: ProposalBase, weight: number, hiveWeight: number): Proposal
     voteYes: () => void cast(p.id, true),
     voteNo: () => void cast(p.id, false),
     run: () => void execute(p),
+    discuss: () => discuss(p.id),
   };
 }
 
-function viewModel(): Scope {
+/** The member's weight and the hive's, from chain or the rehearsal. */
+function weights(): { weight: number; hiveWeight: number } {
   const live = state.floor;
   const weight = live ? live.weight : Math.floor(Math.sqrt(state.memberSats));
   // quorum is 30% of the hive's total weight, so the whole is quorum / 0.3.
   const hiveWeight = live ? Math.max(live.quorum * (10000 / 3000), 1) : HIVE_WEIGHT;
+  return { weight, hiveWeight };
+}
 
+/** Every proposal on the floor, decorated for the markup. */
+function proposalList(): ProposalView[] {
+  const live = state.floor;
+  const { weight, hiveWeight } = weights();
   const source =
     live && live.proposals.length
       ? live.proposals.map((entry) => fromChain(entry, live.burn))
       : baseProposals();
-  const proposals = source.map((p) => decorate(p, weight, hiveWeight));
+  return source.map((p) => decorate(p, weight, hiveWeight));
+}
+
+function viewModel(): Scope {
+  const live = state.floor;
+  const { weight, hiveWeight } = weights();
+  const proposals = proposalList();
   const sel = proposals.find((p) => p.id === state.sel) ?? null;
 
   const totals = state.pool?.totals ?? null;
@@ -1464,6 +1480,7 @@ function render(): void {
   }
 
   wireQuote();
+  syncChat();
 }
 
 /**
@@ -1515,6 +1532,22 @@ function wireQuote(): void {
 // Paint first, then reach for the chain: the page reads the same either way,
 // and a slow node should not hold up the text.
 render();
+
+// The discussion panel, beside the page rather than in it. What it needs from
+// here is the wallet and the proposals; what it gives back is a place to talk
+// about them. Its own network layer loads once the page has painted.
+mountChat(() => ({
+  account: state.account,
+  connected: state.connected,
+  configured: configured(),
+  proposals: proposalList().map((p) => ({ id: p.id, title: p.title })),
+  openWallet: () => setState({ walletOpen: true }),
+  signMessage: async (text) => (await chainApi()).signMessage(text),
+  showProposal: (id) => {
+    setState({ sel: id });
+    document.getElementById("vote")?.scrollIntoView({ behavior: "smooth", block: "start" });
+  },
+}));
 
 if (configured()) {
   void chainApi().then((api) => {

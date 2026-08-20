@@ -25,6 +25,9 @@ else on the page is a plain static file.
 | `src/plain.ts` | unwrapping decoded Clarity values |
 | `src/chain.ts` | stacks.js: wallet, read-only calls, and every call the DAO has |
 | `src/app.ts` | state, the view model, and the fallback fixtures |
+| `src/chat.ts` | the discussion panel: its state, view model and rendering |
+| `src/nostr.ts` | what the chat runs on -- relays, keys, the two rooms, member verification. Loaded after the page paints |
+| `src/stacks-verify.ts` | checking a wallet's signature without stacks.js: c32, the signed-message hash, a principal in, a tuple out |
 | `media-kit.html` | the name, mark, palette and voice |
 | `esbee.svg` | the mark — the same artwork the header draws inline, and the favicon |
 | `styles.css`, `fonts/` | the design system's tokens and its two typefaces |
@@ -42,6 +45,10 @@ and most readers never connect a wallet. So `chain.ts` is behind a dynamic
 
 `pnpm test` asserts both halves of that, so making the import static again fails
 the build rather than quietly costing every visitor a megabyte.
+
+The chat's network layer (`nostr.ts`, about 40 kB gzipped) is split the same
+way and fetched once the page is idle, so the first paint is what it was; the
+test checks that no relay URL reaches the initial load either.
 
 ### Why the markup is left as a template
 
@@ -173,6 +180,64 @@ explains itself, and says so in the FAQ. The fixtures are not invented
 governance: every proposal shown is one of the contract's five kinds, and the
 copy describes what that call actually does.
 
+## The discussion
+
+Under the "Discuss" button, bottom right, is a chat about the proposals -- on
+the page that shows them, open to anyone the moment the page loads, no sign-up.
+Every proposal card has a Discuss button that opens it on that proposal; a
+message sent from there carries the proposal, and shows as a chip that jumps
+back to it.
+
+It runs on Nostr, and a reader never has to know that. An identity is made in
+the browser on the first visit and kept in `localStorage`; messages are signed
+with it and handed to a few public relays, and every other copy of this page
+picks them up from the same relays. There is no server of ours in the path.
+The name defaults to `bee-` and the key's first four characters; a display name
+can be set from the identity chip, and is published so other readers see it.
+
+**Bring your own key.** The identity sheet offers three ways in for a reader
+who already has a Nostr identity -- a browser extension (NIP-07), a remote
+signer such as Amber or nsec.app (NIP-46, either a `bunker://` URL pasted in
+or a `nostrconnect://` link the signer opens), or an `nsec` pasted in. The
+generated key can be backed up as an `nsec` for the same reason. A key an
+extension or a signer holds never enters the page; one that is pasted lives in
+`localStorage` like the generated one does.
+
+**Two rooms.** Public is kind 42, readable by anyone, rooted at an id derived
+from the network name so every copy of the page on a network finds the same
+room. Members is kind 4242 and sealed: the text is encrypted under a fresh
+random key, and that key is wrapped (NIP-44) to every verified member the
+sender's browser knows of, the sender included. A relay sees who was addressed
+and how long it was. A member verified later cannot read what was sent before
+-- that is the right property, and the only one a design without a server can
+have; it is also why the room count in the footer says "sealed to N".
+
+**Who is a member is the pool's call, not ours.** A chat key is tied to a
+Stacks address by one message the wallet signs -- the address, the chat key,
+the network, in plain words the wallet shows -- published as NIP-78
+application data (kind 30078, `d` = `esbee-dao:member:<network>`). Every
+reader checks that signature and asks `get-settled-member` whether the address
+holds committed shares or a queued deposit. Both checks happen in
+`stacks-verify.ts` and `nostr.ts`, without stacks.js, because a reader of the
+public room should not pay 1.4 MB to see who is badged `member`. The smoke test
+holds `stacks-verify.ts` against stacks.js itself on random keys, including the
+leading-zero-byte address c32 has to spell out.
+
+Membership can lapse -- a withdrawal, an exit -- so the pool is asked again
+every ten minutes. The members room hides messages from a sender the pool has
+since said no to.
+
+**Verifying** needs the wallet connected on the network the page is on: one
+`stx_signMessage`, checked locally before it is published. A wallet that
+signed something else, or for another address, is refused at that point rather
+than published and ignored.
+
+    ?relays=wss://a,wss://b      // point the chat at other relays, for a test
+
+The relays are in `nostr.ts`; the default set is four public ones. The chat
+does not need the Hiro proxy, and the function does not forward to relays --
+sockets go straight from the browser, as the transaction watcher's does.
+
 ## Joining the pool
 
 The "Two ways in" cards are working forms, not illustrations.
@@ -232,9 +297,15 @@ field renamed in Clarity shows up here as a type error rather than as
 - SVG icons land in the right namespace, hover states become real CSS
 - no dead local links
 - `chain.ts` names every public and read-only function the contract has
-- the entry chunk stays small and free of the wallet SDK
+- the entry chunk stays small and free of the wallet SDK and the relays
 - `esbee.svg` and the header draw the same cell, so the mark cannot drift
 - the name is never spelled as initials
+
+- the chat's own template resolves, keeps a draft across a render, and links
+  a URL in a message
+- `stacks-verify.ts` agrees with stacks.js on the signed-message hash,
+  signature recovery, both address versions and the principal encoding
+- the relays and the curve library are not in the initial load
 
 `pnpm run typecheck` is `tsc --noEmit` under `strict`. The port caught one real
 bug on its own: `render.ts` used the global `Node.ELEMENT_NODE`, which exists in
@@ -258,6 +329,16 @@ drew them —
 
 The last one is why `smoke-test.ts` now checks the mark's comments: an invalid
 favicon fails silently and looks like a caching problem.
+
+`pnpm run chat:e2e` is the discussion, end to end, in the same Chrome: a relay
+of its own on localhost (`scripts/chat-relay.mjs`), the built site pointed at it
+with `?relays=`, and a few browser profiles talking to each other. The pool's
+membership read is answered by the script, so two profiles can be given
+bindings signed by fresh Stacks keys and walked into the members room while a
+third is left out; afterwards the relay is checked to hold nothing but
+ciphertext, wrapped to exactly the two. It touches no public relay. Screenshots
+land in `shots/chat-*.png`. It is not part of `pnpm run check` because it needs
+the browser.
 
 `pnpm run icons` rasterises the mark to `icons/icon-{32,180,512}.png`, linked as
 the fallback for browsers that will not take an SVG favicon. They are the

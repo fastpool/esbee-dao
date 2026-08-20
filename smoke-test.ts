@@ -17,6 +17,7 @@ const check = (cond: unknown, label: string) => (cond ? ok : fail).push(label);
 
 const html = readFileSync("index.html", "utf8");
 const appSource = readFileSync("src/app.ts", "utf8");
+const chatSource = readFileSync("src/chat.ts", "utf8");
 
 /// --- 1. every binding the design uses is supplied ---------------------------
 
@@ -31,11 +32,15 @@ const roots = new Set(
     .filter((r) => r && r !== "true" && r !== "false" && !loopVars.has(r)),
 );
 
-// Keys the view model returns, plus the per-proposal fields `decorate` adds.
-const supplied = new Set([
-  ...[...appSource.matchAll(/^\s{4}([A-Za-z][A-Za-z0-9]*):/gm)].map((m) => m[1]),
-  ...[...appSource.matchAll(/^\s{4}([A-Za-z][A-Za-z0-9]*),$/gm)].map((m) => m[1]),
-]);
+// Keys the view models return, plus the per-proposal fields `decorate` adds.
+// Two templates, two view models: the page's in app.ts and the chat's in
+// chat.ts. Their roots are checked together, since a name only has to be
+// supplied by the one that renders it.
+const keysOf = (source: string) => [
+  ...[...source.matchAll(/^\s{4}([A-Za-z][A-Za-z0-9]*):/gm)].map((m) => m[1]),
+  ...[...source.matchAll(/^\s{4}([A-Za-z][A-Za-z0-9]*),$/gm)].map((m) => m[1]),
+];
+const supplied = new Set([...keysOf(appSource), ...keysOf(chatSource)]);
 const missing = [...roots].filter((r) => !supplied.has(r));
 check(missing.length === 0, `every template binding is supplied${missing.length ? ` (missing: ${missing.join(", ")})` : ""}`);
 
@@ -214,6 +219,82 @@ check(
   "hover states become real CSS rules",
 );
 
+/// --- 3a. the discussion panel renders too -----------------------------------------
+
+// The chat has its own template and mount, outside #app, so a message arriving
+// cannot re-render the page and a page re-render cannot wipe the log. The
+// same runtime resolves it, and the same things can go wrong.
+const chatTemplate = document.getElementById("chat-tpl") as unknown as HTMLTemplateElement | null;
+const chatMount = document.getElementById("chat");
+check(Boolean(chatTemplate) && Boolean(chatMount), "index.html has #chat-tpl and #chat");
+
+const chatScope = (open: boolean): Record<string, unknown> => ({
+  chatOpen: open, chatClosed: !open, toggleChat: () => {},
+  unread: "3", hasUnread: true, fabLabel: "Discuss",
+  statusLine: "Live · 3 of 4 relays", myName: "bee-a1b2", myColor: "hsl(20 48% 42%)",
+  myKey: "npub1a1b2c3d…xyz", openIdentity: () => {}, closeSheet: () => {},
+  tabs: { showPublic: () => {}, showMembers: () => {}, publicBg: "#c67139", publicFg: "#fff",
+    membersBg: "transparent", membersFg: "#201e1d", membersNote: "2 verified" },
+  hasTopic: true, topicId: 4, topicTitle: "Trust signer manager 0x9f3c…a12b",
+  clearTopic: () => {}, openTopic: () => {},
+  showGate: true, gateTitle: "Members only", gateText: "Link your wallet.", gateAction: "Verify",
+  hasGateAction: true, gateRun: () => {}, showFailed: true, failedText: "offline",
+  showEmpty: true, emptyText: "Nobody has said anything yet.",
+  messages: [
+    { id: "a", name: "bee-a1b2", color: "#333", time: "14:02", showHead: true, mine: false,
+      bg: "#eee", member: true,
+      parts: [{ text: "see ", href: "", plain: true }, { text: "https://x.y", href: "https://x.y", plain: false }],
+      hasProposal: true, proposal: 4, proposalTitle: "Trust signer", openProposal: () => {} },
+    { id: "b", name: "bee-c3d4", color: "#444", time: "14:03", showHead: false, mine: true,
+      bg: "#eee", member: false, parts: [{ text: "hi", href: "", plain: true }],
+      hasProposal: false, proposal: "", proposalTitle: "", openProposal: () => {} },
+  ],
+  canWrite: true, draft: "half a thought", placeholder: "Say something…", send: () => {},
+  sendLabel: "Send", footLine: "Public — anyone can read this", busy: true,
+  busyLabel: "Waiting for the wallet…", notice: "Not sent", hasNotice: true, clearNotice: () => {},
+  sheetOpen: true, sheetIdentity: true, sheetBring: true, sheetBackup: true,
+  identityKind: "A key made in this browser.", canRename: true, cannotRename: true,
+  nameDraft: "", saveName: () => {}, verifiedLine: "Verified member · ST2J8X…9K4T",
+  verifiedOk: true, showVerify: true, verifyLabel: "Verify with your wallet", verify: () => {},
+  openBring: () => {}, openBackup: () => {}, canBackup: true, nsec: "nsec1…", copyNsec: () => {},
+  newKey: () => {}, hasExtension: true, noExtension: true, useExtension: () => {},
+  useBunker: () => {}, useNsec: () => {}, startRemote: () => {}, cancelRemote: () => {},
+  remoteWaiting: true, remoteWaitingNot: true, remoteUri: "nostrconnect://abc?relay=wss://r",
+  copyRemote: () => {},
+});
+
+for (const open of [false, true]) {
+  chatMount!.replaceChildren();
+  for (const node of renderChildren(chatTemplate!.content, chatScope(open), document as unknown as Document)) {
+    chatMount!.appendChild(node);
+  }
+  const panel = chatMount!.innerHTML;
+  check(!panel.includes("{{"), `chat panel (${open ? "open" : "closed"}) leaves no mustaches`);
+  check(!/<sc-(for|if)/.test(panel), `chat panel (${open ? "open" : "closed"}) resolves every directive`);
+  if (open) {
+    for (const id of ["chat-log", "chat-input", "chat-name", "chat-bunker", "chat-nsec"]) {
+      check(Boolean(chatMount!.querySelector(`#${id}`)), `the panel has #${id}`);
+    }
+    check(
+      (chatMount!.querySelector("#chat-input") as HTMLTextAreaElement).textContent === "half a thought",
+      "the composer carries the draft across a render",
+    );
+    check(
+      chatMount!.querySelectorAll(".chat-bubble").length === 2 &&
+        chatMount!.querySelectorAll(".chat-bubble a[href='https://x.y']").length === 1,
+      "messages render, and a URL in one becomes a link",
+    );
+    check(chatMount!.querySelectorAll(".chat-msg-head").length === 1, "a follow-up from the same sender has no header");
+  } else {
+    check(Boolean(chatMount!.querySelector(".chat-fab")), "closed, the panel is a button");
+  }
+}
+// The page offers the chat from every proposal.
+check(
+  (html.match(/\{\{ (p|sel)\.discuss \}\}/g) ?? []).length >= 2,
+  "proposal cards and the detail view both open the discussion",
+);
+
 /// --- 3b. every local link resolves ------------------------------------------
 
 const { existsSync } = await import("node:fs");
@@ -292,6 +373,67 @@ for (const fn of [
   check(chainSource.includes(`"${fn}"`), `chain.ts calls ${fn}`);
 }
 check(chainSource.includes("@stacks/connect"), "chain.ts uses @stacks/connect for the wallet");
+check(chainSource.includes('"stx_signMessage"'), "chain.ts can sign a message, which is how a chat key is vouched for");
+
+/// --- 4b. the chat verifies wallets without stacks.js ---------------------------------
+
+// `stacks-verify.ts` re-implements the little of stacks.js the chat needs --
+// the signed-message hash, signature recovery, c32 addresses, a principal in,
+// a tuple out -- so that reading the public room never loads the wallet SDK.
+// Here it is held against the real thing. A detail drifting (the varint, the
+// address alphabet, a leading zero byte) would otherwise show up as every
+// member silently failing to verify.
+{
+  const { hashMessage: refHash, getPublicKeyFromPrivate } = await import("@stacks/encryption");
+  const {
+    signMessageHashRsv, getAddressFromPublicKey, Cl, cvToHex, addressFromVersionHash, addressToString,
+  } = await import("@stacks/transactions");
+  const {
+    hashMessage, signerOf, verifyAddressSignature, principalHex, decodeClarity, c32address,
+    VERSION_MAINNET, VERSION_TESTNET,
+  } = await import("./src/stacks-verify.js");
+  const hex = (b: Uint8Array) => Array.from(b, (x) => x.toString(16).padStart(2, "0")).join("");
+  const unhex = (h: string) => new Uint8Array(h.match(/../g)!.map((x) => parseInt(x, 16)));
+
+  let agree = 0;
+  const ROUNDS = 40;
+  for (let i = 0; i < ROUNDS; i++) {
+    const priv = hex(crypto.getRandomValues(new Uint8Array(32)));
+    const pub = getPublicKeyFromPrivate(priv);
+    const text = `Esbee DAO — member chat\n\nround ${i} ✓ ${"·".repeat(i * 7)}`;
+    const sig = signMessageHashRsv({ messageHash: hex(refHash(text)), privateKey: priv });
+    const onTestnet = getAddressFromPublicKey(pub, "testnet");
+    const onMainnet = getAddressFromPublicKey(pub, "mainnet");
+    const flipped = sig.slice(0, 128) + (sig.endsWith("00") ? "01" : "00");
+    if (
+      hex(hashMessage(text)) === hex(refHash(text)) &&
+      signerOf(text, sig, VERSION_TESTNET) === onTestnet &&
+      signerOf(text, sig, VERSION_MAINNET) === onMainnet &&
+      verifyAddressSignature(text, sig, onTestnet) &&
+      !verifyAddressSignature(`${text}!`, sig, onTestnet) &&
+      verifyAddressSignature(text, flipped, onTestnet, pub) &&
+      principalHex(onTestnet) === cvToHex(Cl.principal(onTestnet))
+    ) {
+      agree++;
+    }
+  }
+  check(agree === ROUNDS, `stacks-verify agrees with stacks.js on ${agree}/${ROUNDS} random keys`);
+
+  // The case a random key almost never produces: a hash that starts with zero
+  // bytes, which c32 has to spell out.
+  const zeroed = "00000000000000000000000000000000000000ab";
+  check(
+    c32address(26, unhex(zeroed)) === addressToString(addressFromVersionHash(26, zeroed)),
+    "c32 keeps leading zero bytes",
+  );
+  const record = Cl.some(Cl.tuple({ shares: Cl.uint(5), "bonded-sats": Cl.uint(0), "queued-sats": Cl.uint(12), flag: Cl.bool(false), tail: Cl.none(), who: Cl.principal("ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM") }));
+  const decoded = decodeClarity(cvToHex(record)) as Record<string, unknown>;
+  check(
+    decoded.shares === 5n && decoded["queued-sats"] === 12n && decoded.flag === false && decoded.tail === null &&
+      decoded.who === "ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM",
+    "the member record the chat reads decodes by hand",
+  );
+}
 check(chainSource.includes("@stacks/transactions"), "chain.ts uses @stacks/transactions for Clarity values");
 
 /// --- 5. the wallet SDK stays out of the initial load -------------------------
@@ -322,6 +464,14 @@ if (entryFile) {
   check(
     !readFileSync(`dist/${entryFile}`, "utf8").includes("@stacks"),
     "the wallet SDK is not in the entry chunk",
+  );
+  // The chat's relays and curves are the same kind of weight, loaded the same
+  // way: after the page has painted.
+  const eagerText = [...eager].map((f) => readFileSync(`dist/${f}`, "utf8")).join("");
+  check(!eagerText.includes("wss://"), "the relays are not in the initial load either");
+  check(
+    readdirSync("dist").some((f) => /^nostr-[A-Z0-9]+\.js$/.test(f)),
+    "and the chat's network layer is a chunk of its own",
   );
   // What Netlify publishes has to name the hashed bundle, not the placeholder.
   const deployed = readFileSync("dist/index.html", "utf8");

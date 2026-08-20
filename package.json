@@ -11,16 +11,24 @@
     "check": "pnpm run typecheck && pnpm run build && pnpm run test",
     "dev": "pnpm run build && python3 -m http.server 8080 --directory dist",
     "icons": "node scripts/make-icons.mjs",
-    "shot": "node scripts/screenshot.mjs"
+    "shot": "node scripts/screenshot.mjs",
+    "chat:e2e": "node scripts/chat-e2e.mjs"
   },
   "devDependencies": {
+    "@noble/curves": "2.0.1",
+    "@noble/hashes": "2.0.1",
+    "@scure/base": "2.0.0",
     "@stacks/connect": "^8.2.7",
+    "@stacks/encryption": "^7.6.0",
     "@stacks/transactions": "^7.6.0",
     "@types/node": "^26.2.0",
     "esbuild": "^0.28.2",
     "linkedom": "^0.18.0",
+    "nostr-tools": "^2.24.2",
+    "playwright-core": "^1.62.1",
     "tsx": "^4.23.12",
-    "typescript": "^7.0.2"
+    "typescript": "^7.0.2",
+    "ws": "^8.21.3"
   },
   "packageManager": "pnpm@11.9.0"
 }
