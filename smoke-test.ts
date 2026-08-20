@@ -244,10 +244,14 @@ const chatScope = (open: boolean): Record<string, unknown> => ({
   messages: [
     { id: "a", name: "bee-a1b2", color: "#333", time: "14:02", showHead: true, mine: false,
       bg: "#eee", member: true, link: "https://njump.me/nevent1abc", hasLink: true,
+      online: true, openProfile: () => {}, canReact: true, react: () => {},
+      reactions: [{ emoji: "🐝", count: 2, who: "a, b", bg: "#eee", border: "#c67139", toggle: () => {} }],
+      hasReactions: true,
       parts: [{ text: "see ", href: "", plain: true }, { text: "https://x.y", href: "https://x.y", plain: false }],
       hasProposal: true, proposal: 4, proposalTitle: "Trust signer", openProposal: () => {} },
     { id: "b", name: "bee-c3d4", color: "#444", time: "14:03", showHead: false, mine: true,
       bg: "#eee", member: false, link: "", hasLink: false, parts: [{ text: "hi", href: "", plain: true }],
+      online: false, openProfile: () => {}, canReact: false, react: () => {}, reactions: [], hasReactions: false,
       hasProposal: false, proposal: "", proposalTitle: "", openProposal: () => {} },
   ],
   canWrite: true, draft: "half a thought", placeholder: "Say something…", send: () => {},
@@ -262,6 +266,21 @@ const chatScope = (open: boolean): Record<string, unknown> => ({
   useBunker: () => {}, useNsec: () => {}, startRemote: () => {}, cancelRemote: () => {},
   remoteWaiting: true, remoteWaitingNot: true, remoteUri: "nostrconnect://abc?relay=wss://r",
   copyRemote: () => {},
+  showMembers: true, membersLine: "2 verified members · 1 online", openMembers: () => {},
+  sheetMembers: true, sheetProfile: true,
+  people: [{ pubkey: "ab", name: "Alice", color: "#333", online: true, onlineLabel: "online", isMe: true,
+    member: true, linked: true, memberLabel: "Verified member", address: "ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM",
+    addressShort: "ST1PQH…GZGM", explorer: "https://explorer.hiro.so/address/ST1?chain=testnet",
+    npub: "npub1abc", npubShort: "npub1abc…", njump: "https://njump.me/nprofile1abc",
+    open: () => {}, copyAddress: () => {}, copyKey: () => {} }],
+  profile: { pubkey: "ab", name: "Alice", color: "#333", online: true, onlineLabel: "online", isMe: false,
+    member: true, linked: true, memberLabel: "Verified member", address: "ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM",
+    addressShort: "ST1PQH…GZGM", explorer: "https://explorer.hiro.so/address/ST1?chain=testnet",
+    npub: "npub1abc", npubShort: "npub1abc…", njump: "https://njump.me/nprofile1abc",
+    open: () => {}, copyAddress: () => {}, copyKey: () => {} },
+  pickerOpen: true, pickerTitle: "React to Alice", pickerQuick: true,
+  quick: [{ char: "👍", pick: () => {} }], emojis: [{ char: "🐝", name: "bee", pick: () => {} }],
+  closePicker: () => {}, togglePicker: () => {},
 });
 
 for (const open of [false, true]) {
@@ -286,6 +305,13 @@ for (const open of [false, true]) {
       "messages render, and a URL in one becomes a link",
     );
     check(chatMount!.querySelectorAll(".chat-msg-head").length === 1, "a follow-up from the same sender has no header");
+    check(
+      chatMount!.querySelectorAll(".chat-reaction").length === 1 &&
+        chatMount!.querySelectorAll(".chat-picker-emoji").length === 2 &&
+        chatMount!.querySelectorAll(".chat-person").length === 1 &&
+        [...chatMount!.querySelectorAll(".chat-sheet code")].some((c) => c.textContent!.includes("ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM")),
+      "reactions, the emoji picker, the members list and a profile's address all render",
+    );
     check(
       chatMount!.querySelectorAll("a.chat-out[href='https://njump.me/nevent1abc']").length === 1 &&
         Boolean(chatMount!.querySelector("a[href='https://njump.me/nevent1room']")),
@@ -391,6 +417,14 @@ for (const network of ["testnet", "mainnet"]) {
   );
 }
 check(nostrSource.includes("https://njump.me/"), "and links messages out to njump");
+check(
+  nostrSource.includes("KIND_REACTION = 7") && nostrSource.includes("KIND_DELETE = 5"),
+  "public reactions are NIP-25, taken back with NIP-09",
+);
+check(
+  /KIND_PRESENCE = 2\d{4}/.test(nostrSource),
+  "presence is an ephemeral kind, so no relay keeps it",
+);
 
 /// --- 4b. the chat verifies wallets without stacks.js ---------------------------------
 

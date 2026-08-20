@@ -217,6 +217,25 @@ and how long it was. A member verified later cannot read what was sent before
 -- that is the right property, and the only one a design without a server can
 have; it is also why the room count in the footer says "sealed to N".
 
+**Emoji and reactions.** The `☺` by the composer opens a small grid -- a
+hive's worth first, then the usual -- and `:bee:`, `:honey:`, `:+1:` and the
+like become emoji when a message is sent. Hovering a message offers `☺+`:
+eight quick reactions, or the grid. In public a reaction is NIP-25 (kind 7,
+the room as its first `e` tag so it can be asked for by room, the message as
+the last) and taken back with a NIP-09 deletion, so other clients see both.
+In the members room a reaction travels in the same sealed envelope as a
+message, with which message it is about inside it, where a relay cannot see.
+
+**Who is here.** Every open page says so now and then -- an ephemeral event
+(kind 24242, never stored) every 45 seconds while the tab is in front -- and
+a key heard from in the last two minutes shows a green dot beside its name.
+Any name opens a profile: the chat key (`npub`, with a link to njump) and, if
+a wallet has signed for it, the Stacks address with a link to the explorer
+and whether the pool counts it a member. The members room has "who is here":
+every key a wallet has signed for, members first, online first, with address
+and key. The list is public information already -- the bindings are on the
+relays -- but it is offered inside the room, where it is useful.
+
 **Who is a member is the pool's call, not ours.** A chat key is tied to a
 Stacks address by one message the wallet signs -- the address, the chat key,
 the network, in plain words the wallet shows -- published as NIP-78
@@ -341,7 +360,8 @@ with `?relays=`, and a few browser profiles talking to each other. The pool's
 membership read is answered by the script, so two profiles can be given
 bindings signed by fresh Stacks keys and walked into the members room while a
 third is left out; afterwards the relay is checked to hold nothing but
-ciphertext, wrapped to exactly the two. It touches no public relay. Screenshots
+ciphertext, wrapped to exactly the two. Reactions, shortcodes, the picker,
+presence, the members list and a profile are walked through the same way. It touches no public relay. Screenshots
 land in `shots/chat-*.png`. It is not part of `pnpm run check` because it needs
 the browser.
 

@@ -57,11 +57,12 @@ export function startRelay(port) {
         const id = a;
         const filters = rest;
         subs.get(ws).set(id, filters);
+        // Oldest first, ties in the order they arrived; the newest `limit`.
         let out = events.filter((ev) => filters.some((f) => matches(ev, f)));
-        out.sort((x, y) => y.created_at - x.created_at);
+        out.sort((x, y) => x.created_at - y.created_at);
         const limit = Math.min(...filters.map((f) => f.limit ?? Infinity));
-        if (Number.isFinite(limit)) out = out.slice(0, limit);
-        for (const ev of out.reverse()) ws.send(JSON.stringify(["EVENT", id, ev]));
+        if (Number.isFinite(limit)) out = out.slice(-limit);
+        for (const ev of out) ws.send(JSON.stringify(["EVENT", id, ev]));
         ws.send(JSON.stringify(["EOSE", id]));
       } else if (type === "CLOSE") {
         subs.get(ws)?.delete(a);

@@ -16,12 +16,13 @@
 // log's scroll position, the caret in the composer, half-typed fields -- is
 // carried across by hand in `render()`.
 import { mountInto, type Scope } from "./render.js";
-import { config } from "./config.js";
+import { config, net } from "./config.js";
 import type {
   Binding,
   ChatBackend,
   ChatMessage,
   Identity,
+  Reaction,
   Room,
   Status,
 } from "./nostr.js";
@@ -43,7 +44,10 @@ export interface ChatHost {
 
 /// --- state ----------------------------------------------------------------------
 
-type Sheet = "none" | "identity" | "bring" | "backup";
+type Sheet = "none" | "identity" | "bring" | "backup" | "members" | "profile";
+
+/** Where a picked emoji goes: into the composer, or onto a message. */
+type Picker = { for: "draft" } | { for: "message"; id: string } | null;
 
 interface Known {
   address: string;
@@ -60,8 +64,14 @@ interface State {
   /** Other fields the sheets read, kept the same way, by element id. */
   fields: Record<string, string>;
   messages: Map<string, ChatMessage>;
+  reactions: Map<string, Reaction>;
   names: Map<string, string>;
   bindings: Map<string, Known>;
+  /** When each key's page last said it was open, in seconds. */
+  presence: Map<string, number>;
+  /** Whose profile sheet is open. */
+  profileOf: string;
+  picker: Picker;
   me: Identity | null;
   status: Status;
   loading: boolean;
@@ -85,8 +95,12 @@ const state: State = {
   draft: "",
   fields: {},
   messages: new Map(),
+  reactions: new Map(),
   names: new Map(),
   bindings: new Map(),
+  presence: new Map(),
+  profileOf: "",
+  picker: null,
   me: null,
   status: { relays: 0, total: 0, synced: false },
   loading: true,
@@ -149,6 +163,39 @@ function parts(text: string): { text: string; href: string; plain: boolean }[] {
 const message = (error: unknown): string =>
   error instanceof Error ? error.message : String(error);
 
+/// --- emoji ---------------------------------------------------------------------------
+
+/** The picker's grid: a hive's worth, then the usual. */
+const EMOJI: { char: string; name: string }[] = [
+  ["🐝", "bee"], ["🍯", "honey"], ["🪙", "coin"], ["₿", "bitcoin"], ["🗳️", "ballot"], ["⚖️", "scales"],
+  ["👍", "thumbs up"], ["👎", "thumbs down"], ["👏", "clap"], ["🙏", "thanks"], ["🤝", "handshake"], ["👀", "eyes"],
+  ["❤️", "heart"], ["🔥", "fire"], ["✅", "check"], ["❌", "cross"], ["❓", "question"], ["❗", "exclamation"],
+  ["😀", "grin"], ["😂", "joy"], ["😅", "sweat smile"], ["😉", "wink"], ["😊", "blush"], ["🙂", "smile"],
+  ["🤔", "thinking"], ["🤨", "raised eyebrow"], ["😐", "neutral"], ["😬", "grimace"], ["🙄", "eye roll"], ["😢", "cry"],
+  ["😮", "open mouth"], ["🤯", "mind blown"], ["🥳", "party"], ["😎", "cool"], ["🫡", "salute"], ["🤷", "shrug"],
+  ["🎉", "tada"], ["🚀", "rocket"], ["💡", "idea"], ["⏳", "hourglass"], ["⏰", "alarm"], ["📈", "chart up"],
+  ["📉", "chart down"], ["🔒", "lock"], ["🔑", "key"], ["🧱", "brick"], ["🛠️", "tools"], ["📜", "scroll"],
+  ["☀️", "sun"], ["🌙", "moon"], ["⭐", "star"], ["🌱", "seedling"], ["🌻", "sunflower"], ["🍀", "clover"],
+  ["☕", "coffee"], ["🍺", "beer"], ["🎯", "target"], ["🏁", "finish"], ["👋", "wave"], ["💬", "speech"],
+].map(([char, name]) => ({ char, name }));
+
+/** `:bee:` in a message becomes 🐝 when it is sent. */
+const SHORTCODES: Record<string, string> = Object.fromEntries([
+  ...EMOJI.map(({ char, name }) => [name.replace(/ /g, "_"), char]),
+  ["+1", "👍"], ["-1", "👎"], ["thumbsup", "👍"], ["thumbsdown", "👎"], ["ok", "✅"], ["x", "❌"],
+  ["sats", "🪙"], ["btc", "₿"], ["stx", "🧱"], ["honeypot", "🍯"], ["hive", "🐝"], ["lol", "😂"],
+  ["yes", "✅"], ["no", "❌"], ["heart", "❤️"], ["vote", "🗳️"],
+]);
+
+const withEmoji = (text: string): string =>
+  text.replace(/(^|[\s(])?:([a-z0-9_+-]{1,20}):/gi, (all, lead: string | undefined, code: string) => {
+    const found = SHORTCODES[code.toLowerCase()];
+    return found ? `${lead ?? ""}${found}` : all;
+  });
+
+/** The reactions offered first, before the whole grid. */
+const QUICK = ["👍", "❤️", "🐝", "🍯", "👀", "🤔", "✅", "🎉"];
+
 /** What is in a sheet's field: the element if it is on screen, else what was typed into it last. */
 const field = (id: string): string =>
   (document.getElementById(id) as HTMLInputElement | null)?.value ?? state.fields[id] ?? "";
@@ -175,6 +222,27 @@ const fromMember = (pubkey: string): boolean => {
 };
 
 const canReadMembers = (): boolean => Boolean(state.me?.canEncrypt) && myKnown()?.member === true;
+
+const PRESENCE_TTL = 120;
+const online = (pubkey: string): boolean =>
+  Math.floor(Date.now() / 1000) - (state.presence.get(pubkey) ?? 0) < PRESENCE_TTL;
+
+const explorerAddress = (address: string): string =>
+  `${net().explorer}/address/${address}?chain=${config.network}`;
+
+/** Reactions on one message, grouped by emoji, in first-seen order. */
+function reactionsOn(id: string): { emoji: string; who: string[]; mine: Reaction | null }[] {
+  const groups = new Map<string, { emoji: string; who: string[]; mine: Reaction | null }>();
+  const me = state.me?.pubkey;
+  for (const r of state.reactions.values()) {
+    if (r.to !== id) continue;
+    const group = groups.get(r.emoji) ?? { emoji: r.emoji, who: [], mine: null };
+    if (!group.who.includes(r.pubkey)) group.who.push(r.pubkey);
+    if (r.pubkey === me) group.mine = r;
+    groups.set(r.emoji, group);
+  }
+  return [...groups.values()];
+}
 
 /// --- messages in view -------------------------------------------------------------------
 
@@ -241,7 +309,7 @@ function show(room: Room): void {
 }
 
 async function send(): Promise<void> {
-  const text = state.draft.trim();
+  const text = withEmoji(state.draft).trim();
   if (!text || !backend || state.busy) return;
   if (state.room === "members" && !canReadMembers()) return;
   try {
@@ -254,6 +322,60 @@ async function send(): Promise<void> {
     focusComposer();
   } catch (error) {
     setState({ busy: "", notice: `Not sent: ${message(error)}` });
+  }
+}
+
+/**
+ * Put an emoji on a message, or take yours off it again. Adding the same one
+ * twice is a no-op rather than a second reaction.
+ */
+async function react(id: string, emoji: string): Promise<void> {
+  const msg = state.messages.get(id);
+  if (!msg || !backend || !state.me) return;
+  if (msg.room === "members" && !canReadMembers()) return;
+  const mine = [...state.reactions.values()].find(
+    (r) => r.to === id && r.emoji === emoji && r.pubkey === state.me!.pubkey,
+  );
+  setState({ picker: null });
+  try {
+    if (mine) {
+      state.reactions.delete(mine.id);
+      render();
+      await backend.unreact(mine, memberKeys());
+    } else {
+      const sent = await backend.react(msg, emoji, memberKeys());
+      state.reactions.set(sent.id, sent);
+      render();
+    }
+  } catch (error) {
+    setState({ notice: `Reaction not sent: ${message(error)}` });
+  }
+}
+
+/** The picker, for the composer or for a message. Clicking the same place again closes it. */
+function togglePicker(target: Picker): void {
+  const same =
+    state.picker && target && state.picker.for === target.for &&
+    (target.for !== "message" || (state.picker as { id?: string }).id === target.id);
+  setState({ picker: same ? null : target });
+}
+
+function pick(char: string): void {
+  const target = state.picker;
+  if (!target) return;
+  if (target.for === "message") {
+    void react(target.id, char);
+    return;
+  }
+  const input = document.getElementById("chat-input") as HTMLTextAreaElement | null;
+  const start = input?.selectionStart ?? state.draft.length;
+  const end = input?.selectionEnd ?? start;
+  state.draft = `${state.draft.slice(0, start)}${char}${state.draft.slice(end)}`;
+  render();
+  const after = document.getElementById("chat-input") as HTMLTextAreaElement | null;
+  if (after) {
+    after.focus({ preventScroll: true });
+    after.setSelectionRange(start + char.length, start + char.length);
   }
 }
 
@@ -399,6 +521,23 @@ function load(): Promise<void> {
           state.names.set(pubkey, name);
           schedule();
         },
+        onReaction: (r: Reaction) => {
+          state.reactions.set(r.id, r);
+          schedule();
+        },
+        onUnreaction: (ref) => {
+          for (const [id, r] of state.reactions) {
+            const byId = ref.id !== undefined && id === ref.id && r.pubkey === ref.pubkey;
+            const byWhat =
+              ref.id === undefined && r.pubkey === ref.pubkey && r.to === ref.to && r.emoji === ref.emoji;
+            if (byId || byWhat) state.reactions.delete(id);
+          }
+          schedule();
+        },
+        onPresence: (pubkey, at) => {
+          state.presence.set(pubkey, Math.max(state.presence.get(pubkey) ?? 0, at));
+          schedule();
+        },
         onBinding: (b: Binding, member) => {
           state.bindings.set(b.pubkey, { address: b.address, member });
           schedule();
@@ -417,6 +556,10 @@ function load(): Promise<void> {
       backend.start();
       // Membership can lapse -- a withdrawal, an exit -- so ask again now and then.
       setInterval(() => void backend?.recheckMembers(), 10 * 60 * 1000);
+      // Presence lapses too, without an event to say so.
+      setInterval(() => {
+        if (state.open) render();
+      }, 30_000);
       setState({ loading: false });
     } catch (error) {
       setState({ loading: false, failed: message(error) });
@@ -491,6 +634,49 @@ function viewModel(): Scope {
 
   const unread = unreadCount();
   const seenHead = new Map<string, number>();
+  const onlineMembers = members.filter(online).length;
+
+  // Everyone a wallet has signed for, members first, then by name.
+  const people = [...state.bindings]
+    .map(([pubkey, k]) => ({ pubkey, ...k }))
+    .sort((x, y) =>
+      Number(y.member === true) - Number(x.member === true) ||
+      Number(online(y.pubkey)) - Number(online(x.pubkey)) ||
+      nameOf(x.pubkey).localeCompare(nameOf(y.pubkey)),
+    );
+  const person = (pubkey: string) => {
+    const known = state.bindings.get(pubkey) ?? null;
+    const npub = backend?.npub(pubkey) ?? "";
+    return {
+      pubkey,
+      name: nameOf(pubkey),
+      color: colorOf(pubkey),
+      online: online(pubkey),
+      onlineLabel: online(pubkey) ? "online" : "away",
+      isMe: pubkey === me?.pubkey,
+      member: known?.member === true,
+      linked: Boolean(known),
+      memberLabel: !known
+        ? "Not linked to a wallet"
+        : known.member === true
+          ? "Verified member"
+          : known.member === false
+            ? "Linked · no position in the pool"
+            : "Linked · membership unknown",
+      address: known?.address ?? "",
+      addressShort: known ? shortAddress(known.address) : "",
+      explorer: known ? explorerAddress(known.address) : "",
+      npub,
+      npubShort: npub ? shortKey(npub) : "",
+      njump: backend?.profileLink(pubkey) ?? "",
+      open: () => setState({ sheet: "profile", profileOf: pubkey, notice: "" }),
+      copyAddress: () => void copy(known?.address ?? "", "Address"),
+      copyKey: () => void copy(npub, "Key"),
+    };
+  };
+  const profile = state.profileOf ? person(state.profileOf) : null;
+  const pickerFor = state.picker;
+  const pickerTarget = pickerFor?.for === "message" ? state.messages.get(pickerFor.id) : null;
 
   return {
     chatOpen: state.open,
@@ -516,8 +702,27 @@ function viewModel(): Scope {
       publicFg: isMembers ? "var(--color-text)" : "var(--color-bg)",
       membersBg: isMembers ? "var(--color-accent)" : "transparent",
       membersFg: isMembers ? "var(--color-bg)" : "var(--color-text)",
-      membersNote: verified ? `${members.length} verified` : "verified wallets",
+      // The verified count is in the line under the tabs; the tab keeps short.
+      membersNote: verified ? `${onlineMembers} online` : "verified wallets",
     },
+
+    // Who is here. The list is the members room's; a profile opens from any name.
+    showMembers: isMembers && verified,
+    membersLine: `${members.length} verified ${members.length === 1 ? "member" : "members"} · ${onlineMembers} online`,
+    openMembers: () => setState({ sheet: "members", notice: "" }),
+    sheetMembers: state.sheet === "members",
+    people: people.map((p) => person(p.pubkey)),
+    sheetProfile: state.sheet === "profile" && Boolean(profile),
+    profile,
+
+    // Emoji: into the composer, or onto a message.
+    pickerOpen: Boolean(pickerFor) && state.sheet === "none",
+    pickerTitle: pickerTarget ? `React to ${nameOf(pickerTarget.pubkey)}` : "Add an emoji",
+    pickerQuick: pickerFor?.for === "message",
+    quick: QUICK.map((char) => ({ char, pick: () => pick(char) })),
+    emojis: EMOJI.map(({ char, name }) => ({ char, name, pick: () => pick(char) })),
+    closePicker: () => setState({ picker: null }),
+    togglePicker: () => togglePicker({ for: "draft" }),
 
     hasTopic: state.topic !== null,
     topicId: state.topic ?? "",
@@ -563,6 +768,19 @@ function viewModel(): Scope {
         parts: parts(m.text),
         link: m.link,
         hasLink: Boolean(m.link),
+        online: online(m.pubkey),
+        openProfile: () => setState({ sheet: "profile", profileOf: m.pubkey, notice: "" }),
+        canReact: canWrite,
+        react: () => togglePicker({ for: "message", id: m.id }),
+        reactions: reactionsOn(m.id).map((g) => ({
+          emoji: g.emoji,
+          count: g.who.length,
+          who: g.who.map(nameOf).join(", "),
+          bg: g.mine ? "var(--color-accent-200)" : "var(--color-surface)",
+          border: g.mine ? "var(--color-accent)" : "var(--color-divider)",
+          toggle: () => void react(m.id, g.emoji),
+        })),
+        hasReactions: reactionsOn(m.id).length > 0,
         hasProposal: m.proposal !== null && state.topic === null,
         proposal: m.proposal ?? "",
         proposalTitle: m.proposal !== null ? titleOf(m.proposal) : "",

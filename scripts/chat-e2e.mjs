@@ -143,7 +143,7 @@ try {
   await say(A, "hello from A — https://esbee-dao.org is the place");
   ok(await waitText(A, "hello from A"), "A sees its own message");
   ok((await A.page.$$(".chat-bubble a")).length === 1, "the URL in it is a link");
-  const out = await A.page.$eval(".chat-out", (a) => a.getAttribute("href")).catch(() => null);
+  const out = await A.page.$eval("a.chat-out", (a) => a.getAttribute("href")).catch(() => null);
   ok(out && out.startsWith("https://njump.me/nevent1"), `the message links out to njump (${out})`);
   const roomLink = await A.page.$eval(".chat-head a", (a) => a.getAttribute("href")).catch(() => null);
   ok(roomLink && roomLink.startsWith("https://njump.me/nevent1"), "and so does the room");
@@ -164,6 +164,32 @@ try {
   ok(await waitText(A, "second line from B"), "and a second one");
   const heads = await A.page.$$eval(".chat-msg-head", (els) => els.length);
   ok(heads === 2, `consecutive messages from B share one header (${heads} headers for 3 messages)`);
+  // Reactions: A reacts to B's line via the quick bar; B sees it; B adds one; A takes its own back.
+  await A.page.hover(".chat-msg >> nth=1");
+  await A.page.click(".chat-msg >> nth=1 >> button[title='React']");
+  await A.page.waitForSelector(".chat-picker-quick");
+  await A.page.click(".chat-picker-quick button:has-text('🐝')");
+  const chip = async (p) => (await p.page.$$eval(".chat-reaction", (els) => els.map((e) => e.textContent.replace(/\s+/g, " ").trim())));
+  const waitChip = async (p, text) => { for (let i = 0; i < 40; i++) { if ((await chip(p)).includes(text)) return true; await sleep(250); } return false; };
+  ok(await waitChip(A, "🐝 1"), "A's reaction shows as a chip");
+  ok(await waitChip(B, "🐝 1"), "B sees A's reaction");
+  await B.page.click(".chat-reaction:has-text('🐝')");
+  ok(await waitChip(A, "🐝 2"), "B joins it from the chip and A sees two");
+  await A.page.click(".chat-reaction:has-text('🐝')");
+  ok(await waitChip(B, "🐝 1"), "A takes its own back and B sees one (NIP-09 deletion)");
+  ok(relay.events.some((e) => e.kind === 7 && e.content === "🐝") && relay.events.some((e) => e.kind === 5), "the relay saw a kind 7 and a kind 5");
+  // Shortcodes and the composer picker.
+  await say(A, "sweet :honey: and :+1:");
+  ok(await waitText(B, "sweet 🍯 and 👍"), "shortcodes become emoji on send");
+  await A.page.click(".chat-emoji-btn");
+  await A.page.waitForSelector(".chat-picker-grid");
+  await A.page.click(".chat-picker-grid button[title='bee']");
+  ok((await A.page.inputValue("#chat-input")) === "🐝", "the picker puts an emoji in the composer");
+  await A.page.fill("#chat-input", "");
+  // Presence: both pages have said they are here.
+  await A.page.waitForSelector(".chat-msg-head .chat-online");
+  const onlineDots = await A.page.$$eval(".chat-msg-head .chat-online", (els) => els.length);
+  ok(onlineDots >= 1, `A sees B online next to B's name (${onlineDots} dots)`);
   await A.page.screenshot({ path: join(SHOTS, "chat-03-conversation.png") });
 
   // 3. A sets a name; B sees it live.
@@ -208,6 +234,30 @@ try {
   ok(await waitText(B, "members only"), "B opens the sealed message");
   await B.page.screenshot({ path: join(SHOTS, "chat-07-members-room.png") });
 
+  // Who is here: the list, and a profile with address and key.
+  await A.page.click("#chat button:has-text('who is here')");
+  await A.page.waitForSelector(".chat-person");
+  const persons = await A.page.$$eval(".chat-person", (els) => els.length);
+  ok(persons === 2, `the members list shows both verified members (${persons})`);
+  const listOnline = await A.page.$$eval(".chat-person .chat-online", (els) => els.length);
+  ok(listOnline === 2, `both are online (${listOnline})`);
+  await A.page.screenshot({ path: join(SHOTS, "chat-10-members.png") });
+  await A.page.click(".chat-person >> nth=1");
+  await A.page.waitForSelector(".chat-sheet code");
+  const codes = await A.page.$$eval(".chat-sheet code", (els) => els.map((e) => e.textContent));
+  ok(codes.some((c) => c === a.address || c === b.address) && codes.some((c) => c.startsWith("npub1")), `the profile shows a Stacks address and an npub`);
+  const explorer = await A.page.$eval(".chat-sheet a:has-text('Explorer')", (el) => el.getAttribute("href"));
+  ok(explorer.startsWith("https://explorer.hiro.so/address/ST") && explorer.endsWith("chain=testnet"), `and links the address to the explorer`);
+  await A.page.screenshot({ path: join(SHOTS, "chat-11-profile.png") });
+  await A.page.keyboard.press("Escape");
+  // Sealed reaction in the members room: B reacts, A sees it, C's relay copy is ciphertext.
+  await B.page.hover(".chat-msg >> nth=0");
+  await B.page.click(".chat-msg >> nth=0 >> button[title='React']");
+  await B.page.click(".chat-picker-quick button:has-text('👍')");
+  ok(await waitChip(A, "👍 1"), "a sealed reaction reaches the other member");
+  const sealedIds = new Set(relay.events.filter((e) => e.kind === 4242).map((e) => e.id));
+  ok(sealedIds.size === 2 && !relay.events.some((e) => e.kind === 7 && e.tags.some((t) => t[0] === "e" && sealedIds.has(t[1]))), "and went out sealed, not as a public kind 7");
+
   // Public room shows the member badge now.
   await B.page.click("#chat .chat-tabs button:has-text(\"Public\")");
   await sleep(300);
@@ -221,6 +271,10 @@ try {
   ok(await waitText(C, "hello from A"), "C reads the public room");
   const publicTextsC = await bubbles(C);
   ok(!publicTextsC.some((t) => t.includes("members only")), "the sealed message is not in C's public room");
+  await C.page.click(".chat-msg-head .chat-name >> nth=0");
+  await C.page.waitForSelector(".chat-sheet code");
+  ok((await C.page.textContent(".chat-sheet")).includes("Verified member"), "a stranger can open a member's profile from their name");
+  await C.page.keyboard.press("Escape");
   await C.page.click("#chat .chat-tabs button:has-text(\"Members\")");
   await C.page.waitForSelector(".chat-gate");
   ok(!(await bubbles(C)).some((t) => t.includes("members only")), "C cannot read the members room");
@@ -228,7 +282,7 @@ try {
   const sealed = relay.events.find((e) => e.kind === 4242);
   ok(sealed && !sealed.content.includes("members only") && sealed.tags.filter((t) => t[0] === "wrap").length === 2,
     "the relay holds ciphertext wrapped to exactly the two members");
-  ok(relay.events.filter((e) => e.kind === 42).length === 3, "three public messages reached the relay");
+  ok(relay.events.filter((e) => e.kind === 42).length === 4, "four public messages reached the relay");
   ok(
     relay.events.filter((e) => e.kind === 42).every((e) => e.tags.some((t) => t[0] === "e" && t[1] === "52b9144d60dddd16559b924cdbfa9404549a03dba0932d48f41013ba1a19114a" && t[3] === "root")),
     "each rooted at the pinned testnet channel",
@@ -255,8 +309,14 @@ try {
   await waitLive(M);
   await waitText(M, "hello from A");
   await M.page.screenshot({ path: join(SHOTS, "chat-09-mobile.png") });
-  const box = await M.page.$eval(".chat-panel", (el) => el.getBoundingClientRect().width);
+  let box = 0;
+  for (let i = 0; i < 10 && box !== 390; i++) {
+    box = await M.page.$eval(".chat-panel", (el) => el.getBoundingClientRect().width).catch(() => -1);
+    if (box !== 390) await sleep(200);
+  }
   ok(box === 390, `on a phone the panel fills the screen (${box}px)`);
+  const order = await bubbles(M);
+  ok(order.indexOf("hi A, B here") < order.indexOf("second line from B"), "a fresh load keeps two quick lines in order");
 
   // 9. Reload keeps identity and name.
   await A.page.reload();

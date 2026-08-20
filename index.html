@@ -67,6 +67,12 @@ a:hover { color: var(--color-accent-700); }
       </div>
     </sc-if>
 
+    <sc-if value="{{ showMembers }}">
+      <div class="chat-topic">
+        <span class="text-muted" style="font-size:12.5px">{{ membersLine }}</span>
+        <button class="btn btn-ghost" sc-camel-on-click="{{ openMembers }}" style="font-size:12px;padding:4px 8px;flex:none">who is here</button>
+      </div>
+    </sc-if>
     <div class="chat-log" id="chat-log">
       <sc-if value="{{ showFailed }}">
         <div class="chat-gate"><div class="chat-gate-title">Could not load the chat</div><p class="text-muted" style="margin:0;font-size:13px">{{ failedText }}</p></div>
@@ -87,12 +93,16 @@ a:hover { color: var(--color-accent-700); }
           <sc-if value="{{ m.showHead }}">
             <div class="chat-msg-head">
               <span class="chat-dot" style="background:{{ m.color }}"></span>
-              <span class="chat-name" style="color:{{ m.color }}">{{ m.name }}</span>
+              <button class="chat-name" sc-camel-on-click="{{ m.openProfile }}" style="color:{{ m.color }}" title="Who is this?">{{ m.name }}</button>
+              <sc-if value="{{ m.online }}"><span class="chat-online" title="Here now"></span></sc-if>
               <sc-if value="{{ m.member }}"><span class="chat-member" title="A wallet holding a position in the pool has signed for this identity">member</span></sc-if>
               <span class="chat-time">{{ m.time }}</span>
             </div>
           </sc-if>
-          <div class="chat-row"><div class="chat-bubble" style="background:{{ m.bg }}"><sc-for list="{{ m.parts }}" as="s"><sc-if value="{{ s.plain }}">{{ s.text }}</sc-if><sc-if value="{{ s.href }}"><a href="{{ s.href }}" target="_blank" rel="noopener noreferrer">{{ s.text }}</a></sc-if></sc-for></div><sc-if value="{{ m.hasLink }}"><a class="chat-out" href="{{ m.link }}" target="_blank" rel="noopener noreferrer" title="This message on njump">↗</a></sc-if></div>
+          <div class="chat-row"><div class="chat-bubble" style="background:{{ m.bg }}"><sc-for list="{{ m.parts }}" as="s"><sc-if value="{{ s.plain }}">{{ s.text }}</sc-if><sc-if value="{{ s.href }}"><a href="{{ s.href }}" target="_blank" rel="noopener noreferrer">{{ s.text }}</a></sc-if></sc-for></div><sc-if value="{{ m.canReact }}"><button class="chat-out" sc-camel-on-click="{{ m.react }}" title="React">☺+</button></sc-if><sc-if value="{{ m.hasLink }}"><a class="chat-out" href="{{ m.link }}" target="_blank" rel="noopener noreferrer" title="This message on njump">↗</a></sc-if></div>
+          <sc-if value="{{ m.hasReactions }}">
+            <div class="chat-reactions"><sc-for list="{{ m.reactions }}" as="r"><button class="chat-reaction" sc-camel-on-click="{{ r.toggle }}" style="background:{{ r.bg }};border-color:{{ r.border }}" title="{{ r.who }}">{{ r.emoji }} <span>{{ r.count }}</span></button></sc-for></div>
+          </sc-if>
           <sc-if value="{{ m.hasProposal }}"><button class="chat-ref" sc-camel-on-click="{{ m.openProposal }}">#{{ m.proposal }} · {{ m.proposalTitle }}</button></sc-if>
         </div>
       </sc-for>
@@ -102,8 +112,19 @@ a:hover { color: var(--color-accent-700); }
       <div class="chat-notice"><span style="flex:1">{{ notice }}</span><button class="btn btn-ghost" sc-camel-on-click="{{ clearNotice }}" style="font-size:12px;padding:2px 6px">✕</button></div>
     </sc-if>
 
+    <sc-if value="{{ pickerOpen }}">
+      <div class="chat-picker">
+        <div class="chat-picker-head"><span>{{ pickerTitle }}</span><button class="btn btn-ghost" sc-camel-on-click="{{ closePicker }}" style="font-size:12px;padding:2px 6px">✕</button></div>
+        <sc-if value="{{ pickerQuick }}">
+          <div class="chat-picker-quick"><sc-for list="{{ quick }}" as="e"><button class="chat-picker-emoji" sc-camel-on-click="{{ e.pick }}">{{ e.char }}</button></sc-for></div>
+        </sc-if>
+        <div class="chat-picker-grid"><sc-for list="{{ emojis }}" as="e"><button class="chat-picker-emoji" sc-camel-on-click="{{ e.pick }}" title="{{ e.name }}">{{ e.char }}</button></sc-for></div>
+      </div>
+    </sc-if>
+
     <sc-if value="{{ canWrite }}">
       <div class="chat-compose">
+        <button class="chat-emoji-btn" sc-camel-on-click="{{ togglePicker }}" title="Emoji" aria-label="Add an emoji">☺</button>
         <textarea class="input" id="chat-input" rows="1" placeholder="{{ placeholder }}" autocomplete="off" aria-label="Message">{{ draft }}</textarea>
         <button class="btn btn-primary" sc-camel-on-click="{{ send }}" style="font-size:13px;flex:none">{{ sendLabel }}</button>
       </div>
@@ -185,6 +206,46 @@ a:hover { color: var(--color-accent-700); }
           <p style="margin:0;font-size:13.5px;line-height:1.5">Anyone holding this secret can write as you. Keep it somewhere private; paste it into another browser, or a Nostr app, to be the same person there.</p>
           <code style="font-size:12px;overflow-wrap:anywhere;padding:10px 12px;background:var(--color-surface);border-radius:var(--radius-md);display:block">{{ nsec }}</code>
           <div style="display:flex;gap:8px"><button class="btn btn-secondary" sc-camel-on-click="{{ copyNsec }}" style="font-size:13px">Copy</button><button class="btn btn-ghost" sc-camel-on-click="{{ openIdentity }}" style="font-size:13px">Back</button></div>
+        </sc-if>
+
+        <sc-if value="{{ sheetMembers }}">
+          <div class="chat-sheet-head"><span>Who is here</span><button class="btn btn-ghost" sc-camel-on-click="{{ closeSheet }}" style="font-size:13px;padding:2px 8px">✕</button></div>
+          <p class="text-muted" style="margin:0;font-size:12.5px;line-height:1.5">{{ membersLine }}. Every wallet that has signed for a chat key, whether or not the pool counts it a member. Online means their page has said so in the last two minutes.</p>
+          <div class="chat-people">
+            <sc-for list="{{ people }}" as="p">
+              <button class="chat-person" sc-camel-on-click="{{ p.open }}">
+                <span class="chat-dot" style="background:{{ p.color }};width:14px;height:14px"></span>
+                <span style="min-width:0;flex:1">
+                  <span style="display:flex;align-items:center;gap:6px;font-family:var(--font-heading);font-size:14px"><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ p.name }}</span><sc-if value="{{ p.isMe }}"><span class="text-muted" style="font-family:var(--font-body);font-size:11px">you</span></sc-if><sc-if value="{{ p.online }}"><span class="chat-online"></span></sc-if></span>
+                  <span class="text-muted" style="display:block;font-family:ui-monospace,monospace;font-size:11px">{{ p.addressShort }} · {{ p.npubShort }}</span>
+                </span>
+                <sc-if value="{{ p.member }}"><span class="chat-member">member</span></sc-if>
+              </button>
+            </sc-for>
+          </div>
+        </sc-if>
+
+        <sc-if value="{{ sheetProfile }}">
+          <div class="chat-sheet-head"><span>{{ profile.name }}</span><button class="btn btn-ghost" sc-camel-on-click="{{ closeSheet }}" style="font-size:13px;padding:2px 8px">✕</button></div>
+          <div style="display:flex;align-items:center;gap:12px">
+            <span class="chat-dot" style="background:{{ profile.color }};width:34px;height:34px"></span>
+            <div style="min-width:0">
+              <div style="display:flex;align-items:center;gap:8px;font-size:13.5px"><sc-if value="{{ profile.online }}"><span class="chat-online"></span></sc-if>{{ profile.onlineLabel }}<sc-if value="{{ profile.isMe }}"><span class="text-muted">· you</span></sc-if></div>
+              <div class="text-muted" style="font-size:12.5px">{{ profile.memberLabel }}</div>
+            </div>
+          </div>
+          <sc-if value="{{ profile.linked }}">
+            <div class="chat-verified" style="flex-direction:column;align-items:stretch;gap:4px">
+              <span class="text-muted" style="font-size:11px;letter-spacing:.08em;text-transform:uppercase">Stacks address</span>
+              <code style="font-size:12px;overflow-wrap:anywhere">{{ profile.address }}</code>
+              <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn btn-secondary" sc-camel-on-click="{{ profile.copyAddress }}" style="font-size:12px;padding:5px 11px">Copy</button><a class="btn btn-secondary" href="{{ profile.explorer }}" target="_blank" rel="noopener noreferrer" style="font-size:12px;padding:5px 11px">Explorer ↗</a></div>
+            </div>
+          </sc-if>
+          <div class="chat-verified" style="flex-direction:column;align-items:stretch;gap:4px">
+            <span class="text-muted" style="font-size:11px;letter-spacing:.08em;text-transform:uppercase">Chat key</span>
+            <code style="font-size:12px;overflow-wrap:anywhere">{{ profile.npub }}</code>
+            <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn btn-secondary" sc-camel-on-click="{{ profile.copyKey }}" style="font-size:12px;padding:5px 11px">Copy</button><a class="btn btn-secondary" href="{{ profile.njump }}" target="_blank" rel="noopener noreferrer" style="font-size:12px;padding:5px 11px">njump ↗</a></div>
+          </div>
         </sc-if>
       </div>
     </sc-if>

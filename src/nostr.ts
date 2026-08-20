@@ -75,6 +75,17 @@ export interface ChatMessage {
   link: string;
 }
 
+/** An emoji on a message. */
+export interface Reaction {
+  id: string;
+  /** The message reacted to. */
+  to: string;
+  pubkey: string;
+  emoji: string;
+  at: number;
+  room: Room;
+}
+
 /** A chat key that a Stacks address has vouched for. */
 export interface Binding {
   pubkey: string;
@@ -102,11 +113,16 @@ export interface Status {
 
 export interface Handlers {
   onMessage(message: ChatMessage): void;
+  onReaction(reaction: Reaction): void;
+  /** A reaction taken back: by its id (public, NIP-09) or by who/what/which (sealed). */
+  onUnreaction(ref: { id?: string; pubkey: string; to?: string; emoji?: string }): void;
   onProfile(pubkey: string, name: string): void;
   /** `member` is null while the pool could not be asked. */
   onBinding(binding: Binding, member: boolean | null): void;
   onStatus(status: Status): void;
   onIdentity(identity: Identity): void;
+  /** Someone's page said it was open, at `at`. */
+  onPresence(pubkey: string, at: number): void;
 }
 
 /// --- constants ------------------------------------------------------------------
@@ -120,8 +136,11 @@ const DEFAULT_RELAYS = [
 ];
 
 const KIND_PROFILE = 0;
+const KIND_DELETE = 5; // NIP-09, for a public reaction taken back
+const KIND_REACTION = 7; // NIP-25
 const KIND_PUBLIC = 42; // NIP-28 channel message
 const KIND_MEMBERS = 4242; // ours: a sealed room message
+const KIND_PRESENCE = 24242; // ours, ephemeral: "I have the page open"
 const KIND_BINDING = 30078; // NIP-78 application-specific data
 
 /**
@@ -151,6 +170,9 @@ const STORE_IDENTITY = "esbee:chat:identity";
 const HISTORY = 200;
 /** How long an answer from the pool about an address is good for. */
 const MEMBERSHIP_TTL = 10 * 60 * 1000;
+/** Presence: how often a page says it is here, and how long that counts. */
+const HEARTBEAT = 45_000;
+export const PRESENCE_TTL = 120;
 
 /// --- the rooms -------------------------------------------------------------------
 
@@ -321,6 +343,9 @@ export class ChatBackend {
   private profileSub: SubCloser | null = null;
   private profileTimer: ReturnType<typeof setTimeout> | null = null;
   private synced = { public: false, members: false };
+  /** Who has reacted in public, so their taking-back (kind 5) can be followed. */
+  private reactors = new Set<string>();
+  private deletionSub: SubCloser | null = null;
   /** Sealed messages kept until a signer that can open them is available. */
   private sealed = new Map<string, Event>();
   private bindings = new Map<string, Binding>();
@@ -335,6 +360,16 @@ export class ChatBackend {
         ? override.split(",").map((r) => r.trim()).filter((r) => /^wss?:\/\//.test(r))
         : DEFAULT_RELAYS
     ).map(normalizeURL);
+  }
+
+  /** A key as people write it. */
+  npub(pubkey: string): string {
+    return nip19.npubEncode(pubkey);
+  }
+
+  /** Someone's page outside this one. */
+  profileLink(pubkey: string): string {
+    return `${NJUMP}${nip19.nprofileEncode({ pubkey, relays: this.relays.slice(0, 2) })}`;
   }
 
   /** The public room, on njump, or empty where there is no channel. */
@@ -399,6 +434,7 @@ export class ChatBackend {
     // A brought key may have a name already; a generated one will have none,
     // which costs one subscription to learn.
     this.wantProfile(signer.pubkey);
+    if (this.heartbeat) this.startPresence();
     // Whatever was sealed to the previous key is no business of this one;
     // whatever is sealed to this one can now be opened.
     void this.openSealed();
@@ -464,6 +500,9 @@ export class ChatBackend {
         `sign_event:${KIND_MEMBERS}`,
         `sign_event:${KIND_PROFILE}`,
         `sign_event:${KIND_BINDING}`,
+        `sign_event:${KIND_REACTION}`,
+        `sign_event:${KIND_DELETE}`,
+        `sign_event:${KIND_PRESENCE}`,
         "nip44_encrypt",
         "nip44_decrypt",
       ],
@@ -530,17 +569,106 @@ export class ChatBackend {
         { kinds: [KIND_BINDING], "#d": [bindingTag(this.network)] },
         { ...common, onevent: (event) => void this.onBindingEvent(event) },
       ),
+      // Who is here: ephemeral events, never stored, asked for from two
+      // minutes back so a relay that did keep one briefly still answers.
+      this.pool.subscribe(
+        this.relays,
+        { kinds: [KIND_PRESENCE], "#e": [roomId("public", this.network)], since: now() - PRESENCE_TTL },
+        {
+          ...common,
+          onevent: (event) => {
+            if (Math.abs(event.created_at - now()) < PRESENCE_TTL * 2) {
+              this.handlers.onPresence(event.pubkey, Math.min(event.created_at, now()));
+            }
+          },
+        },
+      ),
+      // Reactions carry the room as their first `e` tag, so they can be asked
+      // for by room; the last `e` is the message, as NIP-25 wants.
+      this.pool.subscribe(
+        this.relays,
+        { kinds: [KIND_REACTION], "#e": [roomId("public", this.network)], limit: HISTORY * 3 },
+        { ...common, onevent: (event) => this.onReactionEvent(event) },
+      ),
     );
     // Connection counts change without an event to hang them off.
     window.setTimeout(onStatus, 1500);
     window.setTimeout(onStatus, 5000);
+    this.startPresence();
+  }
+
+  private heartbeat: ReturnType<typeof setInterval> | null = null;
+
+  /**
+   * Say "here" now and then, while the page is in front. Ephemeral, so no
+   * relay keeps it; signed, so it cannot be faked for someone else. A signer
+   * that declines -- an extension asking the reader each time, say -- just
+   * means the reader does not show as online.
+   */
+  private startPresence(): void {
+    if (this.heartbeat) clearInterval(this.heartbeat);
+    const beat = () => {
+      if (document.visibilityState !== "visible" || !this.signer) return;
+      this.publish({
+        kind: KIND_PRESENCE,
+        created_at: now(),
+        tags: [["e", roomId("public", this.network), this.relays[0] ?? "", "root"]],
+        content: "",
+      })
+        .then((event) => this.handlers.onPresence(event.pubkey, event.created_at))
+        .catch(() => {});
+    };
+    this.heartbeat = setInterval(beat, HEARTBEAT);
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "visible") beat();
+    });
+    beat();
   }
 
   stop(): void {
     for (const sub of this.subs) sub.close();
     this.subs = [];
+    if (this.heartbeat) clearInterval(this.heartbeat);
+    this.heartbeat = null;
     this.profileSub?.close();
     this.profileSub = null;
+    this.deletionSub?.close();
+    this.deletionSub = null;
+  }
+
+  private onReactionEvent(event: Event): void {
+    if (this.seen.has(event.id)) return;
+    this.seen.add(event.id);
+    const targets = event.tags.filter((t) => t[0] === "e");
+    const to = targets[targets.length - 1]?.[1];
+    const room = roomId("public", this.network);
+    if (!to || to === room) return;
+    const emoji = event.content === "+" ? "👍" : event.content === "-" ? "👎" : event.content.trim();
+    if (!emoji || emoji.length > 16) return;
+    this.handlers.onReaction({ id: event.id, to, pubkey: event.pubkey, emoji, at: event.created_at, room: "public" });
+    this.watchReactor(event.pubkey);
+  }
+
+  /**
+   * A public reaction is taken back with a NIP-09 deletion. Those are asked for
+   * by author -- everyone seen reacting so far -- in one subscription reopened
+   * as the set grows, the same way names are.
+   */
+  private watchReactor(pubkey: string): void {
+    if (this.reactors.has(pubkey)) return;
+    this.reactors.add(pubkey);
+    this.deletionSub?.close();
+    this.deletionSub = this.pool.subscribe(
+      this.relays,
+      { kinds: [KIND_DELETE], authors: [...this.reactors], "#k": [String(KIND_REACTION)] },
+      {
+        onevent: (event) => {
+          for (const tag of event.tags) {
+            if (tag[0] === "e" && tag[1]) this.handlers.onUnreaction({ id: tag[1], pubkey: event.pubkey });
+          }
+        },
+      },
+    );
   }
 
   private reportStatus(): void {
@@ -591,13 +719,28 @@ export class ChatBackend {
     if (!wrap) return;
     try {
       const key = hexToBytes(await signer.decrypt(event.pubkey, wrap));
-      const body = JSON.parse(nip44.decrypt(event.content, key)) as {
-        text?: string;
-        proposal?: number | null;
-      };
-      const text = String(body.text ?? "").trim();
+      const body = JSON.parse(nip44.decrypt(event.content, key)) as SealedBody;
       this.seen.add(event.id);
       this.sealed.delete(event.id);
+      // A reaction, or one taken back, travels in the same sealed envelope as
+      // a message: which message it is about is inside, where a relay cannot
+      // see it.
+      if (typeof body.reaction === "string" && typeof body.to === "string") {
+        if (body.undo) {
+          this.handlers.onUnreaction({ pubkey: event.pubkey, to: body.to, emoji: body.reaction });
+        } else if (body.reaction) {
+          this.handlers.onReaction({
+            id: event.id,
+            to: body.to,
+            pubkey: event.pubkey,
+            emoji: body.reaction.slice(0, 16),
+            at: event.created_at,
+            room: "members",
+          });
+        }
+        return;
+      }
+      const text = String(body.text ?? "").trim();
       if (!text) return;
       this.handlers.onMessage({
         id: event.id,
@@ -705,18 +848,7 @@ export class ChatBackend {
         content: body,
       });
     } else {
-      if (!signer.canEncrypt) throw new Error("This identity cannot encrypt");
-      const to = [...new Set([signer.pubkey, ...recipients])];
-      const key = crypto.getRandomValues(new Uint8Array(32));
-      const wraps = await Promise.all(
-        to.map(async (pub) => ["wrap", pub, await signer.encrypt(pub, bytesToHex(key))]),
-      );
-      event = await this.publish({
-        kind: KIND_MEMBERS,
-        created_at: now(),
-        tags: [root, ...to.map((pub) => ["p", pub]), ...wraps],
-        content: nip44.encrypt(JSON.stringify({ text: body, proposal }), key),
-      });
+      event = await this.publishSealed({ text: body, proposal }, recipients);
     }
     this.seen.add(event.id);
     return {
@@ -728,6 +860,86 @@ export class ChatBackend {
       room,
       link: room === "public" ? this.linkTo(event) : "",
     };
+  }
+
+  /**
+   * Seal something to the members: a random key over the body, wrapped to each
+   * of them and the sender. What the body is -- a message, a reaction -- is
+   * inside; the relays see a kind, a root and a list of `p` tags.
+   */
+  private async publishSealed(body: SealedBody, recipients: string[]): Promise<Event> {
+    const signer = this.signer;
+    if (!signer) throw new Error("No chat identity yet");
+    if (!signer.canEncrypt) throw new Error("This identity cannot encrypt");
+    const to = [...new Set([signer.pubkey, ...recipients])];
+    const key = crypto.getRandomValues(new Uint8Array(32));
+    const wraps = await Promise.all(
+      to.map(async (pub) => ["wrap", pub, await signer.encrypt(pub, bytesToHex(key))]),
+    );
+    return this.publish({
+      kind: KIND_MEMBERS,
+      created_at: now(),
+      tags: [
+        ["e", roomId("members", this.network), this.relays[0] ?? "", "root"],
+        ...to.map((pub) => ["p", pub]),
+        ...wraps,
+      ],
+      content: nip44.encrypt(JSON.stringify(body), key),
+    });
+  }
+
+  /**
+   * An emoji on a message. In public that is a NIP-25 reaction -- the room as
+   * the first `e` tag so it can be found by room, the message as the last, as
+   * the NIP has it -- and other clients show it too. In the members room it is
+   * sealed like everything else there.
+   */
+  async react(message: ChatMessage, emoji: string, recipients: string[]): Promise<Reaction> {
+    const signer = this.signer;
+    if (!signer) throw new Error("No chat identity yet");
+    const face = emoji.trim().slice(0, 16);
+    if (!face) throw new Error("Nothing to react with");
+    let event: Event;
+    if (message.room === "public") {
+      event = await this.publish({
+        kind: KIND_REACTION,
+        created_at: now(),
+        tags: [
+          ["e", roomId("public", this.network), this.relays[0] ?? "", "root"],
+          ["e", message.id, this.relays[0] ?? ""],
+          ["p", message.pubkey],
+          ["k", String(KIND_PUBLIC)],
+        ],
+        content: face,
+      });
+      this.watchReactor(signer.pubkey);
+    } else {
+      event = await this.publishSealed({ reaction: face, to: message.id }, recipients);
+    }
+    this.seen.add(event.id);
+    return { id: event.id, to: message.id, pubkey: event.pubkey, emoji: face, at: event.created_at, room: message.room };
+  }
+
+  /** Take a reaction back: a deletion in public, a sealed undo among members. */
+  async unreact(reaction: Reaction, recipients: string[]): Promise<void> {
+    if (reaction.room === "public") {
+      const event = await this.publish({
+        kind: KIND_DELETE,
+        created_at: now(),
+        tags: [
+          ["e", reaction.id],
+          ["k", String(KIND_REACTION)],
+        ],
+        content: "",
+      });
+      this.seen.add(event.id);
+    } else {
+      const event = await this.publishSealed(
+        { reaction: reaction.emoji, to: reaction.to, undo: true },
+        recipients,
+      );
+      this.seen.add(event.id);
+    }
   }
 
   /** A display name, for a key this page generated. Others keep their own profile. */
@@ -780,6 +992,15 @@ export class ChatBackend {
 }
 
 /// --- helpers ---------------------------------------------------------------------
+
+/** What a sealed members-room event says, once opened. */
+interface SealedBody {
+  text?: string;
+  proposal?: number | null;
+  reaction?: string;
+  to?: string;
+  undo?: boolean;
+}
 
 const now = (): number => Math.floor(Date.now() / 1000);
 
