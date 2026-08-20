@@ -514,9 +514,14 @@ a:hover { color: var(--color-accent-700); }
           <div style="display:flex;justify-content:space-between;gap:10px;font-size:13px;padding:9px 2px;">
             <span class="text-muted">STX leg</span><span id="join-quote" style="font-family:var(--font-heading);text-align:right">{{ join.quote }}</span>
           </div>
-          <div style="display:flex;justify-content:space-between;gap:10px;align-items:baseline;font-size:13px;padding:9px 2px;border-top:1px solid var(--color-divider)">
+          <div style="display:flex;justify-content:space-between;gap:10px;align-items:center;font-size:13px;padding:9px 2px;border-top:1px solid var(--color-divider)">
             <span class="text-muted">your sBTC</span>
-            <button sc-camel-on-click="{{ join.useMax }}" style="background:none;border:0;padding:0;font:inherit;font-family:var(--font-heading);color:inherit;cursor:pointer;text-align:right" style-hover="color:var(--color-accent-700)">{{ join.balance }}<span class="text-muted" style="font-size:11.5px;margin-left:6px;font-family:var(--font-body)">{{ join.maxHint }}</span></button>
+            <sc-if value="{{ join.connected }}" hint-placeholder-val="{{ true }}">
+              <button sc-camel-on-click="{{ join.useMax }}" style="background:none;border:0;padding:0;font:inherit;font-family:var(--font-heading);color:inherit;cursor:pointer;text-align:right" style-hover="color:var(--color-accent-700)">{{ join.balance }}<span class="text-muted" style="font-size:11.5px;margin-left:6px;font-family:var(--font-body)">{{ join.maxHint }}</span></button>
+            </sc-if>
+            <sc-if value="{{ join.disconnected }}" hint-placeholder-val="{{ false }}">
+              <button class="btn btn-secondary" sc-camel-on-click="{{ join.connect }}" style="font-size:12.5px;padding:5px 14px;flex:none">Connect</button>
+            </sc-if>
           </div>
           <sc-if value="{{ join.wrongNetwork }}">
             <p style="margin:2px 0 0;font-size:13px;line-height:1.5;color:var(--color-accent-800)">{{ join.networkWarning }}</p>
@@ -700,7 +705,17 @@ a:hover { color: var(--color-accent-700); }
   <div style="max-width:1240px;margin:0 auto;padding:clamp(44px,7vw,96px) clamp(20px,4vw,40px)">
     <div style="display:flex;flex-wrap:wrap;gap:18px;align-items:flex-end;justify-content:space-between;margin-bottom:8px">
       <h2 style="font-size:clamp(28px,4.2vw,46px);margin:0;max-width:16ch">The vote floor</h2>
-      <span class="tag tag-accent-2" style="font-size:12px;padding:6px 14px">Testnet rehearsal · mainnet pool has not staked</span>
+      <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center">
+        <sc-if value="{{ dummy }}" hint-placeholder-val="{{ true }}">
+          <span class="tag tag-neutral" style="font-size:12px;padding:6px 14px">Dummy proposals · nothing on chain</span>
+        </sc-if>
+        <span class="tag tag-accent-2" style="font-size:12px;padding:6px 14px">Testnet rehearsal · mainnet pool has not staked</span>
+        <div class="seg" style="flex:none">
+          <sc-for list="{{ sources }}" as="s" hint-placeholder-count="2">
+            <button class="seg-opt" sc-camel-on-click="{{ s.choose }}" title="{{ s.note }}" style="background:{{ s.bg }};color:{{ s.fg }};border:0;font:inherit;font-size:12.5px;cursor:pointer">{{ s.label }}</button>
+          </sc-for>
+        </div>
+      </div>
     </div>
     <p class="text-muted" style="max-width:60ch;margin:0 0 clamp(24px,4vw,38px);font-size:16px">Connect to see your weight and cast a vote. These proposals run against the testnet deployment — mainnet has no committed shares yet, so nothing here is binding.</p>
 
@@ -746,6 +761,9 @@ a:hover { color: var(--color-accent-700); }
               <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:10px">
                 <span style="font-family:var(--font-heading);font-size:13px;color:var(--color-accent)">#{{ p.id }}</span>
                 <span style="font-size:11.5px;letter-spacing:.03em;padding:4px 12px;border-radius:999px;background:{{ p.tone.bg }};color:{{ p.tone.fg }}">{{ p.state }}</span>
+                <sc-if value="{{ p.dummy }}" hint-placeholder-val="{{ true }}">
+                  <span class="tag tag-neutral" style="font-size:11.5px;padding:4px 12px;border-radius:999px">dummy</span>
+                </sc-if>
                 <code style="font-family:ui-monospace,monospace;font-size:11.5px;opacity:.6">{{ p.kind }}</code>
               </div>
               <h4 style="margin:0 0 6px;font-size:clamp(19px,2.2vw,24px);line-height:1.2">{{ p.title }}</h4>
@@ -778,6 +796,12 @@ a:hover { color: var(--color-accent-700); }
             </div>
           </div>
         </sc-for>
+        <sc-if value="{{ noProposals }}" hint-placeholder-val="{{ false }}">
+          <div style="background:var(--color-bg);border-radius:28px;padding:clamp(20px,3vw,28px)">
+            <div style="font-family:var(--font-heading);font-size:20px">Nothing on the live floor</div>
+            <p class="text-muted" style="margin:5px 0 0;font-size:14px;line-height:1.55;max-width:52ch">{{ noProposalsWhy }}</p>
+          </div>
+        </sc-if>
       </div>
     </sc-if>
 
@@ -790,6 +814,9 @@ a:hover { color: var(--color-accent-700); }
         <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:12px">
           <span style="font-family:var(--font-heading);font-size:14px;color:var(--color-accent)">#{{ sel.id }}</span>
           <span style="font-size:12px;padding:5px 13px;border-radius:999px;background:{{ sel.tone.bg }};color:{{ sel.tone.fg }}">{{ sel.state }}</span>
+          <sc-if value="{{ sel.dummy }}" hint-placeholder-val="{{ true }}">
+            <span class="tag tag-neutral" style="font-size:12px;padding:5px 13px;border-radius:999px">dummy</span>
+          </sc-if>
           <code style="font-family:ui-monospace,monospace;font-size:12px;opacity:.6">{{ sel.kind }}</code>
         </div>
         <h3 style="margin:0 0 10px;font-size:clamp(23px,3.2vw,34px);max-width:24ch">{{ sel.title }}</h3>

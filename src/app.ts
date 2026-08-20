@@ -66,6 +66,8 @@ interface ProposalBase {
 }
 
 interface ProposalView extends Omit<ProposalBase, "open"> {
+  /** This row is one of the design's fixtures, not something on chain. */
+  dummy: boolean;
   yesLabel: string;
   noLabel: string;
   yesW: string;
@@ -109,6 +111,12 @@ interface State {
   amount: string;
   /** A deposit the wallet accepted, followed until it settles. */
   pending: Pending | null;
+  /**
+   * Which proposals the floor shows: `true` the fixtures, `false` the chain,
+   * `null` whichever the chain justifies -- live if it has any, fixtures if
+   * not, which is what a reader arriving at an empty deployment wants.
+   */
+  dummy: boolean | null;
 }
 
 type Unit = "sats" | "sbtc";
@@ -138,6 +146,7 @@ const state: State = {
   unit: "sats",
   amount: "",
   pending: null,
+  dummy: null,
 };
 
 function setState(patch: Partial<State> | ((s: State) => Partial<State>)): void {
@@ -1119,6 +1128,9 @@ interface JoinPanel {
   open: boolean;
   closed: boolean;
   connected: boolean;
+  /** No wallet: the balance row offers to connect rather than reading "—". */
+  disconnected: boolean;
+  connect: () => void;
   closedWhy: string;
   depositTo: string;
   quote: string;
@@ -1182,6 +1194,8 @@ function joinPanel(): JoinPanel {
     open,
     closed: !open,
     connected: state.connected,
+    disconnected: !state.connected,
+    connect: () => setState({ walletOpen: true }),
     closedWhy: !configured()
       ? "This page has no deployment configured, so nothing here would be sent."
       : !bond?.bound
@@ -1246,7 +1260,12 @@ function joinPanel(): JoinPanel {
 
 /// --- the view model ---------------------------------------------------------------
 
-function decorate(p: ProposalBase, weight: number, hiveWeight: number): ProposalView {
+function decorate(
+  p: ProposalBase,
+  weight: number,
+  hiveWeight: number,
+  dummy: boolean,
+): ProposalView {
   const mine = state.votes[p.id] ?? p.mine ?? null;
   const echo = state.votes[p.id] && !p.mine ? weight : 0;
   const yes = p.yes + (mine === "for" ? echo : 0);
@@ -1286,6 +1305,7 @@ function decorate(p: ProposalBase, weight: number, hiveWeight: number): Proposal
 
   return {
     ...p,
+    dummy,
     yesLabel: fmt(yes),
     noLabel: fmt(no),
     yesW: `${Math.round((yes / total) * 100)}%`,
@@ -1315,15 +1335,28 @@ function weights(): { weight: number; hiveWeight: number } {
   return { weight, hiveWeight };
 }
 
+/**
+ * Whether the floor is showing the fixtures.
+ *
+ * Left to itself the page shows whatever the chain justifies, so a deployment
+ * with nothing raised still explains what a proposal looks like. The switch
+ * overrides that in either direction, including onto an empty live floor --
+ * seeing that it is empty is the point of asking.
+ */
+function usingDummy(): boolean {
+  const live = state.floor;
+  return state.dummy ?? !(live && live.proposals.length);
+}
+
 /** Every proposal on the floor, decorated for the markup. */
 function proposalList(): ProposalView[] {
   const live = state.floor;
   const { weight, hiveWeight } = weights();
-  const source =
-    live && live.proposals.length
-      ? live.proposals.map((entry) => fromChain(entry, live.burn))
-      : baseProposals();
-  return source.map((p) => decorate(p, weight, hiveWeight));
+  const dummy = usingDummy();
+  const source = dummy
+    ? baseProposals()
+    : (live?.proposals ?? []).map((entry) => fromChain(entry, live!.burn));
+  return source.map((p) => decorate(p, weight, hiveWeight, dummy));
 }
 
 function viewModel(): Scope {
@@ -1386,6 +1419,32 @@ function viewModel(): Scope {
     sel,
     hasSelection: Boolean(sel),
     noSelection: !sel,
+    dummy: usingDummy(),
+    noProposals: proposals.length === 0,
+    noProposalsWhy: configured()
+      ? "Nothing has been raised on this deployment yet. Switch to dummy to see what a proposal reads like."
+      : "This page has no deployment configured, so there is no live floor to read. Switch to dummy for the rehearsal.",
+    // Which of the two floors you are reading, and a way to cross over. The
+    // fixtures are not on chain and no vote here is binding, so saying which is
+    // which matters more than the switch itself.
+    sources: [
+      { dummy: true, label: "Dummy", note: "The design's fixtures. Nothing here is on chain." },
+      {
+        dummy: false,
+        label: "Live",
+        note: live?.proposals.length
+          ? `${live.proposals.length} raised on ${config.network}`
+          : "Nothing raised on chain yet.",
+      },
+    ].map((option) => ({
+      label: option.label,
+      note: option.note,
+      bg: option.dummy === usingDummy() ? "var(--color-accent)" : "transparent",
+      fg: option.dummy === usingDummy() ? "var(--color-bg)" : "var(--color-text)",
+      // The selection is an id on the list being left, so it cannot survive the
+      // crossing.
+      choose: () => setState({ dummy: option.dummy, sel: null }),
+    })),
 
     weightDemo: [
       { label: "0.01 BTC", weight: fmt(1000), stakeW: "1%", sayW: "9%" },
