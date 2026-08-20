@@ -38,14 +38,44 @@ export const dao = (): ContractId => ({ address: config.deployer, name: config.d
 export const pool = (): ContractId => ({ address: config.deployer, name: config.pool });
 export const bridge = (): ContractId => ({ address: config.deployer, name: "bond-bridge" });
 
+/// --- which network an address is on ------------------------------------------
+
+/**
+ * Mainnet principals start SP (standard) or SM (contract); every other network
+ * uses ST and SN. It is one character, and it is the only thing distinguishing
+ * an address that will work from one that will not.
+ */
+const isMainnetAddress = (address: string): boolean => /^S[PM]/.test(address);
+
+/** Whether an address belongs to the network this page is configured for. */
+export const onConfiguredNetwork = (address: string): boolean =>
+  isMainnetAddress(address) === (config.network === "mainnet");
+
 /// --- wallet -----------------------------------------------------------------
 
 let account: string | null = null;
 
+/**
+ * The connected address, for the network this page is on.
+ *
+ * `addresses.stx` is a list, and a wallet is free to put more than one in it --
+ * commonly the same account on both networks. Taking the first is how a mainnet
+ * principal ends up inside a testnet post condition while the wallet signs with
+ * the testnet account it actually selected: two addresses from one connection,
+ * and only one of them is about this chain.
+ */
 export function loadAccount(): string | null {
-  account = isConnected()
-    ? getLocalStorage()?.addresses?.stx?.[0]?.address ?? null
-    : null;
+  if (!isConnected()) {
+    account = null;
+    return null;
+  }
+  const entries = getLocalStorage()?.addresses?.stx ?? [];
+  const matching = entries.find(
+    (entry) => entry?.address && onConfiguredNetwork(entry.address),
+  );
+  // Falling back to the first keeps `signer()` able to say which network the
+  // wallet is on, which is more use than the page reporting no wallet at all.
+  account = matching?.address ?? entries[0]?.address ?? null;
   return account;
 }
 
@@ -100,17 +130,6 @@ export async function burnHeight(): Promise<number> {
 /// --- writes ------------------------------------------------------------------
 
 /**
- * Mainnet principals start SP (standard) or SM (contract); every other network
- * uses ST and SN. It is one character, and it is the only thing distinguishing
- * an address that will work from one that will not.
- */
-const isMainnetAddress = (address: string): boolean => /^S[PM]/.test(address);
-
-/** Whether an address belongs to the network this page is configured for. */
-export const onConfiguredNetwork = (address: string): boolean =>
-  isMainnetAddress(address) === (config.network === "mainnet");
-
-/**
  * The connected address, once it is established that it belongs to the network
  * everything else here is about.
  *
@@ -162,7 +181,7 @@ export async function call(
   functionArgs: ClarityValue[] = [],
   conditions?: PostCondition[],
 ): Promise<string | null> {
-  signer();
+  const me = signer();
   // The contract is addressed by `config.deployer`, the post conditions name
   // `config.network`'s sBTC, and this says which chain to broadcast to. All
   // three come from the same place, so they cannot drift apart.
@@ -171,6 +190,10 @@ export async function call(
     functionName,
     functionArgs,
     network: config.network,
+    // The account the post conditions are written about. A wallet holding more
+    // than one is otherwise free to sign with a different one, and a post
+    // condition about an address that is not sending cannot fire.
+    address: me,
     // Deny is the default and the right one where the member is *sending*: the
     // wallet then refuses anything the conditions below do not name. Calls that
     // only move assets the other way -- a claim, a withdrawal -- have nothing
