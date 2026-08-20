@@ -142,15 +142,35 @@ a:hover { color: var(--color-accent-700); }
       <sc-if value="{{ launch.hasNote }}">
         <p style="margin:8px 0 0;font-size:13px;max-width:52ch;color:var(--color-accent-800)">{{ launch.note }}</p>
       </sc-if>
-      <sc-if value="{{ launch.ctaShow }}">
-        <a class="btn btn-primary" href="#join" style="font-size:14px;margin-top:14px">{{ launch.ctaLabel }}</a>
-      </sc-if>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-top:14px">
+        <sc-if value="{{ launch.ctaShow }}">
+          <a class="btn btn-primary" href="#join" style="font-size:14px">{{ launch.ctaLabel }}</a>
+        </sc-if>
+        <sc-if value="{{ launch.stakeShow }}">
+          <sc-if value="{{ launch.stakeReady }}">
+            <button class="btn btn-secondary" sc-camel-on-click="{{ launch.stake }}" style="font-size:14px">{{ launch.stakeLabel }}</button>
+          </sc-if>
+          <sc-if value="{{ launch.stakeWait }}">
+            <span class="text-muted" style="font-size:12.5px;max-width:34ch;line-height:1.45">{{ launch.stakeWait }}</span>
+          </sc-if>
+        </sc-if>
+      </div>
     </div>
     <div style="min-width:min(100%,320px);flex:1">
-      <div style="height:14px;border-radius:999px;background:var(--color-neutral-300);overflow:hidden">
-        <div style="height:100%;width:{{ launch.barW }};background:var(--color-accent);border-radius:999px"></div>
+      <!-- The bar, with the milestone drawn on it: half the allocation, the
+           point from which `stake` is worth making. -->
+      <div style="position:relative;height:14px;border-radius:999px;background:var(--color-neutral-300)">
+        <div style="position:absolute;inset:0;overflow:hidden;border-radius:999px">
+          <div style="height:100%;width:{{ launch.barW }};background:var(--color-accent);border-radius:999px"></div>
+        </div>
+        <sc-if value="{{ launch.milestoneShow }}">
+          <span style="position:absolute;left:50%;top:-3px;bottom:-3px;width:2px;background:var(--color-accent-800);opacity:.55;border-radius:2px"></span>
+        </sc-if>
       </div>
       <div style="display:flex;justify-content:space-between;gap:10px;font-size:12px;margin-top:7px" class="text-muted"><span>{{ launch.gathered }}</span><span>{{ launch.target }}</span></div>
+      <sc-if value="{{ launch.milestoneShow }}">
+        <div style="font-size:12px;margin-top:4px;color:var(--color-accent-800)">{{ launch.milestoneLabel }}</div>
+      </sc-if>
     </div>
   </div>
   <sc-if value="{{ bond.show }}">
@@ -162,13 +182,13 @@ a:hover { color: var(--color-accent-700); }
         </div>
         <p class="text-muted" style="margin:2px 0 0;font-size:13px;max-width:52ch">{{ bond.lead }}</p>
       </div>
-      <div style="min-width:min(100%,320px);flex:1">
+      <!-- One grid for every row rather than one flex row each, so the three
+           columns line up down the card instead of each row spacing itself. -->
+      <div style="min-width:min(100%,320px);flex:1;display:grid;grid-template-columns:1fr auto auto;font-size:12px;align-items:baseline">
         <sc-for list="{{ bond.rows }}" as="r">
-          <div style="display:flex;flex-wrap:wrap;gap:6px 12px;align-items:baseline;justify-content:space-between;font-size:12px;padding:6px 0;border-top:1px solid var(--color-divider)">
-            <span style="color:{{ r.fg }}">{{ r.icon }} {{ r.label }}</span>
-            <span style="font-family:ui-monospace,monospace;opacity:.7">{{ r.value }}</span>
-            <span style="color:var(--color-accent-700)">{{ r.when }}</span>
-          </div>
+          <span style="color:{{ r.fg }};padding:6px 0;border-top:1px solid var(--color-divider)">{{ r.icon }} {{ r.label }}</span>
+          <span style="font-family:ui-monospace,monospace;opacity:.7;text-align:right;white-space:nowrap;padding:6px 0 6px 14px;border-top:1px solid var(--color-divider)">{{ r.value }}</span>
+          <span style="color:var(--color-accent-700);text-align:right;white-space:nowrap;padding:6px 0 6px 14px;border-top:1px solid var(--color-divider)">{{ r.when }}</span>
         </sc-for>
       </div>
     </div>
@@ -254,17 +274,24 @@ a:hover { color: var(--color-accent-700); }
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:clamp(12px,2vw,20px)">
       <div style="background:var(--color-bg);border-radius:28px;padding:clamp(22px,3vw,30px)">
         <h4 style="margin:0 0 8px;font-size:22px">With sBTC</h4>
-        <p style="margin:0 0 14px;font-size:14px;line-height:1.6;opacity:.8">Enter an amount in sats. The STX leg is quoted from the live bond, and one call moves both.</p>
+        <p style="margin:0 0 14px;font-size:14px;line-height:1.6;opacity:.8">Enter an amount. The STX leg is quoted from the live bond, and one call moves both.</p>
         <div style="display:flex;flex-direction:column;gap:8px">
           <div class="field">
-            <label for="join-sats">Amount in sats</label>
-            <input class="input" id="join-sats" inputmode="numeric" placeholder="10000000" autocomplete="off">
+            <div style="display:flex;justify-content:space-between;align-items:center;gap:10px">
+              <label for="join-sats" style="margin:0">{{ join.amountLabel }}</label>
+              <div class="seg" style="flex:none">
+                <button class="seg-opt" sc-camel-on-click="{{ join.showSats }}" style="background:{{ join.satsBg }};color:{{ join.satsFg }};border:0;font:inherit;font-size:12px;cursor:pointer">sats</button>
+                <button class="seg-opt" sc-camel-on-click="{{ join.showSbtc }}" style="background:{{ join.sbtcBg }};color:{{ join.sbtcFg }};border:0;font:inherit;font-size:12px;cursor:pointer">sBTC</button>
+              </div>
+            </div>
+            <input class="input" id="join-sats" inputmode="decimal" placeholder="{{ join.placeholder }}" value="{{ join.amount }}" autocomplete="off">
           </div>
-          <div style="display:flex;justify-content:space-between;gap:10px;font-size:13px;padding:11px 16px;background:var(--color-surface);border-radius:999px">
+          <div style="display:flex;justify-content:space-between;gap:10px;font-size:13px;padding:9px 2px;border-top:1px solid var(--color-divider)">
             <span class="text-muted">STX leg</span><span id="join-quote" style="font-family:var(--font-heading);text-align:right">{{ join.quote }}</span>
           </div>
-          <div style="display:flex;justify-content:space-between;font-size:13px;padding:11px 16px;background:var(--color-surface);border-radius:999px">
-            <span class="text-muted">your sBTC</span><span style="font-family:var(--font-heading)">{{ join.balance }}</span>
+          <div style="display:flex;justify-content:space-between;gap:10px;align-items:baseline;font-size:13px;padding:9px 2px;border-top:1px solid var(--color-divider)">
+            <span class="text-muted">your sBTC</span>
+            <button sc-camel-on-click="{{ join.useMax }}" style="background:none;border:0;padding:0;font:inherit;font-family:var(--font-heading);color:inherit;cursor:pointer;text-align:right" style-hover="color:var(--color-accent-700)">{{ join.balance }}<span class="text-muted" style="font-size:11.5px;margin-left:6px;font-family:var(--font-body)">{{ join.maxHint }}</span></button>
           </div>
           <sc-if value="{{ join.wrongNetwork }}">
             <p style="margin:2px 0 0;font-size:13px;line-height:1.5;color:var(--color-accent-800)">{{ join.networkWarning }}</p>
@@ -281,6 +308,12 @@ a:hover { color: var(--color-accent-700); }
           </sc-if>
           <sc-if value="{{ join.closed }}">
             <p class="text-muted" style="margin:6px 0 0;font-size:13px;line-height:1.5">{{ join.closedWhy }}</p>
+          </sc-if>
+          <sc-if value="{{ join.pendingShow }}">
+            <div style="display:flex;flex-direction:column;gap:5px;padding:12px 14px;border-radius:var(--radius-md);background:var(--color-surface)">
+              <span style="font-size:13px;line-height:1.5">{{ join.pendingText }}</span>
+              <a href="{{ join.pendingLink }}" target="_blank" rel="noopener" style="font-size:12px;font-family:ui-monospace,monospace;color:var(--color-accent-800);text-decoration:none" style-hover="text-decoration:underline">{{ join.pendingTxid }} ↗</a>
+            </div>
           </sc-if>
         </div>
       </div>

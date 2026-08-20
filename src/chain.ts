@@ -229,6 +229,14 @@ export const poolCalls = {
     call(pool(), "deposit-stx", [Cl.uint(ustx)], [
       Pc.principal(signer()).willSendEq(ustx).ustx(),
     ]),
+  /**
+   * Open the epoch, or roll into the next bond.
+   *
+   * Permissionless and always was: the contract checks the window, the floor
+   * and the notice itself, so there is nothing here to authorize. The manager
+   * is the one `get-config` reports -- `stake` refuses any other.
+   */
+  stake: (manager: string) => call(pool(), "stake", [Cl.principal(manager)]),
   /** Take back everything still queued. Committed shares are not touched. */
   withdraw: () => call(pool(), "withdraw"),
   requestExit: () => call(pool(), "request-exit"),

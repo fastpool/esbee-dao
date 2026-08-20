@@ -11,6 +11,7 @@
 // calls the contract actually has, and the copy describes what that call does.
 import { mountInto, type Scope } from "./render.js";
 import {
+  apiBase,
   config,
   configured,
   explorerTx,
@@ -100,6 +101,20 @@ interface State {
   /** Last quoted STX leg, in uSTX, for whatever is typed in the sats field. */
   quotedFor: number;
   quotedUstx: number;
+  /** What the amount field is written in. Sats is the contract's own unit. */
+  unit: Unit;
+  /** The amount as typed, so a re-render can put it back where it was. */
+  amount: string;
+  /** A deposit the wallet accepted, followed until it settles. */
+  pending: Pending | null;
+}
+
+type Unit = "sats" | "sbtc";
+
+interface Pending {
+  txid: string;
+  /** `tx_status` as the API spells it: pending, success, abort_by_response... */
+  status: string;
 }
 
 /// --- state ------------------------------------------------------------------
@@ -118,6 +133,9 @@ const state: State = {
   depositTo: "",
   quotedFor: 0,
   quotedUstx: 0,
+  unit: "sats",
+  amount: "",
+  pending: null,
 };
 
 function setState(patch: Partial<State> | ((s: State) => Partial<State>)): void {
@@ -594,7 +612,20 @@ interface LaunchPanel {
   hasNote: boolean;
   ctaShow: boolean;
   ctaLabel: string;
+  /** Half the target: the point from which starting is worth it. */
+  milestoneShow: boolean;
+  milestoneReached: boolean;
+  milestoneLabel: string;
+  /** `stake`, which is permissionless -- offered once the milestone is past. */
+  stakeShow: boolean;
+  stakeReady: boolean;
+  stakeLabel: string;
+  stakeWait: string;
+  stake: () => void;
 }
+
+/** Half the allocation: enough of a pool to be worth starting. */
+const MILESTONE = 0.5;
 
 /**
  * What has gathered against what the bond will take.
@@ -634,6 +665,14 @@ function launchPanel(): LaunchPanel {
       hasNote: false,
       ctaShow: false,
       ctaLabel: "",
+      milestoneShow: false,
+      milestoneReached: false,
+      milestoneLabel: "",
+      stakeShow: false,
+      stakeReady: false,
+      stakeLabel: "",
+      stakeWait: "",
+      stake: () => {},
     };
   }
 
@@ -647,6 +686,22 @@ function launchPanel(): LaunchPanel {
   const target = floorSats > 0 ? floorSats : allocation;
   const share = target > 0 ? Math.min(gathered / target, 1) : 0;
   const percent = share * 100;
+
+  const burn = pool.burn;
+  const start = num(bond!["start-height"]);
+  const opens = num(bond!["stake-opens-at"]);
+  const notice = num(bond!["notice-ends-at"]);
+  const reached = share >= MILESTONE;
+  // Everything `stake` itself checks, so the button is offered only when the
+  // call would actually go through.
+  const stakeReady =
+    reached &&
+    burn >= opens &&
+    burn >= notice &&
+    burn < start &&
+    Boolean(preview) &&
+    num(preview!["sats"]) > 0 &&
+    preview!["meets-floor"] === true;
 
   const short = preview ? num(preview["short-ustx"]) : 0;
   const overAllocated = Boolean(preview?.["allocation-limited"]);
@@ -684,7 +739,42 @@ function launchPanel(): LaunchPanel {
     hasNote: short > 0 || overAllocated || belowFloor,
     ctaShow: open,
     ctaLabel: gathered > 0 ? "Add to the pool" : "Deposit sBTC",
+
+    // The milestone is this page's, not the contract's: `stake` has no opinion
+    // about half an allocation and never refuses over it. What it marks is the
+    // point where starting beats waiting for a fuller pool -- and past it the
+    // call is offered, because anyone may make it.
+    milestoneShow: !pool.live,
+    milestoneReached: reached,
+    milestoneLabel: reached
+      ? `Past half the allocation — the pool is worth starting`
+      : `50% · ${btc(target * MILESTONE)} launches it`,
+    stakeShow: reached && !pool.live && burn < start,
+    stakeReady,
+    stakeLabel: "Stake the pool — open epoch 0",
+    stakeWait: stakeReady
+      ? ""
+      : burn < notice
+        ? `The members' notice runs to burn ${fmt(notice)}, ${relative(notice, burn)}.`
+        : burn < opens
+          ? `The stake window opens at burn ${fmt(opens)}, ${relative(opens, burn)}.`
+          : "Nothing eligible to stake yet.",
+    stake: () => void doStake(),
   };
+}
+
+/**
+ * `stake`, from the page.
+ *
+ * The manager is whatever `get-config` reports, never a value typed here: the
+ * contract compares it against the one it was initialized with and refuses
+ * anything else, so reading it back is the only way to pass the right one.
+ */
+async function doStake(): Promise<void> {
+  const manager = String(state.pool?.config?.["signer-manager"] ?? "");
+  if (!manager) return setState({ notice: "The pool has no signer manager configured." });
+  const api = await chainApi();
+  await withWallet("the stake", () => api.poolCalls.stake(manager));
 }
 
 /// --- joining --------------------------------------------------------------------
@@ -694,7 +784,81 @@ const SALT_KEY = "esbee:salt";
 const field = (id: string): string =>
   (document.getElementById(id) as HTMLInputElement | null)?.value.trim() ?? "";
 
-const satsField = (): number => Math.floor(Number(field("join-sats")) || 0);
+const SATS_PER_BTC = 100_000_000;
+
+/**
+ * The field, in the contract's unit.
+ *
+ * sats is what every call takes and what every read returns; sBTC is only a
+ * way of writing it that has fewer zeros to miscount. The conversion happens
+ * here and nowhere else, so no call can be given the wrong one.
+ */
+const toSats = (value: string, unit: Unit): number => {
+  const n = Number(value);
+  if (!Number.isFinite(n) || n <= 0) return 0;
+  return unit === "sats" ? Math.floor(n) : Math.round(n * SATS_PER_BTC);
+};
+
+/** The same amount written for the field. Trailing zeros are noise. */
+const fromSats = (sats: number, unit: Unit): string =>
+  unit === "sats"
+    ? String(sats)
+    : (sats / SATS_PER_BTC).toFixed(8).replace(/\.?0+$/, "");
+
+const satsField = (): number => toSats(field("join-sats"), state.unit);
+
+/**
+ * Change what the field is written in without changing what it says.
+ *
+ * Converting rather than clearing: the amount a member has already decided on
+ * is the one thing a unit switch must not cost them.
+ */
+function switchUnit(unit: Unit): void {
+  if (unit === state.unit) return;
+  const sats = satsField();
+  setState({ unit, amount: sats > 0 ? fromSats(sats, unit) : "" });
+}
+
+/** Put the whole balance in the field, and quote the STX it would need. */
+function useWholeBalance(): void {
+  const sats = state.member?.sbtc ?? 0;
+  if (sats <= 0) return;
+  setState({ amount: fromSats(sats, state.unit) });
+  void quoteFor(sats);
+}
+
+/** Quote the STX leg for an amount the member did not type. */
+async function quoteFor(sats: number): Promise<void> {
+  if (!configured() || sats <= 0) return;
+  try {
+    const api = await chainApi();
+    setState({ quotedFor: sats, quotedUstx: Number(await api.quote(sats)) });
+  } catch (error) {
+    setState({ notice: `Could not quote the STX leg: ${message(error)}` });
+  }
+}
+
+/** What a submitted deposit is doing, in the chain's own vocabulary. */
+function pendingText(pending: Pending | null): string {
+  if (!pending) return "";
+  if (pending.status === "pending") {
+    return "In the mempool. It joins the queue as soon as a block carries it — " +
+      "you can close this page, it lands either way.";
+  }
+  if (pending.status === "success") {
+    return "Confirmed. The deposit is queued, and withdrawable until the pool stakes.";
+  }
+  if (pending.status.startsWith("dropped")) {
+    return "Dropped from the mempool before it confirmed. Nothing moved.";
+  }
+  if (pending.status === "abort_by_post_condition") {
+    return "A post condition stopped it, so nothing moved. That is the check working.";
+  }
+  if (pending.status === "abort_by_response") {
+    return "The contract rejected it and nothing moved.";
+  }
+  return `The chain reports: ${pending.status}.`;
+}
 
 /**
  * The salt has to survive between the commit and the reveal, and stay secret
@@ -714,25 +878,134 @@ function saltFor(txid: string, vout: number): string {
 const known = (txid: string, vout: number): string | null =>
   localStorage.getItem(`${SALT_KEY}:${txid}:${vout}`);
 
-async function withWallet(label: string, run: () => Promise<string | null>) {
-  if (!state.connected) return setState({ walletOpen: true });
+/**
+ * Run a wallet call and report it, returning the txid it produced.
+ *
+ * `openTab` is for the calls with nowhere else to show themselves. The deposit
+ * has somewhere -- it watches the transaction in place -- and stealing focus to
+ * a new tab on top of that is one thing too many.
+ */
+async function withWallet(
+  label: string,
+  run: () => Promise<string | null>,
+  openTab = true,
+): Promise<string | null> {
+  if (!state.connected) {
+    setState({ walletOpen: true });
+    return null;
+  }
   try {
     setState({ notice: `Confirm ${label} in your wallet…` });
     const txid = await run();
     setState({ notice: txid ? `${label} submitted — ${txid}` : `${label} submitted` });
-    if (txid) window.open(explorerTx(txid), "_blank", "noopener");
+    if (txid && openTab) window.open(explorerTx(txid), "_blank", "noopener");
     void refresh();
+    return txid;
   } catch (error) {
     setState({ notice: `${label} failed: ${message(error)}` });
+    return null;
   }
 }
 
 async function doDeposit(): Promise<void> {
   const sats = satsField();
-  if (sats <= 0) return setState({ notice: "Enter an amount in sats first." });
+  if (sats <= 0) return setState({ notice: "Enter an amount first." });
   const api = await chainApi();
   const ustx = Number(await api.quote(sats));
-  await withWallet("the deposit", () => api.poolCalls.deposit(sats, ustx));
+  const txid = await withWallet(
+    "the deposit",
+    () => api.poolCalls.deposit(sats, ustx),
+    false,
+  );
+  // The field is only cleared once the wallet has come back with something.
+  // A wallet that was dismissed, or a call that threw, leaves the amount where
+  // the member typed it -- retyping it is the last thing they want to do.
+  if (!txid) return;
+  setState({ amount: "", quotedFor: 0, quotedUstx: 0, pending: { txid, status: "pending" } });
+  watch(txid);
+}
+
+/// --- following a transaction -------------------------------------------------
+
+/**
+ * Watch a submitted transaction until it settles.
+ *
+ * The node pushes rather than being asked: `/extended/v1/ws` speaks JSON-RPC,
+ * and one subscription costs nothing while it waits. Straight to Hiro and not
+ * through the proxy -- that function forwards HTTP requests, and a socket is
+ * not one. `poll` takes over if the socket cannot be had at all, which is the
+ * case behind proxies that speak only HTTP.
+ */
+let socket: WebSocket | null = null;
+
+function settle(txid: string, status: string): void {
+  if (state.pending?.txid !== txid || state.pending.status === status) return;
+  setState({ pending: { txid, status } });
+  if (status === "pending") return;
+  socket?.close();
+  socket = null;
+  // Whatever it did, the pool's numbers are now different from the ones on
+  // screen -- including when it failed and they are the same again.
+  void refresh();
+}
+
+function watch(txid: string): void {
+  socket?.close();
+  socket = null;
+  try {
+    const live = new WebSocket(`${net().api.replace(/^http/, "ws")}/extended/v1/ws`);
+    socket = live;
+    live.addEventListener("open", () =>
+      live.send(
+        JSON.stringify({
+          jsonrpc: "2.0",
+          // A number, because that is what the API's own client sends.
+          id: 1,
+          method: "subscribe",
+          params: { event: "tx_update", tx_id: txid },
+        }),
+      ),
+    );
+    live.addEventListener("message", (event: MessageEvent) => {
+      try {
+        const payload = JSON.parse(String(event.data)) as {
+          method?: string;
+          params?: { tx_id?: string; tx_status?: string };
+        };
+        if (payload.method !== "tx_update") return;
+        if (payload.params?.tx_id !== txid) return;
+        settle(txid, String(payload.params.tx_status ?? "pending"));
+      } catch {
+        // Not a frame this cares about.
+      }
+    });
+    live.addEventListener("error", () => void poll(txid));
+    live.addEventListener("close", () => void poll(txid));
+  } catch {
+    void poll(txid);
+  }
+}
+
+/** The fallback, and the reason a blocked socket is not a stuck spinner. */
+let polling = "";
+async function poll(txid: string): Promise<void> {
+  if (polling === txid) return;
+  polling = txid;
+  try {
+    for (let tries = 0; tries < 60; tries++) {
+      if (state.pending?.txid !== txid || state.pending.status !== "pending") return;
+      await new Promise((done) => setTimeout(done, 15_000));
+      try {
+        const response = await fetch(`${apiBase()}/extended/v1/tx/${txid}`);
+        const body = (await response.json()) as { tx_status?: string };
+        if (body.tx_status) settle(txid, body.tx_status);
+      } catch {
+        // A node that did not answer this time is asked again in fifteen.
+      }
+    }
+  } finally {
+    polling = "";
+  }
 }
 
 async function doCommit(): Promise<void> {
@@ -863,6 +1136,23 @@ interface JoinPanel {
   confirm: () => void;
   claimPrincipal: () => void;
   claimRewards: () => void;
+  /** The amount field: what it is written in, and what is in it. */
+  amount: string;
+  amountLabel: string;
+  placeholder: string;
+  satsBg: string;
+  satsFg: string;
+  sbtcBg: string;
+  sbtcFg: string;
+  showSats: () => void;
+  showSbtc: () => void;
+  useMax: () => void;
+  maxHint: string;
+  /** A submitted deposit, followed until the chain settles it. */
+  pendingShow: boolean;
+  pendingText: string;
+  pendingTxid: string;
+  pendingLink: string;
   /** The wallet is on another chain: nothing here would send. */
   wrongNetwork: boolean;
   networkWarning: string;
@@ -909,6 +1199,21 @@ function joinPanel(): JoinPanel {
     hasQueued: queuedSats > 0,
     hasReleased: releasedSats > 0,
     hasRewards: (m?.rewards ?? 0) > 0,
+    amount: state.amount,
+    amountLabel: state.unit === "sats" ? "Amount in sats" : "Amount in sBTC",
+    placeholder: state.unit === "sats" ? "10000000" : "0.1",
+    satsBg: state.unit === "sats" ? "var(--color-accent)" : "transparent",
+    satsFg: state.unit === "sats" ? "var(--color-bg)" : "var(--color-text)",
+    sbtcBg: state.unit === "sbtc" ? "var(--color-accent)" : "transparent",
+    sbtcFg: state.unit === "sbtc" ? "var(--color-bg)" : "var(--color-text)",
+    showSats: () => switchUnit("sats"),
+    showSbtc: () => switchUnit("sbtc"),
+    useMax: () => useWholeBalance(),
+    maxHint: (m?.sbtc ?? 0) > 0 ? "use all" : "",
+    pendingShow: Boolean(state.pending),
+    pendingText: pendingText(state.pending),
+    pendingTxid: state.pending ? shorten(state.pending.txid) : "",
+    pendingLink: state.pending ? explorerTx(state.pending.txid) : "",
     deposit: () => void doDeposit(),
     withdraw: poolAction("the withdrawal", (api) => api.poolCalls.withdraw()),
     commit: () => void doCommit(),
@@ -1174,8 +1479,13 @@ function wireQuote(): void {
   if (!input || !out || input.dataset.wired === "1") return;
   input.dataset.wired = "1";
 
+  input.value = state.amount;
+
   input.addEventListener("input", () => {
-    const sats = Math.floor(Number(input.value) || 0);
+    // Held so a re-render can put it back; not `setState`, which would replace
+    // the element under the caret.
+    state.amount = input.value;
+    const sats = toSats(input.value, state.unit);
     if (quoting) clearTimeout(quoting);
     if (sats <= 0) {
       out.textContent = "enter an amount";

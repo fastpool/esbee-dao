@@ -92,6 +92,12 @@ const scope: Record<string, unknown> = {
     open: true, closed: false, connected: true,
     closedWhy: "closed because", depositTo: "ST1.bond-treasury",
     quote: "10,000,000 sats needs 5.00 STX", balance: "1.0000 BTC",
+    amount: "10000000", amountLabel: "Amount in sats", placeholder: "10000000",
+    satsBg: "var(--color-accent)", satsFg: "var(--color-bg)",
+    sbtcBg: "transparent", sbtcFg: "var(--color-text)",
+    showSats: () => {}, showSbtc: () => {}, useMax: () => {}, maxHint: "use all",
+    pendingShow: true, pendingText: "In the mempool.",
+    pendingTxid: "0x1234…abcd", pendingLink: "https://explorer.hiro.so/txid/0x1234",
     queuedSats: "0.1000 BTC", queuedUstx: "5.00 STX", committed: "0.0000 BTC",
     releasedSats: "0.0000 BTC", rewards: "0.0000 BTC",
     hasQueued: true, hasReleased: true, hasRewards: true,
@@ -117,6 +123,14 @@ const scope: Record<string, unknown> = {
     hasNote: true,
     ctaShow: true,
     ctaLabel: "Add to the pool",
+    milestoneShow: true,
+    milestoneReached: false,
+    milestoneLabel: "50% · 0.5000 BTC launches it",
+    stakeShow: true,
+    stakeReady: false,
+    stakeLabel: "Stake the pool — open epoch 0",
+    stakeWait: "The stake window opens at burn 8,712, in 7d 23h.",
+    stake: () => {},
   },
   bond: {
     show: true,
@@ -207,6 +221,9 @@ const { existsSync } = await import("node:fs");
 // checked against dist/ in the bundle section rather than here.
 const deadLinks = [...html.matchAll(/(?:href|src)="([^"]+)"/g)]
   .map((m) => m[1])
+  // A binding is a URL the view model supplies at render time; there is no file
+  // on disk to check it against.
+  .filter((h) => !h.includes("{{"))
   .filter((h) => !/^(https?:|#|data:|mailto:)/.test(h))
   .map((h) => h.split("#")[0])
   .filter((h) => h && h !== "app.js" && !existsSync(h));
