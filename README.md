@@ -203,9 +203,14 @@ generated key can be backed up as an `nsec` for the same reason. A key an
 extension or a signer holds never enters the page; one that is pasted lives in
 `localStorage` like the generated one does.
 
-**Two rooms.** Public is kind 42, readable by anyone, rooted at an id derived
-from the network name so every copy of the page on a network finds the same
-room. Members is kind 4242 and sealed: the text is encrypted under a fresh
+**Two rooms.** Public is a NIP-28 channel: kind 42 messages rooted at a kind
+40 channel event published once per network and pinned in `nostr.ts`, so the
+room is a room in any client that speaks NIP-28 and every message has a page
+on njump -- the `↗` beside a message opens it there, and "open elsewhere" in
+the header opens the room. The channels were created with a throwaway key
+that was then discarded, so nobody can rename them out from under the page;
+changing the name or picture means publishing a new channel and pinning it.
+Members is kind 4242 and sealed: the text is encrypted under a fresh
 random key, and that key is wrapped (NIP-44) to every verified member the
 sender's browser knows of, the sender included. A relay sees who was addressed
 and how long it was. A member verified later cannot read what was sent before

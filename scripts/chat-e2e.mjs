@@ -143,6 +143,10 @@ try {
   await say(A, "hello from A — https://esbee-dao.org is the place");
   ok(await waitText(A, "hello from A"), "A sees its own message");
   ok((await A.page.$$(".chat-bubble a")).length === 1, "the URL in it is a link");
+  const out = await A.page.$eval(".chat-out", (a) => a.getAttribute("href")).catch(() => null);
+  ok(out && out.startsWith("https://njump.me/nevent1"), `the message links out to njump (${out})`);
+  const roomLink = await A.page.$eval(".chat-head a", (a) => a.getAttribute("href")).catch(() => null);
+  ok(roomLink && roomLink.startsWith("https://njump.me/nevent1"), "and so does the room");
   await sleep(1500);
   const badge = await B.page.textContent(".chat-badge").catch(() => null);
   ok(badge === "1", `B's closed button shows 1 unread (got ${badge})`);
@@ -225,6 +229,10 @@ try {
   ok(sealed && !sealed.content.includes("members only") && sealed.tags.filter((t) => t[0] === "wrap").length === 2,
     "the relay holds ciphertext wrapped to exactly the two members");
   ok(relay.events.filter((e) => e.kind === 42).length === 3, "three public messages reached the relay");
+  ok(
+    relay.events.filter((e) => e.kind === 42).every((e) => e.tags.some((t) => t[0] === "e" && t[1] === "52b9144d60dddd16559b924cdbfa9404549a03dba0932d48f41013ba1a19114a" && t[3] === "root")),
+    "each rooted at the pinned testnet channel",
+  );
 
   // 7. Discuss from a proposal card; the topic filters and tags.
   await C.page.click("#chat .chat-tabs button:has-text(\"Public\")");

@@ -501,6 +501,8 @@ function viewModel(): Scope {
     fabLabel: "Discuss",
 
     statusLine: statusLine(),
+    roomLink: !isMembers && backend ? backend.roomLink() : "",
+    hasRoomLink: !isMembers && Boolean(backend?.roomLink()),
     myName,
     myColor: me ? colorOf(me.pubkey) : "var(--color-neutral-400)",
     myKey: me ? shortKey(me.npub) : "",
@@ -559,6 +561,8 @@ function viewModel(): Scope {
         bg: mine ? "var(--color-accent-200)" : "var(--color-surface)",
         member: !isMembers && isMemberKey(m.pubkey),
         parts: parts(m.text),
+        link: m.link,
+        hasLink: Boolean(m.link),
         hasProposal: m.proposal !== null && state.topic === null,
         proposal: m.proposal ?? "",
         proposalTitle: m.proposal !== null ? titleOf(m.proposal) : "",

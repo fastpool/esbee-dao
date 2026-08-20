@@ -231,7 +231,8 @@ check(Boolean(chatTemplate) && Boolean(chatMount), "index.html has #chat-tpl and
 const chatScope = (open: boolean): Record<string, unknown> => ({
   chatOpen: open, chatClosed: !open, toggleChat: () => {},
   unread: "3", hasUnread: true, fabLabel: "Discuss",
-  statusLine: "Live · 3 of 4 relays", myName: "bee-a1b2", myColor: "hsl(20 48% 42%)",
+  statusLine: "Live · 3 of 4 relays", roomLink: "https://njump.me/nevent1room", hasRoomLink: true,
+  myName: "bee-a1b2", myColor: "hsl(20 48% 42%)",
   myKey: "npub1a1b2c3d…xyz", openIdentity: () => {}, closeSheet: () => {},
   tabs: { showPublic: () => {}, showMembers: () => {}, publicBg: "#c67139", publicFg: "#fff",
     membersBg: "transparent", membersFg: "#201e1d", membersNote: "2 verified" },
@@ -242,11 +243,11 @@ const chatScope = (open: boolean): Record<string, unknown> => ({
   showEmpty: true, emptyText: "Nobody has said anything yet.",
   messages: [
     { id: "a", name: "bee-a1b2", color: "#333", time: "14:02", showHead: true, mine: false,
-      bg: "#eee", member: true,
+      bg: "#eee", member: true, link: "https://njump.me/nevent1abc", hasLink: true,
       parts: [{ text: "see ", href: "", plain: true }, { text: "https://x.y", href: "https://x.y", plain: false }],
       hasProposal: true, proposal: 4, proposalTitle: "Trust signer", openProposal: () => {} },
     { id: "b", name: "bee-c3d4", color: "#444", time: "14:03", showHead: false, mine: true,
-      bg: "#eee", member: false, parts: [{ text: "hi", href: "", plain: true }],
+      bg: "#eee", member: false, link: "", hasLink: false, parts: [{ text: "hi", href: "", plain: true }],
       hasProposal: false, proposal: "", proposalTitle: "", openProposal: () => {} },
   ],
   canWrite: true, draft: "half a thought", placeholder: "Say something…", send: () => {},
@@ -285,6 +286,11 @@ for (const open of [false, true]) {
       "messages render, and a URL in one becomes a link",
     );
     check(chatMount!.querySelectorAll(".chat-msg-head").length === 1, "a follow-up from the same sender has no header");
+    check(
+      chatMount!.querySelectorAll("a.chat-out[href='https://njump.me/nevent1abc']").length === 1 &&
+        Boolean(chatMount!.querySelector("a[href='https://njump.me/nevent1room']")),
+      "a public message and the room itself link out to njump",
+    );
   } else {
     check(Boolean(chatMount!.querySelector(".chat-fab")), "closed, the panel is a button");
   }
@@ -374,6 +380,17 @@ for (const fn of [
 }
 check(chainSource.includes("@stacks/connect"), "chain.ts uses @stacks/connect for the wallet");
 check(chainSource.includes('"stx_signMessage"'), "chain.ts can sign a message, which is how a chat key is vouched for");
+
+// The public room is a real NIP-28 channel, pinned by id, so it exists outside
+// this page. Two networks, two channels; both ids are 32 bytes of hex.
+const nostrSource = readFileSync("src/nostr.ts", "utf8");
+for (const network of ["testnet", "mainnet"]) {
+  check(
+    new RegExp(`${network}: "[0-9a-f]{64}"`).test(nostrSource),
+    `nostr.ts pins the ${network} channel id`,
+  );
+}
+check(nostrSource.includes("https://njump.me/"), "and links messages out to njump");
 
 /// --- 4b. the chat verifies wallets without stacks.js ---------------------------------
 

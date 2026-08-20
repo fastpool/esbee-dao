@@ -411,6 +411,13 @@ textarea.input { min-height: 90px; resize: vertical; }
   font-size: 14px; line-height: 1.45; white-space: pre-wrap; overflow-wrap: anywhere;
 }
 .chat-bubble a { color: var(--color-accent-800); }
+.chat-row { display: flex; align-items: center; gap: 6px; max-width: 100%; }
+.chat-out {
+  flex: none; font-size: 12px; text-decoration: none; opacity: 0;
+  color: color-mix(in srgb, var(--color-text) 55%, transparent);
+}
+.chat-row:hover .chat-out, .chat-out:focus-visible { opacity: 1; }
+@media (hover: none) { .chat-out { opacity: .6; } }
 .chat-notice {
   display: flex; align-items: center; gap: 8px; margin: 0 16px;
   padding: 8px 6px 8px 12px; border-radius: 14px; font-size: 12.5px; line-height: 1.4;

@@ -45,7 +45,7 @@ a:hover { color: var(--color-accent-700); }
     <header class="chat-head">
       <div style="min-width:0;flex:1">
         <div style="font-family:var(--font-heading);font-size:18px;line-height:1.1">Discussion</div>
-        <div class="text-muted" style="font-size:12px;margin-top:2px">{{ statusLine }}</div>
+        <div class="text-muted" style="font-size:12px;margin-top:2px">{{ statusLine }}<sc-if value="{{ hasRoomLink }}"> · <a href="{{ roomLink }}" target="_blank" rel="noopener noreferrer" style="color:inherit" title="This room, outside this page">open elsewhere ↗</a></sc-if></div>
       </div>
       <button class="chat-me" sc-camel-on-click="{{ openIdentity }}" title="Your chat identity">
         <span class="chat-dot" style="background:{{ myColor }}"></span><span class="chat-me-name">{{ myName }}</span>
@@ -92,7 +92,7 @@ a:hover { color: var(--color-accent-700); }
               <span class="chat-time">{{ m.time }}</span>
             </div>
           </sc-if>
-          <div class="chat-bubble" style="background:{{ m.bg }}"><sc-for list="{{ m.parts }}" as="s"><sc-if value="{{ s.plain }}">{{ s.text }}</sc-if><sc-if value="{{ s.href }}"><a href="{{ s.href }}" target="_blank" rel="noopener noreferrer">{{ s.text }}</a></sc-if></sc-for></div>
+          <div class="chat-row"><div class="chat-bubble" style="background:{{ m.bg }}"><sc-for list="{{ m.parts }}" as="s"><sc-if value="{{ s.plain }}">{{ s.text }}</sc-if><sc-if value="{{ s.href }}"><a href="{{ s.href }}" target="_blank" rel="noopener noreferrer">{{ s.text }}</a></sc-if></sc-for></div><sc-if value="{{ m.hasLink }}"><a class="chat-out" href="{{ m.link }}" target="_blank" rel="noopener noreferrer" title="This message on njump">↗</a></sc-if></div>
           <sc-if value="{{ m.hasProposal }}"><button class="chat-ref" sc-camel-on-click="{{ m.openProposal }}">#{{ m.proposal }} · {{ m.proposalTitle }}</button></sc-if>
         </div>
       </sc-for>

@@ -10,9 +10,10 @@
 //
 // Two rooms:
 //
-//   public    kind 42 messages, readable by anyone, rooted at an id derived
-//             from the network name so every copy of this page finds the same
-//             room.
+//   public    kind 42 messages, readable by anyone, in a NIP-28 channel -- a
+//             kind 40 event published once per network and pinned below, so
+//             the room is a room in any client that speaks NIP-28, and every
+//             message has a page on njump.
 //   members   kind 4242, encrypted. The text is sealed with a fresh random key
 //             and that key is wrapped, NIP-44, to every verified member the
 //             sender knew of. The relays see who was addressed and nothing
@@ -70,6 +71,8 @@ export interface ChatMessage {
   /** The proposal it is about, if it was sent from one. */
   proposal: number | null;
   room: Room;
+  /** Where to read it outside this page. Empty for a sealed message. */
+  link: string;
 }
 
 /** A chat key that a Stacks address has vouched for. */
@@ -121,6 +124,29 @@ const KIND_PUBLIC = 42; // NIP-28 channel message
 const KIND_MEMBERS = 4242; // ours: a sealed room message
 const KIND_BINDING = 30078; // NIP-78 application-specific data
 
+/**
+ * The public rooms: one NIP-28 channel per network, created once with a
+ * throwaway key and pinned here. Pinned rather than derived so the room is a
+ * room elsewhere too -- any NIP-28 client lists it, and njump shows it.
+ *
+ * The key that created them was discarded, which is the point: nobody holds
+ * it, so nobody can rename the channel out from under the page. Changing the
+ * name or picture means publishing a new channel and pinning it here; the
+ * messages in the old one stay where they are.
+ *
+ *   creator  20522668e6f5f59b96d49c45933d9dace806642ff8ee93f44f1c499969cb0a4a
+ */
+const CHANNELS: Record<NetworkName, string> = {
+  testnet: "52b9144d60dddd16559b924cdbfa9404549a03dba0932d48f41013ba1a19114a",
+  mainnet: "fc6b59bfc4b7f97903e37bdedaa23dfc52182e15c02b62530468233603fb3f97",
+  // No channel published for a local chain; the room id is derived instead.
+  devnet: "",
+};
+const CHANNEL_CREATOR = "20522668e6f5f59b96d49c45933d9dace806642ff8ee93f44f1c499969cb0a4a";
+
+/** Where a message can be read outside this page. */
+const NJUMP = "https://njump.me/";
+
 const STORE_IDENTITY = "esbee:chat:identity";
 const HISTORY = 200;
 /** How long an answer from the pool about an address is good for. */
@@ -129,11 +155,13 @@ const MEMBERSHIP_TTL = 10 * 60 * 1000;
 /// --- the rooms -------------------------------------------------------------------
 
 /**
- * A room is named by a 32-byte id, like a NIP-28 channel. Derived rather than
- * created, so every copy of this page on a network lands in the same room
- * without anything having been published first.
+ * What a room's messages are rooted at. The public room is the pinned channel
+ * where there is one; the members room, and a network with no channel, use an
+ * id derived from the name, so every copy of this page still lands in the
+ * same place without anything having been published.
  */
 const roomId = (room: Room, network: NetworkName): string =>
+  (room === "public" && CHANNELS[network]) ||
   bytesToHex(sha256(new TextEncoder().encode(`esbee-dao:chat:${room}:${network}`)));
 
 const bindingTag = (network: NetworkName): string => `esbee-dao:member:${network}`;
@@ -307,6 +335,18 @@ export class ChatBackend {
         ? override.split(",").map((r) => r.trim()).filter((r) => /^wss?:\/\//.test(r))
         : DEFAULT_RELAYS
     ).map(normalizeURL);
+  }
+
+  /** The public room, on njump, or empty where there is no channel. */
+  roomLink(): string {
+    const channel = CHANNELS[this.network];
+    return channel
+      ? `${NJUMP}${nip19.neventEncode({ id: channel, relays: this.relays.slice(0, 2), author: CHANNEL_CREATOR, kind: 40 })}`
+      : "";
+  }
+
+  private linkTo(event: Event): string {
+    return `${NJUMP}${nip19.neventEncode({ id: event.id, relays: this.relays.slice(0, 2), author: event.pubkey, kind: event.kind })}`;
   }
 
   /// --- identity ---
@@ -527,6 +567,7 @@ export class ChatBackend {
       text: text.slice(0, 2000),
       proposal: proposalTag(event),
       room: "public",
+      link: this.linkTo(event),
     });
     this.wantProfile(event.pubkey);
   }
@@ -565,6 +606,7 @@ export class ChatBackend {
         text: text.slice(0, 2000),
         proposal: typeof body.proposal === "number" ? body.proposal : null,
         room: "members",
+        link: "",
       });
       this.wantProfile(event.pubkey);
     } catch {
@@ -677,7 +719,15 @@ export class ChatBackend {
       });
     }
     this.seen.add(event.id);
-    return { id: event.id, pubkey: event.pubkey, at: event.created_at, text: body, proposal, room };
+    return {
+      id: event.id,
+      pubkey: event.pubkey,
+      at: event.created_at,
+      text: body,
+      proposal,
+      room,
+      link: room === "public" ? this.linkTo(event) : "",
+    };
   }
 
   /** A display name, for a key this page generated. Others keep their own profile. */
