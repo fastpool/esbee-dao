@@ -43,7 +43,7 @@ a:hover { color: var(--color-accent-700); }
 <div style="background:var(--color-bg);color:var(--color-text);font-family:var(--font-body);min-height:100vh;overflow-x:hidden">
 
 <header style="position:sticky;top:0;z-index:40;background:color-mix(in srgb, var(--color-bg) 88%, transparent);backdrop-filter:blur(12px);border-bottom:1px solid color-mix(in srgb, var(--color-text) 8%, transparent)">
-  <div style="max-width:1240px;margin:0 auto;padding:12px clamp(16px,4vw,40px);display:flex;align-items:center;gap:clamp(12px,3vw,32px);flex-wrap:wrap">
+  <div style="max-width:1240px;margin:0 auto;padding:12px clamp(20px,4vw,40px);display:flex;align-items:center;gap:clamp(12px,3vw,32px);flex-wrap:wrap">
     <a href="#top" style="display:flex;align-items:center;gap:10px;text-decoration:none;color:var(--color-text);margin-right:auto">
       <svg width="34" height="34" sc-camel-view-box="0 0 64 64" style="display:block">
         <path d="M32 3 L59 18 L59 46 L32 61 L5 46 L5 18 Z" style="fill:var(--color-surface);stroke:var(--color-text);stroke-width:3.4;stroke-linejoin:round"></path>
@@ -85,7 +85,7 @@ a:hover { color: var(--color-accent-700); }
     </defs>
     <rect width="100%" height="100%" fill="url(#combHero)"></rect>
   </svg>
-  <div style="position:relative;max-width:1240px;margin:0 auto;padding:clamp(44px,8vw,104px) clamp(16px,4vw,40px) clamp(52px,8vw,110px);display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:clamp(28px,5vw,64px);align-items:center">
+  <div style="position:relative;max-width:1240px;margin:0 auto;padding:clamp(44px,8vw,104px) clamp(20px,4vw,40px) clamp(52px,8vw,110px);display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,320px),1fr));gap:clamp(28px,5vw,64px);align-items:center">
     <div>
       <div style="display:inline-flex;align-items:center;gap:8px;background:{{ stage.bg }};color:{{ stage.fg }};border-radius:999px;padding:5px 14px;font-size:12px;letter-spacing:.03em;margin-bottom:clamp(16px,3vw,28px)">
         <span style="width:7px;height:7px;border-radius:50%;background:{{ stage.dot }};display:block"></span>
@@ -108,27 +108,27 @@ a:hover { color: var(--color-accent-700); }
           <path d="M23.6 33 h16.8 M24.4 42 h15.2" style="stroke:var(--color-text);stroke-width:3.2;stroke-linecap:round"></path>
           <circle cx="32" cy="24" r="5.4" style="fill:var(--color-text)"></circle>
         </svg>
-        <div style="position:absolute;bottom:-14px;right:-6px;background:var(--color-bg);border-radius:999px;padding:9px 18px;font-family:var(--font-heading);font-size:14px;box-shadow:var(--shadow-md)">Esbee</div>
+        <div style="position:absolute;bottom:-14px;right:8px;background:var(--color-bg);border-radius:999px;padding:9px 18px;font-family:var(--font-heading);font-size:14px;box-shadow:var(--shadow-md)">Esbee</div>
       </div>
     </div>
   </div>
 </section>
 
-<section style="max-width:1240px;margin:0 auto;padding:clamp(28px,5vw,56px) clamp(16px,4vw,40px)">
-  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:clamp(10px,2vw,18px)">
+<section style="max-width:1240px;margin:0 auto;padding:clamp(28px,5vw,56px) clamp(20px,4vw,40px)">
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,200px),1fr));gap:clamp(10px,2vw,18px)">
     <div class="card" style="background:var(--color-surface);padding:20px 22px;gap:4px">
       <span style="font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--color-accent)">Pooled sats</span>
-      <span style="font-family:var(--font-heading);font-size:clamp(26px,3.4vw,36px);line-height:1.05">{{ statSats }}</span>
+      <span style="font-family:var(--font-heading);font-size:clamp(22px,3.4vw,36px);line-height:1.05;white-space:nowrap">{{ statSats }}</span>
       <span class="text-muted" style="font-size:12px">queued, fully withdrawable</span>
     </div>
     <div class="card" style="background:var(--color-surface);padding:20px 22px;gap:4px">
       <span style="font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--color-accent)">Epoch</span>
-      <span style="font-family:var(--font-heading);font-size:clamp(26px,3.4vw,36px);line-height:1.05">{{ statEpoch }}</span>
+      <span style="font-family:var(--font-heading);font-size:clamp(22px,3.4vw,36px);line-height:1.05;white-space:nowrap">{{ statEpoch }}</span>
       <span class="text-muted" style="font-size:12px">{{ statEpochNote }}</span>
     </div>
     <div class="card" style="background:var(--color-surface);padding:20px 22px;gap:4px">
       <span style="font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--color-accent)">Honey paid</span>
-      <span style="font-family:var(--font-heading);font-size:clamp(26px,3.4vw,36px);line-height:1.05">{{ statHoney }}</span>
+      <span style="font-family:var(--font-heading);font-size:clamp(22px,3.4vw,36px);line-height:1.05;white-space:nowrap">{{ statHoney }}</span>
       <span class="text-muted" style="font-size:12px">rewards settled to date</span>
     </div>
   </div>
@@ -167,7 +167,7 @@ a:hover { color: var(--color-accent-700); }
           <span style="position:absolute;left:50%;top:-3px;bottom:-3px;width:2px;background:var(--color-accent-800);opacity:.55;border-radius:2px"></span>
         </sc-if>
       </div>
-      <div style="display:flex;justify-content:space-between;gap:10px;font-size:12px;margin-top:7px" class="text-muted"><span>{{ launch.gathered }}</span><span>{{ launch.target }}</span></div>
+      <div style="display:flex;flex-wrap:wrap;justify-content:space-between;gap:2px 10px;font-size:12px;margin-top:7px" class="text-muted"><span>{{ launch.gathered }}</span><span>{{ launch.target }}</span></div>
       <sc-if value="{{ launch.milestoneShow }}">
         <div style="font-size:12px;margin-top:4px;color:var(--color-accent-800)">{{ launch.milestoneLabel }}</div>
       </sc-if>
@@ -195,10 +195,10 @@ a:hover { color: var(--color-accent-700); }
   </sc-if>
 </section>
 
-<section style="max-width:1240px;margin:0 auto;padding:clamp(40px,7vw,88px) clamp(16px,4vw,40px)">
+<section style="max-width:1240px;margin:0 auto;padding:clamp(40px,7vw,88px) clamp(20px,4vw,40px)">
   <h2 style="font-size:clamp(28px,4.2vw,46px);max-width:20ch;margin:0 0 10px">The name is not decoration. It is the model.</h2>
   <p class="text-muted" style="max-width:56ch;margin:0 0 clamp(24px,4vw,40px);font-size:16px">Esbee is a bee, and a bee was already what this contract is.</p>
-  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:clamp(12px,2vw,20px)">
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,250px),1fr));gap:clamp(12px,2vw,20px)">
     <div class="card elev-sm" style="padding:clamp(22px,3vw,30px);gap:10px">
       <div style="width:46px;height:46px;border-radius:50%;background:var(--color-accent-200);display:grid;place-items:center;font-family:var(--font-heading);color:var(--color-accent-800);font-size:18px">01</div>
       <h3 style="margin:6px 0 0;font-size:23px">The hive</h3>
@@ -219,7 +219,7 @@ a:hover { color: var(--color-accent-700); }
 
 
 <section id="pool" style="background:var(--color-surface);position:relative;overflow:hidden">
-  <div style="max-width:1240px;margin:0 auto;padding:clamp(44px,7vw,96px) clamp(16px,4vw,40px)">
+  <div style="max-width:1240px;margin:0 auto;padding:clamp(44px,7vw,96px) clamp(20px,4vw,40px)">
     <h2 style="font-size:clamp(28px,4.2vw,46px);margin:0 0 10px;max-width:18ch">How the pool works</h2>
     <p class="text-muted" style="max-width:58ch;margin:0 0 clamp(28px,4vw,48px);font-size:16px">Each bond the pool stakes into is an epoch. pox-5 lets one bond's term end exactly where the next begins, so the pool rolls straight across — moving only the net difference and resizing the STX lock in place.</p>
 
@@ -244,14 +244,14 @@ a:hover { color: var(--color-accent-700); }
           <div style="font-family:var(--font-heading);font-size:20px;margin-top:4px">Epoch 2</div>
         </div>
       </div>
-      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:16px;margin-top:22px">
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,230px),1fr));gap:16px;margin-top:22px">
         <p style="margin:0;font-size:14px;line-height:1.6;opacity:.85"><strong style="font-family:var(--font-heading);font-weight:400">Positions move at the roll,</strong> so your record never describes a position the pool has already left.</p>
         <p style="margin:0;font-size:14px;line-height:1.6;opacity:.85"><strong style="font-family:var(--font-heading);font-weight:400">Rewards move when an epoch settles,</strong> a cycle later — so the bond you were actually in is the one that pays you.</p>
         <p style="margin:0;font-size:14px;line-height:1.6;opacity:.85"><strong style="font-family:var(--font-heading);font-weight:400">A stash bridges the gap.</strong> Leave at a roll and you get your principal back at once, and the final cycle's honey when it arrives.</p>
       </div>
     </div>
 
-    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:clamp(12px,2vw,20px)">
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,240px),1fr));gap:clamp(12px,2vw,20px)">
       <div style="background:var(--color-bg);border-radius:28px;padding:clamp(20px,3vw,28px)">
         <span class="tag tag-accent">sats</span>
         <h4 style="margin:12px 0 6px;font-size:21px">What you get back</h4>
@@ -271,7 +271,7 @@ a:hover { color: var(--color-accent-700); }
 
     <h3 id="join" style="font-size:clamp(22px,3vw,32px);margin:clamp(36px,5vw,60px) 0 6px;scroll-margin-top:90px">Two ways in</h3>
     <p class="text-muted" style="margin:0 0 24px;font-size:15px;max-width:56ch">Deposit sBTC you already hold, or arrive with L1 bitcoin. The second route is five steps and the order is the whole point.</p>
-    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:clamp(12px,2vw,20px)">
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,280px),1fr));gap:clamp(12px,2vw,20px)">
       <div style="background:var(--color-bg);border-radius:28px;padding:clamp(22px,3vw,30px)">
         <h4 style="margin:0 0 8px;font-size:22px">With sBTC</h4>
         <p style="margin:0 0 14px;font-size:14px;line-height:1.6;opacity:.8">Enter an amount. The STX leg is quoted from the live bond, and one call moves both.</p>
@@ -279,14 +279,15 @@ a:hover { color: var(--color-accent-700); }
           <div class="field">
             <div style="display:flex;justify-content:space-between;align-items:center;gap:10px">
               <label for="join-sats" style="margin:0">{{ join.amountLabel }}</label>
-              <div class="seg" style="flex:none">
-                <button class="seg-opt" sc-camel-on-click="{{ join.showSats }}" style="background:{{ join.satsBg }};color:{{ join.satsFg }};border:0;font:inherit;font-size:12px;cursor:pointer">sats</button>
-                <button class="seg-opt" sc-camel-on-click="{{ join.showSbtc }}" style="background:{{ join.sbtcBg }};color:{{ join.sbtcFg }};border:0;font:inherit;font-size:12px;cursor:pointer">sBTC</button>
+              <div style="display:flex;align-items:baseline;gap:7px;flex:none;font-size:12px">
+                <button sc-camel-on-click="{{ join.showSats }}" style="background:none;border:0;padding:0;font:inherit;font-size:12px;cursor:pointer;color:{{ join.satsFg }};text-decoration:{{ join.satsLine }};text-underline-offset:3px">sats</button>
+                <span style="color:var(--color-neutral-500)">·</span>
+                <button sc-camel-on-click="{{ join.showSbtc }}" style="background:none;border:0;padding:0;font:inherit;font-size:12px;cursor:pointer;color:{{ join.sbtcFg }};text-decoration:{{ join.sbtcLine }};text-underline-offset:3px">sBTC</button>
               </div>
             </div>
             <input class="input" id="join-sats" inputmode="decimal" placeholder="{{ join.placeholder }}" value="{{ join.amount }}" autocomplete="off">
           </div>
-          <div style="display:flex;justify-content:space-between;gap:10px;font-size:13px;padding:9px 2px;border-top:1px solid var(--color-divider)">
+          <div style="display:flex;justify-content:space-between;gap:10px;font-size:13px;padding:9px 2px;">
             <span class="text-muted">STX leg</span><span id="join-quote" style="font-family:var(--font-heading);text-align:right">{{ join.quote }}</span>
           </div>
           <div style="display:flex;justify-content:space-between;gap:10px;align-items:baseline;font-size:13px;padding:9px 2px;border-top:1px solid var(--color-divider)">
@@ -351,9 +352,14 @@ a:hover { color: var(--color-accent-700); }
           <div style="display:flex;justify-content:space-between;gap:10px;font-size:12.5px;padding:11px 16px;background:var(--color-surface);border-radius:999px">
             <span class="text-muted">send to</span><span style="font-family:ui-monospace,monospace;overflow-wrap:anywhere;text-align:right">{{ join.depositTo }}</span>
           </div>
+          <!-- Three of the five steps are calls this page makes. Steps 3 and 4
+               happen on bitcoin and in the signers' own time: they sit in the row
+               so the order still reads, and cannot be pressed. -->
           <div class="row" style="display:flex;gap:8px;flex-wrap:wrap">
             <button class="btn btn-secondary" sc-camel-on-click="{{ join.commit }}" style="font-size:13px">1 · Commit</button>
             <button class="btn btn-secondary" sc-camel-on-click="{{ join.reveal }}" style="font-size:13px">2 · Reveal</button>
+            <button class="btn btn-secondary" disabled title="You broadcast this one yourself, from your own bitcoin wallet." style="font-size:13px">3 · Broadcast</button>
+            <button class="btn btn-secondary" disabled title="The sBTC signers sweep it in their own time; nothing to press." style="font-size:13px">4 · Wait</button>
             <button class="btn btn-secondary" sc-camel-on-click="{{ join.confirm }}" style="font-size:13px">5 · Confirm</button>
           </div>
           <p class="text-muted" style="margin:2px 0 0;font-size:13px;line-height:1.55">The salt that ties your commit to your reveal is generated here and kept in this browser. Do not broadcast until the reveal has confirmed.</p>
@@ -363,7 +369,7 @@ a:hover { color: var(--color-accent-700); }
     <sc-if value="{{ join.connected }}">
       <div style="background:var(--color-bg);border-radius:28px;padding:clamp(22px,3vw,30px);margin-top:clamp(12px,2vw,20px)">
         <h4 style="margin:0 0 12px;font-size:22px">Your position</h4>
-        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px">
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,150px),1fr));gap:10px">
           <div style="padding:12px 16px;background:var(--color-surface);border-radius:var(--radius-md)">
             <div style="font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--color-accent)">Queued</div>
             <div style="font-family:var(--font-heading);font-size:19px">{{ join.queuedSats }}</div>
@@ -403,11 +409,11 @@ a:hover { color: var(--color-accent-700); }
   </div>
 </section>
 
-<section id="govern" style="max-width:1240px;margin:0 auto;padding:clamp(44px,7vw,96px) clamp(16px,4vw,40px)">
+<section id="govern" style="max-width:1240px;margin:0 auto;padding:clamp(44px,7vw,96px) clamp(20px,4vw,40px)">
   <h2 style="font-size:clamp(28px,4.2vw,46px);margin:0 0 10px;max-width:20ch">Governance: the seat, held by the hive</h2>
   <p class="text-muted" style="max-width:60ch;margin:0 0 clamp(28px,4vw,46px);font-size:16px">The operator seat can be held by a contract instead of a key. <code style="font-family:ui-monospace,monospace;font-size:14px">esbee-dao</code> puts five of the operator's powers behind a vote of the pool's own members.</p>
 
-  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:clamp(16px,3vw,32px);align-items:start;margin-bottom:clamp(36px,5vw,64px)">
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,300px),1fr));gap:clamp(16px,3vw,32px);align-items:start;margin-bottom:clamp(36px,5vw,64px)">
     <div>
       <h3 style="font-size:clamp(21px,2.6vw,28px);margin:0 0 8px">Weight is the square root of your sats</h3>
       <p style="margin:0 0 18px;font-size:15px;line-height:1.6;opacity:.85">A member ten thousand times larger gets a hundred times the say, not ten thousand. And only committed shares count — a queued deposit is withdrawable on demand, so counting it would let anyone rent a majority for one transaction.</p>
@@ -432,7 +438,7 @@ a:hover { color: var(--color-accent-700); }
 
   <h3 style="font-size:clamp(21px,2.8vw,30px);margin:0 0 6px">Five powers, one mandate each</h3>
   <p class="text-muted" style="margin:0 0 22px;font-size:15px;max-width:58ch">Every proposal is a set of parameters for one operator call, raised through a typed entry point — so a mandate won for one power can never be spent on another.</p>
-  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(215px,1fr));gap:12px;margin-bottom:clamp(36px,5vw,60px)">
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,215px),1fr));gap:12px;margin-bottom:clamp(36px,5vw,60px)">
     <sc-for list="{{ powers }}" as="p" hint-placeholder-count="5">
       <div class="card" style="padding:20px 22px;gap:6px;background:var(--color-surface)">
         <code style="font-family:ui-monospace,monospace;font-size:12px;color:var(--color-accent-700)">{{ p.call }}</code>
@@ -450,7 +456,7 @@ a:hover { color: var(--color-accent-700); }
 
   <h3 style="font-size:clamp(21px,2.8vw,30px);margin:0 0 6px">Six gates. A proposal clears all of them or none.</h3>
   <p class="text-muted" style="margin:0 0 22px;font-size:15px;max-width:58ch">Every gate is returned as its own field, so you can see which line a proposal is still behind rather than a bare pass or fail.</p>
-  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:12px">
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,230px),1fr));gap:12px">
     <sc-for list="{{ gates }}" as="g" hint-placeholder-count="6">
       <div style="background:var(--color-surface);border-radius:24px;padding:22px;display:flex;gap:14px;align-items:flex-start">
         <svg sc-camel-view-box="0 0 52 52" style="width:40px;flex:none">
@@ -467,7 +473,7 @@ a:hover { color: var(--color-accent-700); }
 </section>
 
 <section id="vote" style="background:var(--color-surface);position:relative">
-  <div style="max-width:1240px;margin:0 auto;padding:clamp(44px,7vw,96px) clamp(16px,4vw,40px)">
+  <div style="max-width:1240px;margin:0 auto;padding:clamp(44px,7vw,96px) clamp(20px,4vw,40px)">
     <div style="display:flex;flex-wrap:wrap;gap:18px;align-items:flex-end;justify-content:space-between;margin-bottom:8px">
       <h2 style="font-size:clamp(28px,4.2vw,46px);margin:0;max-width:16ch">The vote floor</h2>
       <span class="tag tag-accent-2" style="font-size:12px;padding:6px 14px">Testnet rehearsal · mainnet pool has not staked</span>
@@ -511,7 +517,7 @@ a:hover { color: var(--color-accent-700); }
     <sc-if value="{{ noSelection }}" hint-placeholder-val="{{ true }}">
       <div style="display:flex;flex-direction:column;gap:12px">
         <sc-for list="{{ proposals }}" as="p" hint-placeholder-count="4">
-          <div style="background:var(--color-bg);border-radius:28px;padding:clamp(20px,3vw,28px);display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:clamp(16px,3vw,32px);align-items:center">
+          <div style="background:var(--color-bg);border-radius:28px;padding:clamp(20px,3vw,28px);display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,260px),1fr));gap:clamp(16px,3vw,32px);align-items:center">
             <div>
               <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:10px">
                 <span style="font-family:var(--font-heading);font-size:13px;color:var(--color-accent)">#{{ p.id }}</span>
@@ -561,7 +567,7 @@ a:hover { color: var(--color-accent-700); }
         <h3 style="margin:0 0 10px;font-size:clamp(23px,3.2vw,34px);max-width:24ch">{{ sel.title }}</h3>
         <p style="margin:0 0 clamp(22px,3vw,32px);font-size:15.5px;line-height:1.6;max-width:64ch;opacity:.85">{{ sel.detail }}</p>
 
-        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:clamp(18px,3vw,34px);align-items:start">
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,260px),1fr));gap:clamp(18px,3vw,34px);align-items:start">
           <div>
             <h5 style="margin:0 0 12px;font-size:12px;letter-spacing:.09em;text-transform:uppercase;color:var(--color-accent);font-family:var(--font-body);font-weight:700">Tally</h5>
             <div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:7px"><span style="color:var(--color-accent-2-700)">For {{ sel.yesLabel }}</span><span class="text-muted">Against {{ sel.noLabel }}</span></div>
@@ -611,10 +617,10 @@ a:hover { color: var(--color-accent-700); }
   </div>
 </section>
 
-<section id="trust" style="max-width:1240px;margin:0 auto;padding:clamp(44px,7vw,96px) clamp(16px,4vw,40px)">
+<section id="trust" style="max-width:1240px;margin:0 auto;padding:clamp(44px,7vw,96px) clamp(20px,4vw,40px)">
   <h2 style="font-size:clamp(28px,4.2vw,46px);margin:0 0 10px;max-width:22ch">What the operator cannot do</h2>
   <p class="text-muted" style="max-width:58ch;margin:0 0 clamp(26px,4vw,42px);font-size:16px">The operator picks bonds and signer managers. It never touches a deposit, and it cannot strand the pool by doing nothing.</p>
-  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px">
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,240px),1fr));gap:12px">
     <sc-for list="{{ trust }}" as="t" hint-placeholder-count="4">
       <div style="background:var(--color-surface);border-radius:28px;padding:clamp(20px,3vw,28px)">
         <div style="font-family:var(--font-heading);font-size:18px;margin-bottom:6px">{{ t.title }}</div>
@@ -624,7 +630,7 @@ a:hover { color: var(--color-accent-700); }
   </div>
 
   <h3 style="font-size:clamp(21px,2.8vw,30px);margin:clamp(40px,5vw,64px) 0 18px">Questions worth asking</h3>
-  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:clamp(12px,2vw,20px)">
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,300px),1fr));gap:clamp(12px,2vw,20px)">
     <sc-for list="{{ faq }}" as="f" hint-placeholder-count="6">
       <div style="border-top:1px solid var(--color-divider);padding:18px 0">
         <div style="font-family:var(--font-heading);font-size:18px;margin-bottom:6px;line-height:1.25">{{ f.q }}</div>
@@ -648,7 +654,7 @@ a:hover { color: var(--color-accent-700); }
     </defs>
     <rect width="100%" height="100%" fill="url(#combFoot)"></rect>
   </svg>
-  <div style="position:relative;max-width:1240px;margin:0 auto;padding:clamp(40px,6vw,72px) clamp(16px,4vw,40px) clamp(28px,4vw,44px);display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:clamp(24px,4vw,48px)">
+  <div style="position:relative;max-width:1240px;margin:0 auto;padding:clamp(40px,6vw,72px) clamp(20px,4vw,40px) clamp(28px,4vw,44px);display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,220px),1fr));gap:clamp(24px,4vw,48px)">
     <div>
       <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px">
         <svg width="30" height="30" sc-camel-view-box="0 0 64 64" style="display:block">
@@ -683,7 +689,7 @@ a:hover { color: var(--color-accent-700); }
       <p style="margin:0;font-size:13.5px;line-height:1.6;opacity:.6">Pre-launch. Contracts unaudited and testnet-only. Nothing here is an offer, and the pool holds no funds.</p>
     </div>
   </div>
-  <div style="position:relative;max-width:1240px;margin:0 auto;padding:16px clamp(16px,4vw,40px) clamp(24px,4vw,40px);border-top:1px solid color-mix(in srgb, var(--color-neutral-200) 14%, transparent);font-size:12.5px;opacity:.5">A hive that holds the bond.</div>
+  <div style="position:relative;max-width:1240px;margin:0 auto;padding:16px clamp(20px,4vw,40px) clamp(24px,4vw,40px);border-top:1px solid color-mix(in srgb, var(--color-neutral-200) 14%, transparent);font-size:12.5px;opacity:.5">A hive that holds the bond.</div>
 </footer>
 
 <sc-if value="{{ walletOpen }}" hint-placeholder-val="{{ false }}">

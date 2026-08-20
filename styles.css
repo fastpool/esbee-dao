@@ -151,7 +151,9 @@ h1, h2, h3, h4 { font-family: var(--font-heading); font-weight: var(--font-headi
    ══════════════════════════════════════════════════════════════════════ */
 
 *, *::before, *::after { box-sizing: border-box; }
-body { margin: 0; font-size: 15px; line-height: 1.55; font-weight: 400; }
+/* A principal is forty unbreakable characters, and a phone is narrower than
+   that. Break the word rather than let it run off the side of the page. */
+body { margin: 0; font-size: 15px; line-height: 1.55; font-weight: 400; overflow-wrap: break-word; }
 h1, h2, h3, h4, h5, h6 {
   font-family: var(--font-heading); font-weight: var(--font-heading-weight);
   line-height: 1.12; letter-spacing: -0.015em; margin: 0 0 var(--space-2);

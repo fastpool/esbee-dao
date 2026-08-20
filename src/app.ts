@@ -1140,10 +1140,10 @@ interface JoinPanel {
   amount: string;
   amountLabel: string;
   placeholder: string;
-  satsBg: string;
   satsFg: string;
-  sbtcBg: string;
+  satsLine: string;
   sbtcFg: string;
+  sbtcLine: string;
   showSats: () => void;
   showSbtc: () => void;
   useMax: () => void;
@@ -1202,10 +1202,12 @@ function joinPanel(): JoinPanel {
     amount: state.amount,
     amountLabel: state.unit === "sats" ? "Amount in sats" : "Amount in sBTC",
     placeholder: state.unit === "sats" ? "10000000" : "0.1",
-    satsBg: state.unit === "sats" ? "var(--color-accent)" : "transparent",
-    satsFg: state.unit === "sats" ? "var(--color-bg)" : "var(--color-text)",
-    sbtcBg: state.unit === "sbtc" ? "var(--color-accent)" : "transparent",
-    sbtcFg: state.unit === "sbtc" ? "var(--color-bg)" : "var(--color-text)",
+    // A quiet pair of words rather than a control: which unit the field is in
+    // matters, but not as much as anything else on this card.
+    satsFg: state.unit === "sats" ? "var(--color-text)" : "var(--color-neutral-700)",
+    satsLine: state.unit === "sats" ? "underline" : "none",
+    sbtcFg: state.unit === "sbtc" ? "var(--color-text)" : "var(--color-neutral-700)",
+    sbtcLine: state.unit === "sbtc" ? "underline" : "none",
     showSats: () => switchUnit("sats"),
     showSbtc: () => switchUnit("sbtc"),
     useMax: () => useWholeBalance(),

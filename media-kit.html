@@ -14,8 +14,8 @@
   html { scroll-behavior: smooth; }
   body { margin: 0; }
   a:hover { color: var(--color-accent-700); }
-  .wrap { max-width: 68ch; margin: 0 auto; padding: clamp(32px,6vw,72px) clamp(16px,4vw,40px); }
-  .swatches { display: grid; grid-template-columns: repeat(auto-fit,minmax(150px,1fr)); gap: var(--space-3); }
+  .wrap { max-width: 68ch; margin: 0 auto; padding: clamp(32px,6vw,72px) clamp(20px,4vw,40px); }
+  .swatches { display: grid; grid-template-columns: repeat(auto-fit,minmax(min(100%,150px),1fr)); gap: var(--space-3); }
   .swatch { border-radius: var(--radius-md); overflow: hidden; background: var(--color-surface); }
   .swatch .chip { height: 72px; }
   .swatch .meta { padding: var(--space-2) var(--space-3); font-size: 13px; }
