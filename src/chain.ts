@@ -412,6 +412,26 @@ export interface LiveEpoch {
   "reward-index": number;
 }
 
+/**
+ * `get-stake-preview`: what the next `stake` would commit, and what holds it
+ * back. The contract computes it, so the page never has to reproduce the
+ * allocation cap, the STX floor or the launch floor in JavaScript.
+ */
+export interface StakePreview {
+  /** Everything that wants in: committed, less those leaving, plus the queue. */
+  "eligible-sats": number;
+  /** What actually fits, once the allocation and the STX behind it are applied. */
+  sats: number;
+  ustx: number;
+  "required-ustx": number;
+  "short-ustx": number;
+  scaled: boolean;
+  "stx-limited": boolean;
+  "allocation-limited": boolean;
+  "min-sats": number;
+  "meets-floor": boolean;
+}
+
 /** A bond period as pox-5 describes it, whether or not the pool is in it. */
 export interface BondPeriod {
   index: number;
@@ -488,6 +508,8 @@ export interface PoolState {
   config: Record<string, Plain> | null;
   /** The next bond, and where the chain is relative to its deadlines. */
   bond: BoundBond | null;
+  /** What the next `stake` would commit against the bound bond's allocation. */
+  preview: StakePreview | null;
   burn: number;
   /** Read from pox-5, so the page can say what is running even when unbound. */
   schedule: BondSchedule | null;
@@ -499,11 +521,12 @@ export interface PoolState {
  */
 export async function loadPool(): Promise<PoolState | null> {
   if (!configured()) return null;
-  const [totals, live, cfg, bond, burn] = await Promise.all([
+  const [totals, live, cfg, bond, preview, burn] = await Promise.all([
     readOnly(pool(), "get-pool"),
     readOnly(pool(), "get-live-epoch"),
     readOnly(pool(), "get-config"),
     readOnly(pool(), "get-bound-bond"),
+    readOnly(pool(), "get-stake-preview"),
     burnHeight(),
   ]);
   return {
@@ -511,6 +534,7 @@ export async function loadPool(): Promise<PoolState | null> {
     live: live as unknown as LiveEpoch | null,
     config: cfg as Record<string, Plain> | null,
     bond: bond as unknown as BoundBond | null,
+    preview: preview as unknown as StakePreview | null,
     burn,
     schedule: await loadSchedule(burn).catch(() => null),
   };

@@ -87,9 +87,9 @@ a:hover { color: var(--color-accent-700); }
   </svg>
   <div style="position:relative;max-width:1240px;margin:0 auto;padding:clamp(44px,8vw,104px) clamp(16px,4vw,40px) clamp(52px,8vw,110px);display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:clamp(28px,5vw,64px);align-items:center">
     <div>
-      <div style="display:inline-flex;align-items:center;gap:8px;background:var(--color-accent-2-200);color:var(--color-accent-2-800);border-radius:999px;padding:5px 14px;font-size:12px;letter-spacing:.03em;margin-bottom:clamp(16px,3vw,28px)">
-        <span style="width:7px;height:7px;border-radius:50%;background:var(--color-accent-2-600);display:block"></span>
-        Pre-launch · the genesis bond has not been staked
+      <div style="display:inline-flex;align-items:center;gap:8px;background:{{ stage.bg }};color:{{ stage.fg }};border-radius:999px;padding:5px 14px;font-size:12px;letter-spacing:.03em;margin-bottom:clamp(16px,3vw,28px)">
+        <span style="width:7px;height:7px;border-radius:50%;background:{{ stage.dot }};display:block"></span>
+        {{ stage.label }}
       </div>
       <h1 style="font-size:clamp(40px,7.2vw,80px);line-height:.98;letter-spacing:-0.02em;margin:0 0 clamp(14px,2.5vw,24px);max-width:14ch">A hive that holds the bond.</h1>
       <p style="font-size:clamp(16px,1.7vw,20px);line-height:1.5;max-width:46ch;margin:0 0 clamp(22px,4vw,34px);color:color-mix(in srgb, var(--color-text) 78%, transparent)">Esbee is a pooled staker for Bitcoin Staking Bonds. Workers put in sBTC and the STX it takes to stand beside it; the pool rolls from one bond to the next without ever unwinding, and the honey is split by the shares you held while it was earned.</p>
@@ -122,14 +122,9 @@ a:hover { color: var(--color-accent-700); }
       <span class="text-muted" style="font-size:12px">queued, fully withdrawable</span>
     </div>
     <div class="card" style="background:var(--color-surface);padding:20px 22px;gap:4px">
-      <span style="font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--color-accent)">Members</span>
-      <span style="font-family:var(--font-heading);font-size:clamp(26px,3.4vw,36px);line-height:1.05">{{ statMembers }}</span>
-      <span class="text-muted" style="font-size:12px">committed shares</span>
-    </div>
-    <div class="card" style="background:var(--color-surface);padding:20px 22px;gap:4px">
       <span style="font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--color-accent)">Epoch</span>
       <span style="font-family:var(--font-heading);font-size:clamp(26px,3.4vw,36px);line-height:1.05">{{ statEpoch }}</span>
-      <span class="text-muted" style="font-size:12px">first bond not yet bound</span>
+      <span class="text-muted" style="font-size:12px">{{ statEpochNote }}</span>
     </div>
     <div class="card" style="background:var(--color-surface);padding:20px 22px;gap:4px">
       <span style="font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--color-accent)">Honey paid</span>
@@ -139,14 +134,23 @@ a:hover { color: var(--color-accent-700); }
   </div>
   <div style="margin-top:clamp(14px,2vw,20px);background:var(--color-surface);border-radius:28px;padding:clamp(18px,3vw,26px) clamp(20px,3vw,30px);display:flex;flex-wrap:wrap;gap:18px;align-items:center;justify-content:space-between">
     <div>
-      <div style="font-family:var(--font-heading);font-size:19px">Launch floor</div>
-      <p class="text-muted" style="margin:2px 0 0;font-size:13px;max-width:52ch">Nobody presses a launch button. <code style="font-family:ui-monospace,monospace;font-size:12px">stake</code> is permissionless — it runs the moment enough of a pool has gathered, and refuses below the floor set for the genesis bond.</p>
+      <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:baseline">
+        <div style="font-family:var(--font-heading);font-size:19px">{{ launch.title }}</div>
+        <span style="font-family:var(--font-heading);font-size:19px;color:var(--color-accent)">{{ launch.pct }}</span>
+      </div>
+      <p class="text-muted" style="margin:2px 0 0;font-size:13px;max-width:52ch">Nobody presses a launch button. <code style="font-family:ui-monospace,monospace;font-size:12px">stake</code> is permissionless — {{ launch.lead }}</p>
+      <sc-if value="{{ launch.hasNote }}">
+        <p style="margin:8px 0 0;font-size:13px;max-width:52ch;color:var(--color-accent-800)">{{ launch.note }}</p>
+      </sc-if>
+      <sc-if value="{{ launch.ctaShow }}">
+        <a class="btn btn-primary" href="#join" style="font-size:14px;margin-top:14px">{{ launch.ctaLabel }}</a>
+      </sc-if>
     </div>
     <div style="min-width:min(100%,320px);flex:1">
       <div style="height:14px;border-radius:999px;background:var(--color-neutral-300);overflow:hidden">
-        <div style="height:100%;width:0%;background:var(--color-accent);border-radius:999px"></div>
+        <div style="height:100%;width:{{ launch.barW }};background:var(--color-accent);border-radius:999px"></div>
       </div>
-      <div style="display:flex;justify-content:space-between;font-size:12px;margin-top:7px" class="text-muted"><span>0 sats gathered</span><span>floor: half the allocation</span></div>
+      <div style="display:flex;justify-content:space-between;gap:10px;font-size:12px;margin-top:7px" class="text-muted"><span>{{ launch.gathered }}</span><span>{{ launch.target }}</span></div>
     </div>
   </div>
   <sc-if value="{{ bond.show }}">
@@ -245,7 +249,7 @@ a:hover { color: var(--color-accent-700); }
       </div>
     </div>
 
-    <h3 style="font-size:clamp(22px,3vw,32px);margin:clamp(36px,5vw,60px) 0 6px">Two ways in</h3>
+    <h3 id="join" style="font-size:clamp(22px,3vw,32px);margin:clamp(36px,5vw,60px) 0 6px;scroll-margin-top:90px">Two ways in</h3>
     <p class="text-muted" style="margin:0 0 24px;font-size:15px;max-width:56ch">Deposit sBTC you already hold, or arrive with L1 bitcoin. The second route is five steps and the order is the whole point.</p>
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:clamp(12px,2vw,20px)">
       <div style="background:var(--color-bg);border-radius:28px;padding:clamp(22px,3vw,30px)">
@@ -262,6 +266,13 @@ a:hover { color: var(--color-accent-700); }
           <div style="display:flex;justify-content:space-between;font-size:13px;padding:11px 16px;background:var(--color-surface);border-radius:999px">
             <span class="text-muted">your sBTC</span><span style="font-family:var(--font-heading)">{{ join.balance }}</span>
           </div>
+          <sc-if value="{{ join.faucets }}">
+            <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+              <span class="text-muted" style="font-size:12.5px">Testnet faucet</span>
+              <button class="btn btn-secondary" sc-camel-on-click="{{ join.faucetSbtc }}" style="font-size:13px;padding:7px 14px">Get sBTC</button>
+              <button class="btn btn-secondary" sc-camel-on-click="{{ join.faucetStx }}" style="font-size:13px;padding:7px 14px">Get STX</button>
+            </div>
+          </sc-if>
           <sc-if value="{{ join.open }}">
             <button class="btn btn-primary btn-block" sc-camel-on-click="{{ join.deposit }}">Deposit</button>
           </sc-if>

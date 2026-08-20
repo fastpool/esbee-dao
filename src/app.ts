@@ -15,6 +15,7 @@ import {
   configured,
   explorerTx,
   hasDeployment,
+  net,
   setNetwork,
   SWITCHABLE,
 } from "./config.js";
@@ -524,6 +525,168 @@ function bondPanel(): BondPanel {
   };
 }
 
+/// --- where the pool is in its own life --------------------------------------------
+
+interface StagePill {
+  label: string;
+  bg: string;
+  fg: string;
+  dot: string;
+}
+
+/**
+ * The badge above the headline, which is the first thing a reader sees and so
+ * the first thing that can be out of date.
+ *
+ * The design drew it as "the genesis bond has not been staked" -- true only
+ * until a bond is bound, and only ever true of bond 0. The pool has five
+ * states and this says which one it is in, naming the bond it is actually
+ * about.
+ */
+function stagePill(): StagePill {
+  const live = { bg: "var(--color-accent-2-200)", fg: "var(--color-accent-2-800)", dot: "var(--color-accent-2-600)" };
+  const past = { bg: "var(--color-neutral-300)", fg: "var(--color-neutral-800)", dot: "var(--color-neutral-500)" };
+
+  const pool = state.pool;
+  if (!pool) return { label: "Pre-launch · no contracts deployed on this network", ...live };
+
+  if (pool.config?.finished === true) {
+    return { label: "Wound down · the pool has unstaked for good", ...past };
+  }
+
+  if (pool.live) {
+    const index = num(pool.live["bond-index"]);
+    const unlock = num(pool.live["unlock-burn-height"]);
+    return {
+      label: `Staked · bond ${index}, term ends ${relative(unlock, pool.burn)}`,
+      ...live,
+    };
+  }
+
+  const bond = pool.bond;
+  if (bond?.bound) {
+    const index = num(bond["bond-index"]);
+    const start = num(bond["start-height"]);
+    // A bond that has started without the pool in it is not a stage the pool
+    // can act on: `bind-bond` may replace it, so the badge says so plainly.
+    return pool.burn < start
+      ? {
+          label: `Deposits open · bond ${index} starts ${relative(start, pool.burn)}`,
+          ...live,
+        }
+      : { label: `Bond ${index} started unstaked · awaiting a new bind`, ...past };
+  }
+
+  return { label: "Pre-launch · no bond bound yet", ...live };
+}
+
+/// --- how full the pool is --------------------------------------------------------
+
+interface LaunchPanel {
+  title: string;
+  lead: string;
+  pct: string;
+  /** The bar's own width, which is not the percentage below one part in fifty. */
+  barW: string;
+  gathered: string;
+  target: string;
+  note: string;
+  hasNote: boolean;
+  ctaShow: boolean;
+  ctaLabel: string;
+}
+
+/**
+ * What has gathered against what the bond will take.
+ *
+ * `get-stake-preview` is the contract's own answer to "what would `stake` do
+ * now", so the bar reads the same number the call would -- the queue plus the
+ * committed position less those leaving, not just the queue.
+ *
+ * The target is the launch floor where there is one and the allocation where
+ * there is not. Only the genesis bond may carry a floor: `bind-bond` refuses a
+ * non-zero `min-sats` anywhere else, so every later bond fills against its
+ * allocation and `stake` commits whatever turned up.
+ */
+function launchPanel(): LaunchPanel {
+  const pool = state.pool;
+  const bond = pool?.bond ?? null;
+  const preview = pool?.preview ?? null;
+  const btc = (sats: number) => `${(sats / 1e8).toFixed(4)} BTC`;
+  const stx = (ustx: number) => `${(ustx / 1e6).toFixed(2)} STX`;
+
+  const bound = Boolean(bond?.bound);
+  const open = bound && (pool?.burn ?? 0) < num(bond!["start-height"]);
+
+  // Nothing to read from: no deployment on this network. The rehearsal copy the
+  // design shipped with stays, rather than a bar that reports a real zero.
+  if (!pool || !bound) {
+    return {
+      title: "Launch floor",
+      lead:
+        "it runs the moment enough of a pool has gathered, and refuses below " +
+        "the floor set for the genesis bond.",
+      pct: "0%",
+      barW: "0%",
+      gathered: "0 sats gathered",
+      target: "floor: half the allocation",
+      note: "",
+      hasNote: false,
+      ctaShow: false,
+      ctaLabel: "",
+    };
+  }
+
+  const allocation = num(bond!["max-sats"]);
+  const floorSats = preview ? num(preview["min-sats"]) : num(bond!["min-sats"]);
+  const gathered = preview
+    ? num(preview["eligible-sats"])
+    : pool.totals
+      ? num(pool.totals["queued-sats"])
+      : 0;
+  const target = floorSats > 0 ? floorSats : allocation;
+  const share = target > 0 ? Math.min(gathered / target, 1) : 0;
+  const percent = share * 100;
+
+  const short = preview ? num(preview["short-ustx"]) : 0;
+  const overAllocated = Boolean(preview?.["allocation-limited"]);
+  const belowFloor = floorSats > 0 && preview !== null && !preview["meets-floor"];
+
+  return {
+    title: floorSats > 0 ? "Launch floor" : "Filling the allocation",
+    lead:
+      floorSats > 0
+        ? "it runs the moment enough of a pool has gathered, and refuses below " +
+          `the ${btc(floorSats)} floor this bond was bound with.`
+        : "it runs inside the window before the bond starts and commits whatever " +
+          `has gathered, up to the ${btc(allocation)} pox-5 allows this pool on ` +
+          `bond ${num(bond!["bond-index"])}.`,
+    // A whole number reads as nothing at all below one per cent, which is
+    // exactly where a pool starts, so keep a decimal until it is past that.
+    pct:
+      percent === 0
+        ? "0%"
+        : percent < 1
+          ? `${percent.toFixed(2)}%`
+          : `${Math.round(percent)}%`,
+    // Anything non-zero gets a visible sliver: a bar that paints nothing for a
+    // real deposit reads as a broken page rather than as a small number.
+    barW: percent === 0 ? "0%" : `${Math.max(percent, 1.5)}%`,
+    gathered: `${fmt(gathered)} sats gathered · ${btc(gathered)}`,
+    target: floorSats > 0 ? `floor: ${btc(floorSats)}` : `allocation: ${btc(allocation)}`,
+    note: short > 0
+      ? `The STX leg is ${stx(short)} short of carrying all of it — a deposit-stx call tops it up.`
+      : overAllocated
+        ? "More has gathered than the allocation takes; the remainder is released at the roll."
+        : belowFloor
+          ? "Below the floor: `stake` refuses until it is met."
+          : "",
+    hasNote: short > 0 || overAllocated || belowFloor,
+    ctaShow: open,
+    ctaLabel: gathered > 0 ? "Add to the pool" : "Deposit sBTC",
+  };
+}
+
 /// --- joining --------------------------------------------------------------------
 
 const SALT_KEY = "esbee:salt";
@@ -607,6 +770,62 @@ async function doConfirm(): Promise<void> {
   await withWallet("the confirmation", () => api.bridgeCalls.confirm(txid, vout));
 }
 
+/// --- the testnet faucets ----------------------------------------------------------
+
+type FaucetKind = "stx" | "sbtc";
+
+const FAUCET_LABEL: Record<FaucetKind, string> = { stx: "STX", sbtc: "sBTC" };
+
+/**
+ * Both legs, from Hiro's testnet faucets.
+ *
+ * A deposit needs sBTC *and* the STX the bond prices it at, so a reader who has
+ * only ever held one of them cannot join. The faucet builds and broadcasts its
+ * own transaction -- there is nothing to sign here, which is why this needs no
+ * wallet SDK, only the address the wallet already gave us.
+ *
+ * Testnet only, because there is no such thing on mainnet. `config.network`
+ * gates the buttons rather than this function, so the failure a reader can see
+ * is a missing button and not a call that always says no.
+ */
+async function faucet(kind: FaucetKind): Promise<void> {
+  const address = state.account;
+  const label = FAUCET_LABEL[kind];
+  if (!address) return setState({ walletOpen: true });
+
+  setState({ notice: `Asking the ${label} faucet…` });
+  try {
+    const response = await fetch(
+      `${net().api}/extended/v1/faucets/${kind}?address=${encodeURIComponent(address)}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ address }),
+      },
+    );
+    const body = (await response.json().catch(() => ({}))) as {
+      success?: boolean;
+      txId?: string;
+      error?: string;
+    };
+    // 429 is the one to expect: the faucet allows an address a request every
+    // few minutes, and says so itself. Pass its own words through.
+    if (!response.ok || body.success === false) {
+      throw new Error(body.error ?? `it answered ${response.status}`);
+    }
+    setState({
+      notice: body.txId
+        ? `${label} on the way — ${body.txId}`
+        : `${label} on the way`,
+    });
+    // A faucet transaction is an ordinary transaction: the balance moves when
+    // it confirms, not when the request returns.
+    window.setTimeout(() => void refresh(), 30_000);
+  } catch (error) {
+    setState({ notice: `The ${label} faucet said no: ${message(error)}` });
+  }
+}
+
 const poolAction = (label: string, pick: (api: Awaited<ReturnType<typeof chainApi>>) => Promise<string | null>) =>
   () => void withWallet(label, async () => pick(await chainApi()));
 
@@ -633,6 +852,10 @@ interface JoinPanel {
   confirm: () => void;
   claimPrincipal: () => void;
   claimRewards: () => void;
+  /** Testnet only: both legs are a click away, so a reader can actually join. */
+  faucets: boolean;
+  faucetStx: () => void;
+  faucetSbtc: () => void;
 }
 
 function joinPanel(): JoinPanel {
@@ -682,6 +905,11 @@ function joinPanel(): JoinPanel {
     claimRewards: poolAction("the claim", (api) =>
       api.poolCalls.claimRewards(state.account!),
     ),
+    // An address, not just a connection: the rehearsal connects without one,
+    // and the faucet has nowhere to send to.
+    faucets: config.network === "testnet" && Boolean(state.account),
+    faucetStx: () => void faucet("stx"),
+    faucetSbtc: () => void faucet("sbtc"),
   };
 }
 
@@ -766,11 +994,17 @@ function viewModel(): Scope {
 
   return {
     statSats: totals ? `${(queued / 1e8).toFixed(4)} BTC` : "0",
-    // No member count exists on chain: the ledger keys members by principal and
-    // never counts them, so an honest dash beats a number that means something
-    // else. Counting them is an indexer's job, over the contract's prints.
-    statMembers: state.pool ? "—" : "0",
+    // There is no members stat: the ledger keys members by principal and never
+    // counts them, so the number does not exist on chain. It was a card that
+    // could only ever read as a dash, and counting them is an indexer's job.
     statEpoch: live ? String(live.epoch) : "—",
+    // The caption the design drew read "first bond not yet bound", which stops
+    // being true the moment one is.
+    statEpochNote: state.pool?.live
+      ? `bond ${num(state.pool.live["bond-index"])} live, shares committed`
+      : state.pool?.bond?.bound
+        ? `bond ${num(state.pool.bond["bond-index"])} bound, not yet staked`
+        : "first bond not yet bound",
     statHoney: totals ? `${(num(totals["unclaimed-rewards"]) / 1e8).toFixed(4)} BTC` : "0",
 
     connected: state.connected,
@@ -787,7 +1021,9 @@ function viewModel(): Scope {
     disconnect: () => doDisconnect(),
     closeDetail: () => setState({ sel: null }),
 
+    stage: stagePill(),
     bond: bondPanel(),
+    launch: launchPanel(),
     join: joinPanel(),
 
     // Switching network is a reload, so the choice is a link-like button rather

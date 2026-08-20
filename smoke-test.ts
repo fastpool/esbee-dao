@@ -75,7 +75,8 @@ const proposal = (id: number) => ({
 
 const proposals = [proposal(4), proposal(3)];
 const scope: Record<string, unknown> = {
-  statSats: "0", statMembers: "0", statEpoch: "—", statHoney: "0",
+  statSats: "0", statEpoch: "—", statHoney: "0",
+  statEpochNote: "bond 3 bound, not yet staked",
   connected: true, disconnected: false, walletOpen: true,
   walletLabel: "SP2J8XK…9K4T",
   memberSatsLabel: "10,000,000", memberWeight: "3,162", memberShare: "13.1%",
@@ -96,6 +97,25 @@ const scope: Record<string, unknown> = {
     hasQueued: true, hasReleased: true, hasRewards: true,
     deposit: () => {}, withdraw: () => {}, commit: () => {}, reveal: () => {},
     confirm: () => {}, claimPrincipal: () => {}, claimRewards: () => {},
+    faucets: true, faucetStx: () => {}, faucetSbtc: () => {},
+  },
+  stage: {
+    label: "Deposits open · bond 3 starts in 10d 7h",
+    bg: "var(--color-accent-2-200)",
+    fg: "var(--color-accent-2-800)",
+    dot: "var(--color-accent-2-600)",
+  },
+  launch: {
+    title: "Filling the allocation",
+    lead: "it runs inside the window before the bond starts",
+    pct: "0.50%",
+    barW: "1.5%",
+    gathered: "500,000 sats gathered · 0.0050 BTC",
+    target: "allocation: 1.0000 BTC",
+    note: "The STX leg is 0.25 STX short of carrying all of it.",
+    hasNote: true,
+    ctaShow: true,
+    ctaLabel: "Add to the pool",
   },
   bond: {
     show: true,
