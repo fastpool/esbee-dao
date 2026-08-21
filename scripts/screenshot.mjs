@@ -79,8 +79,10 @@ const ready = async () => {
 await ready();
 mkdirSync(out, { recursive: true });
 
-for (const page of ["index.html", "media-kit.html"]) {
-  const file = join(out, `${page.replace(".html", "")}.png`);
+// The retired vault's page is a page of this site like any other, and the one
+// most likely to be forgotten when something about the design changes.
+for (const page of ["index.html", "media-kit.html", "v1/index.html"]) {
+  const file = join(out, `${page.replace(".html", "").replace("/", "-")}.png`);
   execFileSync(chrome, [
     "--headless",
     "--disable-gpu",
@@ -93,7 +95,7 @@ for (const page of ["index.html", "media-kit.html"]) {
     `--screenshot=${file}`,
     `http://127.0.0.1:${PORT}/${page}`,
   ], { stdio: ["ignore", "ignore", "pipe"] });
-  console.log(`shots/${page.replace(".html", "")}.png  ${WIDTH}x${HEIGHT}`);
+  console.log(`shots/${page.replace(".html", "").replace("/", "-")}.png  ${WIDTH}x${HEIGHT}`);
 }
 
 stop();

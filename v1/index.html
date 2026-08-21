@@ -3,13 +3,16 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Esbee DAO — a hive that holds the bond</title>
-<meta name="description" content="Esbee DAO is the operator seat of a pooled sBTC + STX staker for pox-5 Bitcoin Staking Bonds, held by its members rather than by a key.">
-<link rel="icon" type="image/svg+xml" href="esbee.svg">
-<link rel="icon" type="image/png" sizes="32x32" href="icons/icon-32.png">
-<link rel="apple-touch-icon" sizes="180x180" href="icons/icon-180.png">
-<link rel="mask-icon" href="esbee.svg" color="#c67139">
-<link rel="stylesheet" href="styles.css">
+<title>Esbee DAO — vault-1, retired</title>
+<meta name="description" content="The retired Esbee DAO vault. Take back the sBTC and STX that vault-1 still holds for you; the live pool is vault-2.">
+<!-- Everything static is shared with the live page, one directory up: one
+     stylesheet, one mark, one set of icons, and a cache that is already warm
+     for a reader arriving from there. -->
+<link rel="icon" type="image/svg+xml" href="../esbee.svg">
+<link rel="icon" type="image/png" sizes="32x32" href="../icons/icon-32.png">
+<link rel="apple-touch-icon" sizes="180x180" href="../icons/icon-180.png">
+<link rel="mask-icon" href="../esbee.svg" color="#c67139">
+<link rel="stylesheet" href="../styles.css">
 <style>
 html { scroll-behavior: smooth; }
 body { margin: 0; }
@@ -280,18 +283,17 @@ a:hover { color: var(--color-accent-700); }
       <span style="font-family:var(--font-heading);font-size:21px;letter-spacing:-0.01em">Esbee<span style="color:var(--color-accent)">.</span></span>
     </a>
     <nav style="display:flex;align-items:center;gap:clamp(10px,2vw,24px);flex-wrap:wrap;font-size:14px">
+      <a href="#exit" style="text-decoration:none;color:var(--color-text);white-space:nowrap" style-hover="color:var(--color-accent)">Take your funds out</a>
       <a href="#pool" style="text-decoration:none;color:var(--color-text);white-space:nowrap" style-hover="color:var(--color-accent)">The pool</a>
-      <a href="#govern" style="text-decoration:none;color:var(--color-text);white-space:nowrap" style-hover="color:var(--color-accent)">Governance</a>
       <a href="#vote" style="text-decoration:none;color:var(--color-text);white-space:nowrap" style-hover="color:var(--color-accent)">Vote</a>
-      <a href="#trust" style="text-decoration:none;color:var(--color-text);white-space:nowrap" style-hover="color:var(--color-accent)">Trust</a>
-      <a href="media-kit.html" style="text-decoration:none;color:var(--color-text);white-space:nowrap" style-hover="color:var(--color-accent)">Media kit</a>
+      <a href="../index.html" style="text-decoration:none;color:var(--color-accent);white-space:nowrap" style-hover="color:var(--color-accent-700)">The live vault ↗</a>
     </nav>
     <!-- Which vault the page is talking to. Two of them exist under this DAO
-         and they hold different money, so naming it is not decoration: every
-         number below is read from this contract and no other. -->
+         and they hold different money; this one is the retired half, and every
+         number below is read from it and no other. -->
     <sc-if value="{{ poolShow }}">
-      <a class="tag tag-accent" href="{{ poolLink }}" target="_blank" rel="noopener" title="{{ poolContract }}" style="flex:none;text-decoration:none;font-family:ui-monospace,monospace;gap:6px;white-space:nowrap">
-        <span style="opacity:.75;font-family:var(--font-body)">Esbee DAO contract</span>{{ poolName }} ↗
+      <a class="tag tag-neutral" href="{{ poolLink }}" target="_blank" rel="noopener" title="{{ poolContract }}" style="flex:none;text-decoration:none;font-family:ui-monospace,monospace;gap:6px;white-space:nowrap">
+        <span style="opacity:.75;font-family:var(--font-body)">Retired contract</span>{{ poolName }} ↗
       </a>
     </sc-if>
     <div class="seg" style="flex:none">
@@ -302,6 +304,22 @@ a:hover { color: var(--color-accent-700); }
     <button class="btn btn-primary" sc-camel-on-click="{{ openWallet }}" style="font-size:14px;padding:9px 18px;white-space:nowrap">{{ walletLabel }}</button>
   </div>
 </header>
+
+<!-- A reader can arrive here from a bookmark, a search result or a stale link,
+     with no idea that the DAO has moved. Nothing below means anything until
+     they know which vault they are looking at, so this comes first. -->
+<sc-if value="{{ poolShow }}">
+  <div style="background:var(--color-accent-200);color:var(--color-accent-800);border-bottom:1px solid color-mix(in srgb, var(--color-text) 8%, transparent)">
+    <div style="max-width:1240px;margin:0 auto;padding:12px clamp(20px,4vw,40px);display:flex;flex-wrap:wrap;gap:10px 18px;align-items:center;font-size:14px;line-height:1.5">
+      <strong style="font-family:var(--font-heading);font-weight:400">This is <span style="font-family:ui-monospace,monospace">{{ poolName }}</span>, the retired vault.</strong>
+      <span>It takes no new deposits. The Esbee DAO pool now runs on <span style="font-family:ui-monospace,monospace">{{ successor }}</span> — take your sBTC and STX out here, then deposit them there.</span>
+      <span style="display:flex;gap:8px;flex-wrap:wrap;margin-left:auto">
+        <a class="btn btn-primary" href="#exit" style="font-size:13px;padding:7px 16px;white-space:nowrap">Take your funds out</a>
+        <a class="btn btn-secondary" href="../index.html" style="font-size:13px;padding:7px 16px;white-space:nowrap">Go to {{ successor }}</a>
+      </span>
+    </div>
+  </div>
+</sc-if>
 
 <section id="top" style="position:relative;background:var(--color-surface);overflow:hidden">
   <svg width="100%" height="100%" aria-hidden="true" style="position:absolute;inset:0;opacity:.5">
@@ -326,7 +344,7 @@ a:hover { color: var(--color-accent-700); }
       <h1 style="font-size:clamp(40px,7.2vw,80px);line-height:.98;letter-spacing:-0.02em;margin:0 0 clamp(14px,2.5vw,24px);max-width:14ch">A hive that holds the bond.</h1>
       <p style="font-size:clamp(16px,1.7vw,20px);line-height:1.5;max-width:46ch;margin:0 0 clamp(22px,4vw,34px);color:color-mix(in srgb, var(--color-text) 78%, transparent)">Esbee is a pooled staker for Bitcoin Staking Bonds. Workers put in sBTC and the STX it takes to stand beside it; the pool rolls from one bond to the next without ever unwinding, and the honey is split by the shares you held while it was earned.</p>
       <div style="display:flex;flex-wrap:wrap;gap:12px">
-        <a class="btn btn-primary" href="#pool" style="font-size:15px;padding:12px 24px">How the pool works</a>
+        <a class="btn btn-primary" href="#exit" style="font-size:15px;padding:12px 24px">Take your funds out</a>
         <a class="btn btn-secondary" href="#vote" style="font-size:15px;padding:12px 24px">See the DAO vote</a>
       </div>
     </div>
@@ -376,15 +394,7 @@ a:hover { color: var(--color-accent-700); }
       </sc-if>
       <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-top:14px">
         <sc-if value="{{ launch.ctaShow }}">
-          <a class="btn btn-primary" href="#join" style="font-size:14px">{{ launch.ctaLabel }}</a>
-        </sc-if>
-        <sc-if value="{{ launch.stakeShow }}">
-          <sc-if value="{{ launch.stakeReady }}">
-            <button class="btn btn-secondary" sc-camel-on-click="{{ launch.stake }}" style="font-size:14px">{{ launch.stakeLabel }}</button>
-          </sc-if>
-          <sc-if value="{{ launch.stakeWait }}">
-            <span class="text-muted" style="font-size:12.5px;max-width:34ch;line-height:1.45">{{ launch.stakeWait }}</span>
-          </sc-if>
+          <a class="btn btn-primary" href="#exit" style="font-size:14px">{{ launch.ctaLabel }}</a>
         </sc-if>
       </div>
     </div>
@@ -501,149 +511,121 @@ a:hover { color: var(--color-accent-700); }
       </div>
     </div>
 
-    <h3 id="join" style="font-size:clamp(22px,3vw,32px);margin:clamp(36px,5vw,60px) 0 6px;scroll-margin-top:90px">Two ways in</h3>
-    <p class="text-muted" style="margin:0 0 24px;font-size:15px;max-width:56ch">Deposit sBTC you already hold, or arrive with L1 bitcoin. The second route is five steps and the order is the whole point.</p>
-    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,280px),1fr));gap:clamp(12px,2vw,20px)">
-      <div style="background:var(--color-bg);border-radius:28px;padding:clamp(22px,3vw,30px)">
-        <h4 style="margin:0 0 8px;font-size:22px">With sBTC</h4>
-        <p style="margin:0 0 14px;font-size:14px;line-height:1.6;opacity:.8">Enter an amount. The STX leg is quoted from the live bond, and one call moves both.</p>
-        <div style="display:flex;flex-direction:column;gap:8px">
-          <div class="field">
-            <div style="display:flex;justify-content:space-between;align-items:center;gap:10px">
-              <label for="join-sats" style="margin:0">{{ join.amountLabel }}</label>
-              <div style="display:flex;align-items:baseline;gap:7px;flex:none;font-size:12px">
-                <button sc-camel-on-click="{{ join.showSats }}" style="background:none;border:0;padding:0;font:inherit;font-size:12px;cursor:pointer;color:{{ join.satsFg }};text-decoration:{{ join.satsLine }};text-underline-offset:3px">sats</button>
-                <span style="color:var(--color-neutral-500)">·</span>
-                <button sc-camel-on-click="{{ join.showSbtc }}" style="background:none;border:0;padding:0;font:inherit;font-size:12px;cursor:pointer;color:{{ join.sbtcFg }};text-decoration:{{ join.sbtcLine }};text-underline-offset:3px">sBTC</button>
-              </div>
-            </div>
-            <input class="input" id="join-sats" inputmode="decimal" placeholder="{{ join.placeholder }}" value="{{ join.amount }}" autocomplete="off">
-          </div>
-          <div style="display:flex;justify-content:space-between;gap:10px;font-size:13px;padding:9px 2px;">
-            <span class="text-muted">STX leg</span><span id="join-quote" style="font-family:var(--font-heading);text-align:right">{{ join.quote }}</span>
-          </div>
-          <div style="display:flex;justify-content:space-between;gap:10px;align-items:center;font-size:13px;padding:9px 2px;border-top:1px solid var(--color-divider)">
-            <span class="text-muted">your sBTC</span>
-            <sc-if value="{{ join.connected }}" hint-placeholder-val="{{ true }}">
-              <button sc-camel-on-click="{{ join.useMax }}" style="background:none;border:0;padding:0;font:inherit;font-family:var(--font-heading);color:inherit;cursor:pointer;text-align:right" style-hover="color:var(--color-accent-700)">{{ join.balance }}<span class="text-muted" style="font-size:11.5px;margin-left:6px;font-family:var(--font-body)">{{ join.maxHint }}</span></button>
-            </sc-if>
-            <sc-if value="{{ join.disconnected }}" hint-placeholder-val="{{ false }}">
-              <button class="btn btn-secondary" sc-camel-on-click="{{ join.connect }}" style="font-size:12.5px;padding:5px 14px;flex:none">Connect</button>
-            </sc-if>
-          </div>
-          <sc-if value="{{ join.wrongNetwork }}">
-            <p style="margin:2px 0 0;font-size:13px;line-height:1.5;color:var(--color-accent-800)">{{ join.networkWarning }}</p>
-          </sc-if>
-          <sc-if value="{{ join.faucets }}">
-            <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
-              <span class="text-muted" style="font-size:12.5px">Testnet faucet</span>
-              <button class="btn btn-secondary" sc-camel-on-click="{{ join.faucetSbtc }}" style="font-size:13px;padding:7px 14px">Get sBTC</button>
-              <button class="btn btn-secondary" sc-camel-on-click="{{ join.faucetStx }}" style="font-size:13px;padding:7px 14px">Get STX</button>
-            </div>
-          </sc-if>
-          <sc-if value="{{ join.open }}">
-            <button class="btn btn-primary btn-block" sc-camel-on-click="{{ join.deposit }}">Deposit</button>
-          </sc-if>
-          <sc-if value="{{ join.closed }}">
-            <p class="text-muted" style="margin:6px 0 0;font-size:13px;line-height:1.5">{{ join.closedWhy }}</p>
-          </sc-if>
-          <sc-if value="{{ join.pendingShow }}">
-            <div style="display:flex;flex-direction:column;gap:5px;padding:12px 14px;border-radius:var(--radius-md);background:var(--color-surface)">
-              <span style="font-size:13px;line-height:1.5">{{ join.pendingText }}</span>
-              <a href="{{ join.pendingLink }}" target="_blank" rel="noopener" style="font-size:12px;font-family:ui-monospace,monospace;color:var(--color-accent-800);text-decoration:none" style-hover="text-decoration:underline">{{ join.pendingTxid }} ↗</a>
-            </div>
-          </sc-if>
-        </div>
+    <h3 id="exit" style="font-size:clamp(22px,3vw,32px);margin:clamp(36px,5vw,60px) 0 6px;scroll-margin-top:90px">Take your funds out</h3>
+    <p class="text-muted" style="margin:0 0 24px;font-size:15px;max-width:60ch">Everything below is read from <span style="font-family:ui-monospace,monospace">{{ exit.contract }}</span>, the retired vault. Nothing moves between the two contracts on its own: what leaves here arrives in your own wallet, and depositing it into <span style="font-family:ui-monospace,monospace">{{ exit.successor }}</span> is a second, separate decision.</p>
+
+    <sc-if value="{{ exit.disconnected }}">
+      <div style="background:var(--color-bg);border-radius:28px;padding:clamp(22px,3vw,30px);display:flex;flex-wrap:wrap;gap:16px;align-items:center;justify-content:space-between">
+        <p style="margin:0;font-size:15px;line-height:1.6;max-width:52ch">Connect the wallet you deposited with. A position in this vault is keyed to the address that made it, so there is nothing to show until then.</p>
+        <button class="btn btn-primary" sc-camel-on-click="{{ exit.connect }}" style="font-size:15px;padding:12px 24px;flex:none">Connect wallet</button>
       </div>
+    </sc-if>
+
+    <sc-if value="{{ exit.connected }}">
+      <sc-if value="{{ exit.wrongNetwork }}">
+        <p style="margin:0 0 14px;font-size:14px;line-height:1.55;color:var(--color-accent-800)">{{ exit.networkWarning }}</p>
+      </sc-if>
+
+      <sc-if value="{{ exit.empty }}">
+        <div style="background:var(--color-bg);border-radius:28px;padding:clamp(22px,3vw,30px);display:flex;flex-wrap:wrap;gap:16px;align-items:center;justify-content:space-between">
+          <p style="margin:0;font-size:15px;line-height:1.6;max-width:52ch">{{ exit.emptyNote }}</p>
+          <a class="btn btn-secondary" href="../index.html" style="font-size:14px;flex:none">Go to {{ exit.successor }}</a>
+        </div>
+      </sc-if>
+
+      <!-- The unstaked leg first, and on its own: it is the only part of a
+           position that comes back on demand, in one call, both legs at once.
+           The three below it are each waiting on something the contract will
+           not skip, and saying so is the point of separating them. -->
       <div style="background:var(--color-bg);border-radius:28px;padding:clamp(22px,3vw,30px)">
-        <h4 style="margin:0 0 14px;font-size:22px">With L1 bitcoin</h4>
-        <div style="display:flex;flex-direction:column;gap:12px">
-          <div style="display:flex;gap:12px;align-items:flex-start">
-            <span style="flex:none;width:26px;height:26px;border-radius:50%;background:var(--color-accent);color:var(--color-bg);display:grid;place-items:center;font-family:var(--font-heading);font-size:13px">1</span>
-            <p style="margin:0;font-size:14px;line-height:1.55;opacity:.85"><strong style="font-family:var(--font-heading);font-weight:400">Commit</strong> a hash of the transaction you are about to make. This takes the STX leg, and gives nothing away.</p>
-          </div>
-          <div style="display:flex;gap:12px;align-items:flex-start">
-            <span style="flex:none;width:26px;height:26px;border-radius:50%;background:var(--color-accent);color:var(--color-bg);display:grid;place-items:center;font-family:var(--font-heading);font-size:13px">2</span>
-            <p style="margin:0;font-size:14px;line-height:1.55;opacity:.85"><strong style="font-family:var(--font-heading);font-weight:400">Reveal</strong> it one bitcoin block later, which claims the txid before anyone else can see it.</p>
-          </div>
-          <div style="display:flex;gap:12px;align-items:flex-start">
-            <span style="flex:none;width:26px;height:26px;border-radius:50%;background:var(--color-accent);color:var(--color-bg);display:grid;place-items:center;font-family:var(--font-heading);font-size:13px">3</span>
-            <p style="margin:0;font-size:14px;line-height:1.55;opacity:.85"><strong style="font-family:var(--font-heading);font-weight:400">Broadcast</strong> to the treasury address — only now. Never to the ledger: sBTC landing there is taken for honey and split.</p>
-          </div>
-          <div style="display:flex;gap:12px;align-items:flex-start">
-            <span style="flex:none;width:26px;height:26px;border-radius:50%;background:var(--color-accent);color:var(--color-bg);display:grid;place-items:center;font-family:var(--font-heading);font-size:13px">4</span>
-            <p style="margin:0;font-size:14px;line-height:1.55;opacity:.85"><strong style="font-family:var(--font-heading);font-weight:400">Wait</strong> for the sBTC signers to sweep it. They take their fee out of the amount, and the pool credits what arrives.</p>
-          </div>
-          <div style="display:flex;gap:12px;align-items:flex-start">
-            <span style="flex:none;width:26px;height:26px;border-radius:50%;background:var(--color-accent);color:var(--color-bg);display:grid;place-items:center;font-family:var(--font-heading);font-size:13px">5</span>
-            <p style="margin:0;font-size:14px;line-height:1.55;opacity:.85"><strong style="font-family:var(--font-heading);font-weight:400">Confirm</strong> once it has landed. Permissionless — a keeper can do this for you.</p>
-          </div>
-          <div class="field" style="margin-top:2px">
-            <label for="btc-txid">Txid you are about to broadcast</label>
-            <input class="input" id="btc-txid" placeholder="64 hex characters" autocomplete="off">
-          </div>
-          <div class="field">
-            <label for="btc-vout">Output index</label>
-            <input class="input" id="btc-vout" inputmode="numeric" value="0" autocomplete="off">
-          </div>
-          <div style="display:flex;justify-content:space-between;gap:10px;font-size:12.5px;padding:11px 16px;background:var(--color-surface);border-radius:999px">
-            <span class="text-muted">send to</span><span style="font-family:ui-monospace,monospace;overflow-wrap:anywhere;text-align:right">{{ join.depositTo }}</span>
-          </div>
-          <!-- Three of the five steps are calls this page makes. Steps 3 and 4
-               happen on bitcoin and in the signers' own time: they sit in the row
-               so the order still reads, and cannot be pressed. -->
-          <div class="row" style="display:flex;gap:8px;flex-wrap:wrap">
-            <button class="btn btn-secondary" sc-camel-on-click="{{ join.commit }}" style="font-size:13px">1 · Commit</button>
-            <button class="btn btn-secondary" sc-camel-on-click="{{ join.reveal }}" style="font-size:13px">2 · Reveal</button>
-            <button class="btn btn-secondary" disabled title="You broadcast this one yourself, from your own bitcoin wallet." style="font-size:13px">3 · Broadcast</button>
-            <button class="btn btn-secondary" disabled title="The sBTC signers sweep it in their own time; nothing to press." style="font-size:13px">4 · Wait</button>
-            <button class="btn btn-secondary" sc-camel-on-click="{{ join.confirm }}" style="font-size:13px">5 · Confirm</button>
-          </div>
-          <p class="text-muted" style="margin:2px 0 0;font-size:13px;line-height:1.55">The salt that ties your commit to your reveal is generated here and kept in this browser. Do not broadcast until the reveal has confirmed.</p>
+        <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:baseline;justify-content:space-between">
+          <h4 style="margin:0;font-size:22px">Unstaked — yours on demand</h4>
+          <span class="tag tag-accent" style="flex:none">withdraw</span>
         </div>
-      </div>
-    </div>
-    <sc-if value="{{ join.connected }}">
-      <div style="background:var(--color-bg);border-radius:28px;padding:clamp(22px,3vw,30px);margin-top:clamp(12px,2vw,20px)">
-        <h4 style="margin:0 0 12px;font-size:22px">Your position</h4>
-        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,150px),1fr));gap:10px">
-          <div style="padding:12px 16px;background:var(--color-surface);border-radius:var(--radius-md)">
-            <div style="font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--color-accent)">Queued</div>
-            <div style="font-family:var(--font-heading);font-size:19px">{{ join.queuedSats }}</div>
-            <div class="text-muted" style="font-size:12px">+ {{ join.queuedUstx }}</div>
+        <p class="text-muted" style="margin:6px 0 16px;font-size:14px;line-height:1.6;max-width:60ch">sBTC you deposited that the vault never committed to a bond, and the STX put up beside it. One call returns both to your wallet.</p>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,180px),1fr));gap:10px">
+          <div style="padding:14px 18px;background:var(--color-surface);border-radius:var(--radius-md)">
+            <div style="font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--color-accent)">Unstaked sBTC</div>
+            <div style="font-family:var(--font-heading);font-size:23px">{{ exit.unstakedSats }}</div>
           </div>
-          <div style="padding:12px 16px;background:var(--color-surface);border-radius:var(--radius-md)">
-            <div style="font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--color-accent)">Committed</div>
-            <div style="font-family:var(--font-heading);font-size:19px">{{ join.committed }}</div>
-            <div class="text-muted" style="font-size:12px">shares in the bond</div>
-          </div>
-          <div style="padding:12px 16px;background:var(--color-surface);border-radius:var(--radius-md)">
-            <div style="font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--color-accent)">Released</div>
-            <div style="font-family:var(--font-heading);font-size:19px">{{ join.releasedSats }}</div>
-            <div class="text-muted" style="font-size:12px">claimable principal</div>
-          </div>
-          <div style="padding:12px 16px;background:var(--color-surface);border-radius:var(--radius-md)">
-            <div style="font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--color-accent)">Honey</div>
-            <div style="font-family:var(--font-heading);font-size:19px">{{ join.rewards }}</div>
-            <div class="text-muted" style="font-size:12px">claimable rewards</div>
+          <div style="padding:14px 18px;background:var(--color-surface);border-radius:var(--radius-md)">
+            <div style="font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--color-accent)">Unstaked STX</div>
+            <div style="font-family:var(--font-heading);font-size:23px">{{ exit.unstakedUstx }}</div>
           </div>
         </div>
-        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:14px">
-          <sc-if value="{{ join.hasQueued }}">
-            <button class="btn btn-secondary" sc-camel-on-click="{{ join.withdraw }}" style="font-size:13px">Withdraw queued</button>
-          </sc-if>
-          <sc-if value="{{ join.hasReleased }}">
-            <button class="btn btn-secondary" sc-camel-on-click="{{ join.claimPrincipal }}" style="font-size:13px">Claim principal</button>
-          </sc-if>
-          <sc-if value="{{ join.hasRewards }}">
-            <button class="btn btn-secondary" sc-camel-on-click="{{ join.claimRewards }}" style="font-size:13px">Claim honey</button>
-          </sc-if>
-        </div>
-        <p class="text-muted" style="margin:12px 0 0;font-size:13px;line-height:1.55">A queued deposit is withdrawable on demand and carries no vote. It becomes committed shares at the roll, and only then does it earn.</p>
-        <sc-if value="{{ retiredShow }}">
-          <p style="margin:10px 0 0;font-size:13px;line-height:1.55">Still holding a position in <span style="font-family:ui-monospace,monospace">{{ retiredName }}</span>? Nothing moves between the two contracts on its own — <a href="v1/index.html" style="color:var(--color-accent-800)">take it out there</a>, then deposit it here.</p>
+        <sc-if value="{{ exit.hasUnstaked }}">
+          <button class="btn btn-primary btn-block" sc-camel-on-click="{{ exit.withdraw }}">Withdraw sBTC and STX</button>
+        </sc-if>
+        <sc-if value="{{ exit.noUnstaked }}">
+          <p class="text-muted" style="margin:14px 0 0;font-size:13px;line-height:1.55">Nothing unstaked in this vault. Anything you still hold here is in one of the three below.</p>
+        </sc-if>
+        <sc-if value="{{ exit.pendingShow }}">
+          <div style="display:flex;flex-direction:column;gap:5px;padding:12px 14px;border-radius:var(--radius-md);background:var(--color-surface);margin-top:10px">
+            <span style="font-size:13px;line-height:1.5">{{ exit.pendingText }}</span>
+            <a href="{{ exit.pendingLink }}" target="_blank" rel="noopener" style="font-size:12px;font-family:ui-monospace,monospace;color:var(--color-accent-800);text-decoration:none" style-hover="text-decoration:underline">{{ exit.pendingTxid }} ↗</a>
+          </div>
         </sc-if>
       </div>
+
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,280px),1fr));gap:clamp(12px,2vw,20px);margin-top:clamp(12px,2vw,20px)">
+        <div style="background:var(--color-bg);border-radius:28px;padding:clamp(22px,3vw,30px);display:flex;flex-direction:column;gap:10px">
+          <div style="font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--color-accent)">Committed</div>
+          <div style="font-family:var(--font-heading);font-size:23px">{{ exit.committedSats }}</div>
+          <div class="text-muted" style="font-size:12px">+ {{ exit.committedUstx }} locked beside it</div>
+          <p class="text-muted" style="margin:0;font-size:13px;line-height:1.55;flex:1">{{ exit.exitNote }}</p>
+          <sc-if value="{{ exit.hasCommitted }}">
+            <sc-if value="{{ exit.exiting }}">
+              <button class="btn btn-secondary" sc-camel-on-click="{{ exit.cancelExit }}" style="font-size:13px">Cancel the exit request</button>
+            </sc-if>
+            <sc-if value="{{ exit.notExiting }}">
+              <button class="btn btn-secondary" sc-camel-on-click="{{ exit.requestExit }}" style="font-size:13px">Request an exit</button>
+            </sc-if>
+          </sc-if>
+        </div>
+        <div style="background:var(--color-bg);border-radius:28px;padding:clamp(22px,3vw,30px);display:flex;flex-direction:column;gap:10px">
+          <div style="font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--color-accent)">Released</div>
+          <div style="font-family:var(--font-heading);font-size:23px">{{ exit.releasedSats }}</div>
+          <div class="text-muted" style="font-size:12px">+ {{ exit.releasedUstx }}</div>
+          <p class="text-muted" style="margin:0;font-size:13px;line-height:1.55;flex:1">Principal an ended epoch has already set free. It is yours; claiming is what moves it.</p>
+          <sc-if value="{{ exit.hasReleased }}">
+            <button class="btn btn-secondary" sc-camel-on-click="{{ exit.claimPrincipal }}" style="font-size:13px">Claim principal</button>
+          </sc-if>
+        </div>
+        <div style="background:var(--color-bg);border-radius:28px;padding:clamp(22px,3vw,30px);display:flex;flex-direction:column;gap:10px">
+          <div style="font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--color-accent)">Honey</div>
+          <div style="font-family:var(--font-heading);font-size:23px">{{ exit.rewards }}</div>
+          <div class="text-muted" style="font-size:12px">claimable rewards</div>
+          <p class="text-muted" style="margin:0;font-size:13px;line-height:1.55;flex:1">What this vault earned while you held shares in it. Leaving does not forfeit it — the final epoch's honey arrives a cycle after that epoch settles.</p>
+          <sc-if value="{{ exit.hasRewards }}">
+            <button class="btn btn-secondary" sc-camel-on-click="{{ exit.claimRewards }}" style="font-size:13px">Claim honey</button>
+          </sc-if>
+        </div>
+      </div>
+    </sc-if>
+
+    <!-- The bridge, minus its first step. Nobody should start an L1 deposit
+         into a retired vault; someone who already did needs to finish it or get
+         their STX leg back, and both of those still live here. -->
+    <div style="background:var(--color-bg);border-radius:28px;padding:clamp(22px,3vw,30px);margin-top:clamp(12px,2vw,20px)">
+      <h4 style="margin:0 0 8px;font-size:22px">A bitcoin deposit still in flight</h4>
+      <p class="text-muted" style="margin:0 0 14px;font-size:14px;line-height:1.6;max-width:62ch">If you committed an L1 bitcoin deposit to this vault and never finished it, the STX leg is still held here. Reveal and confirm it if the bitcoin was broadcast; cancel it if it never was. Committing a new one is not offered — this vault takes no new deposits.</p>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,220px),1fr));gap:12px">
+        <div class="field">
+          <label for="btc-txid">Txid you committed</label>
+          <input class="input" id="btc-txid" placeholder="64 hex characters" autocomplete="off">
+        </div>
+        <div class="field">
+          <label for="btc-vout">Output index</label>
+          <input class="input" id="btc-vout" inputmode="numeric" value="0" autocomplete="off">
+        </div>
+      </div>
+      <div class="row" style="display:flex;gap:8px;flex-wrap:wrap;margin-top:14px">
+        <button class="btn btn-secondary" sc-camel-on-click="{{ bridge.reveal }}" style="font-size:13px">Reveal</button>
+        <button class="btn btn-secondary" sc-camel-on-click="{{ bridge.confirm }}" style="font-size:13px">Confirm</button>
+        <button class="btn btn-secondary" sc-camel-on-click="{{ bridge.cancel }}" style="font-size:13px">Cancel the deposit</button>
+      </div>
+      <p class="text-muted" style="margin:12px 0 0;font-size:13px;line-height:1.55">The salt that ties a commit to its reveal was kept in the browser that made it. Without that browser the commitment can only be cancelled, never revealed.</p>
+    </div>
     </sc-if>
 
   </div>
@@ -936,6 +918,8 @@ a:hover { color: var(--color-accent-700); }
     <div>
       <div style="font-size:11px;letter-spacing:.1em;text-transform:uppercase;opacity:.5;margin-bottom:12px">The pool</div>
       <div style="display:flex;flex-direction:column;gap:8px;font-size:14px">
+        <a href="#exit" style="color:var(--color-neutral-200);text-decoration:none" style-hover="color:var(--color-accent-400)">Take your funds out</a>
+        <a href="../index.html" style="color:var(--color-neutral-200);text-decoration:none" style-hover="color:var(--color-accent-400)">The live vault</a>
         <a href="#pool" style="color:var(--color-neutral-200);text-decoration:none" style-hover="color:var(--color-accent-400)">How it works</a>
         <a href="#govern" style="color:var(--color-neutral-200);text-decoration:none" style-hover="color:var(--color-accent-400)">Governance</a>
         <a href="#vote" style="color:var(--color-neutral-200);text-decoration:none" style-hover="color:var(--color-accent-400)">Vote</a>
@@ -945,9 +929,9 @@ a:hover { color: var(--color-accent-700); }
     <div>
       <div style="font-size:11px;letter-spacing:.1em;text-transform:uppercase;opacity:.5;margin-bottom:12px">Brand</div>
       <div style="display:flex;flex-direction:column;gap:8px;font-size:14px">
-        <a href="media-kit.html" style="color:var(--color-neutral-200);text-decoration:none" style-hover="color:var(--color-accent-400)">Media kit</a>
-        <a href="media-kit.html#og" style="color:var(--color-neutral-200);text-decoration:none" style-hover="color:var(--color-accent-400)">Social &amp; OG assets</a>
-        <a href="media-kit.html#voice" style="color:var(--color-neutral-200);text-decoration:none" style-hover="color:var(--color-accent-400)">Voice &amp; naming</a>
+        <a href="../media-kit.html" style="color:var(--color-neutral-200);text-decoration:none" style-hover="color:var(--color-accent-400)">Media kit</a>
+        <a href="../media-kit.html#og" style="color:var(--color-neutral-200);text-decoration:none" style-hover="color:var(--color-accent-400)">Social &amp; OG assets</a>
+        <a href="../media-kit.html#voice" style="color:var(--color-neutral-200);text-decoration:none" style-hover="color:var(--color-accent-400)">Voice &amp; naming</a>
       </div>
     </div>
     <div>

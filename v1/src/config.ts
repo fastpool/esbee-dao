@@ -1,4 +1,9 @@
-// Where the contracts are.
+// Where the contracts are -- for the retired vault.
+//
+// This is the `v1/` copy of `src/config.ts`. The only thing it says differently
+// is which pool: `vault-1`, the contract the live page has moved off. Nothing
+// on this page deposits, so a stale pool name here is not a hazard; it is the
+// address a member's money is still sitting at.
 //
 // Deliberately dependency-free: `app.ts` imports this eagerly to decide whether
 // it needs the chain layer at all, and pulling stacks.js in for that decision
@@ -43,43 +48,33 @@ export const NETWORKS: Record<NetworkName, NetworkInfo> = {
 interface Deployment {
   deployer: string;
   dao: string;
+  /** The retired pool this page is about. */
   pool: string;
-  /** The bridge that credits L1 bitcoin into this pool, and no other. */
+  /** The bridge that credited bitcoin into it -- also the retired one. */
   bridge: string;
-  /**
-   * The pool this one replaced, if any.
-   *
-   * A vault is never migrated in place -- a member's position is sBTC and STX
-   * the old contract still holds, and only the member can move it. So the
-   * retired pool keeps a page of its own at `v1/`, and this is what tells the
-   * live page there is one to point at.
-   */
-  retired?: string;
+  /** The live pool that replaced it, which is where the main page points. */
+  successor: string;
 }
 
 // The pool's own name is not fixed: pox-5 keys a bond's allowlist on the
-// staker's principal, so a deployment takes whatever name its grant spells --
-// `vault-2` on testnet, `bond-staker` on mainnet.
+// staker's principal, so a deployment takes whatever name its grant spells.
+// `vault-1` is the one testnet retired; mainnet never had a first vault, so
+// this page has nothing to show there.
 //
-// A deployment is four contracts that name each other, not one: the vault, the
-// DAO that holds its operator seat, the treasury that holds its principal and
-// the bridge that credits bitcoin into it. Testnet's second set is `-2` all the
-// way through, and mixing halves would read the wrong DAO's proposals against
-// the right pool's shares. So the names move together, from here.
-//
-// Mainnet has no address yet. Filling it in is all that switching takes: the
-// selector below is live on every network, and one with no deployer falls back
-// to the rehearsal rather than erroring.
+// The whole set is the retired one, not just the vault: `esbee-dao` held this
+// pool's seat and `bond-bridge` credited bitcoin into it, and both were
+// redeployed alongside `vault-2`. A page about the old vault reads the old DAO,
+// because that is the one whose proposals were about this money.
 const DEPLOYMENTS: Record<NetworkName, Deployment> = {
   testnet: {
     deployer: "STFCGF789WX1B737VQYAQ6BG3QYVMJGPDJN4TJFM",
-    dao: "esbee-dao-2",
-    pool: "vault-2",
-    bridge: "bond-bridge-2",
-    retired: "vault-1",
+    dao: "esbee-dao",
+    pool: "vault-1",
+    bridge: "bond-bridge",
+    successor: "vault-2",
   },
-  mainnet: { deployer: "", dao: "esbee-dao", pool: "bond-staker", bridge: "bond-bridge" },
-  devnet: { deployer: "", dao: "esbee-dao", pool: "bond-staker", bridge: "bond-bridge" },
+  mainnet: { deployer: "", dao: "esbee-dao", pool: "", bridge: "bond-bridge", successor: "bond-staker" },
+  devnet: { deployer: "", dao: "esbee-dao", pool: "", bridge: "bond-bridge", successor: "bond-staker" },
 };
 
 /** Networks the page offers to switch between, in the order they are shown. */
@@ -118,7 +113,7 @@ export function setNetwork(next: NetworkName): void {
 
 /** Whether a network has contracts to talk to, for labelling the switcher. */
 export const hasDeployment = (name: NetworkName): boolean =>
-  Boolean(DEPLOYMENTS[name].deployer);
+  Boolean(DEPLOYMENTS[name].deployer && DEPLOYMENTS[name].pool);
 
 export const config = {
   network,
@@ -126,12 +121,18 @@ export const config = {
   dao: params.get("dao") ?? deployment.dao,
   pool: params.get("pool") ?? deployment.pool,
   bridge: params.get("bridge") ?? deployment.bridge,
-  /** The retired pool `v1/` is about, or "" where this network never had one. */
-  retired: deployment.retired ?? "",
+  /** The vault that replaced this one, for the way back to the live page. */
+  successor: deployment.successor,
 };
 
-/** Whether there is a deployment to talk to at all. */
-export const configured = (): boolean => Boolean(config.deployer);
+/**
+ * Whether there is a deployment to talk to at all.
+ *
+ * A retired pool needs both halves: an address, and a network that actually had
+ * a vault before this one. Mainnet has neither, and this page says so rather
+ * than reading an empty contract name.
+ */
+export const configured = (): boolean => Boolean(config.deployer && config.pool);
 
 export const net = (): NetworkInfo => NETWORKS[config.network];
 
@@ -157,13 +158,7 @@ export const apiBase = (): string =>
 export const explorerTx = (txid: string): string =>
   `${net().explorer}/txid/${txid}?chain=${config.network}`;
 
-/**
- * The contract this page is actually talking to, and where to go and read it.
- *
- * Two vaults now exist on testnet and they hold different money, so which one a
- * page is about stops being a detail: the header says it, and this is what it
- * says. The explorer takes a contract id in the same place as a txid.
- */
+/** The retired contract this page is about, and where to go and read it. */
 export const poolContract = (): string => `${config.deployer}.${config.pool}`;
 export const explorerContract = (id: string): string =>
   `${net().explorer}/txid/${id}?chain=${config.network}`;

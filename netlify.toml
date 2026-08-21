@@ -41,6 +41,14 @@
   [headers.values]
     Cache-Control = "public, max-age=31536000, immutable"
 
+# The retired vault's page is a second build under /v1, with its own hashed
+# bundle beside it. Same rule, spelled again rather than relying on the splat
+# above to reach into a subdirectory.
+[[headers]]
+  for = "/v1/*.js"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
+
 [[headers]]
   for = "/fonts/*"
   [headers.values]
@@ -62,6 +70,11 @@
 # to be able to replace. They revalidate on every visit; a 304 is cheap.
 [[headers]]
   for = "/*.html"
+  [headers.values]
+    Cache-Control = "public, max-age=0, must-revalidate"
+
+[[headers]]
+  for = "/v1/*.html"
   [headers.values]
     Cache-Control = "public, max-age=0, must-revalidate"
 

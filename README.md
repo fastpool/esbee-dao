@@ -9,7 +9,7 @@ not a brochure.
     pnpm install
     pnpm run dev          # build, then http://localhost:8080
     pnpm run check        # typecheck, build, test
-    pnpm run shot         # render both pages to shots/*.png
+    pnpm run shot         # render every page to shots/*.png
     pnpm run icons        # rasterise esbee.svg to icons/*.png
 
 TypeScript, bundled with esbuild. `pnpm run build` writes `dist/`; everything
@@ -28,6 +28,7 @@ else on the page is a plain static file.
 | `src/chat.ts` | the discussion panel: its state, view model and rendering |
 | `src/nostr.ts` | what the chat runs on -- relays, keys, the two rooms, member verification. Loaded after the page paints |
 | `src/stacks-verify.ts` | checking a wallet's signature without stacks.js: c32, the signed-message hash, a principal in, a tuple out |
+| `v1/` | the same site again, pointed at the retired `vault-1`: its own `index.html`, its own `src/`, its own bundle. It exists so members can take their money out of the old contract |
 | `media-kit.html` | the name, mark, palette and voice |
 | `esbee.svg` | the mark — the same artwork the header draws inline, and the favicon |
 | `styles.css`, `fonts/` | the design system's tokens and its two typefaces |
@@ -125,10 +126,41 @@ lazy wallet chunks and sourcemaps that only devtools asks for.
 ## Networks
 
 **Testnet is live**, at `STFCGF789WX1B737VQYAQ6BG3QYVMJGPDJN4TJFM` —
-`vault-1` for the pool, `esbee-dao` for the seat. The header carries a
-testnet/mainnet switch; the choice is remembered, and switching reloads rather
-than trying to invalidate every address, cached read and wallet session in
-place.
+`vault-2` for the pool, `esbee-dao-2` for the seat, `bond-bridge-2` for the
+bitcoin route. The header carries a testnet/mainnet switch; the choice is
+remembered, and switching reloads rather than trying to invalidate every
+address, cached read and wallet session in place.
+
+**A deployment is four contracts, not one.** The vault, the DAO that holds its
+operator seat, the treasury that holds its principal and the bridge that credits
+bitcoin into it all name each other, and testnet's second set is `-2` all the
+way through. They move together in `DEPLOYMENTS`: half of one set read against
+half of the other would show the wrong DAO's proposals against the right pool's
+shares.
+
+### The retired vault
+
+`vault-1` still holds real positions, and no contract call moves a position from
+one vault to the other — only the member can, by taking it out of one and
+putting it into the other. So the old site stays up at **`/v1/`**, pointed at
+the old set, with one job: getting money out.
+
+    v1/index.html     the same design, deposits removed
+    v1/src/           its own copy of the sources, pinned to vault-1
+    dist/v1/          its own bundle, built by the same script
+
+It is a copy rather than a mode. The two pages are about different contracts
+holding different money, and a single page that could be pointed at either would
+be one wrong click away from reading the wrong balances — or worse, depositing
+into the vault everyone is leaving. What the copy removes is every way in: the
+amount field, the STX quote, the faucets, `stake`, and the bridge's first step.
+What it adds is the exit, in the four places a position can be sitting —
+`withdraw` for the unstaked leg (both halves, one call), `request-exit` for
+committed shares, `claim-principal` for what an ended epoch released, and
+`claim-rewards` for the honey still owed.
+
+The live page links across to it from **Your position**, and every page names
+the contract it is reading in the header, next to the network switch.
 
 **Mainnet needs one line.** Fill in `deployer` for `mainnet` in
 `src/config.ts` and the switch starts working — a network with no deployer
@@ -138,9 +170,9 @@ today.
     ?network=mainnet                     // override the remembered choice
     ?network=testnet&deployer=ST3OTHER…  // point at a throwaway deployment
 
-`pool` defaults to `vault-1` on testnet and `bond-staker` on mainnet — the pool
+`pool` defaults to `vault-2` on testnet and `bond-staker` on mainnet — the pool
 takes whatever name its pox-5 allowlist grant spells, so it is configuration
-rather than a constant.
+rather than a constant. `dao` and `bridge` are overridable the same way.
 
 ## The bond countdown
 
@@ -279,7 +311,9 @@ survive between the commit and the reveal and stay secret until it.
 
 **Your position**, once a wallet is connected: queued, committed, released and
 unclaimed honey, with Withdraw / Claim buttons that appear only when there is
-something to act on.
+something to act on. A member who still holds a position in `vault-1` is pointed
+at `/v1/` from here — that is the whole of the migration, because there is no
+call that moves one.
 
 ### Post-conditions
 

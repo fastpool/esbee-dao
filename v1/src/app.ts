@@ -1,4 +1,22 @@
-// Esbee DAO — the vote floor.
+// Esbee DAO — the retired vault.
+//
+// This is the `v1/` copy of the site, and it is about `vault-1`: the pool the
+// DAO has moved off. It is a copy rather than a mode because the two vaults are
+// separate contracts holding separate money, and a page that could be pointed
+// at either would be one wrong click away from reading the wrong balances.
+//
+// What is different from the live page, and why:
+//
+//   nothing deposits    the amount field, the STX quote, the faucets and
+//                       `stake` are gone. Money only leaves this contract.
+//   getting out is      `withdraw` for the unstaked leg, `request-exit` and
+//   the whole page      `claim-principal` for the committed one, `claim-rewards`
+//                       for the honey it still owes.
+//   the bridge stays    minus its first step: a member who committed an L1
+//                       deposit here still has to reveal, confirm or cancel it.
+//
+// Everything else -- the DAO, the vote floor, the discussion -- is the same
+// contract on both pages, and reads the same.
 //
 // Two modes, decided by whether `chain.ts` has a deployer address:
 //
@@ -102,16 +120,7 @@ interface State {
   notice: string;
   memberSats: number;
   member: MemberPosition | null;
-  /** The treasury address L1 bitcoin has to be sent to. */
-  depositTo: string;
-  /** Last quoted STX leg, in uSTX, for whatever is typed in the sats field. */
-  quotedFor: number;
-  quotedUstx: number;
-  /** What the amount field is written in. Sats is the contract's own unit. */
-  unit: Unit;
-  /** The amount as typed, so a re-render can put it back where it was. */
-  amount: string;
-  /** A deposit the wallet accepted, followed until it settles. */
+  /** A withdrawal the wallet accepted, followed until it settles. */
   pending: Pending | null;
   /**
    * Which proposals the floor shows: `true` the fixtures, `false` the chain,
@@ -120,8 +129,6 @@ interface State {
    */
   dummy: boolean | null;
 }
-
-type Unit = "sats" | "sbtc";
 
 interface Pending {
   txid: string;
@@ -142,11 +149,6 @@ const state: State = {
   notice: "",
   memberSats: 10_000_000, // only used to size the rehearsal's weight
   member: null,
-  depositTo: "",
-  quotedFor: 0,
-  quotedUstx: 0,
-  unit: "sats",
-  amount: "",
   pending: null,
   dummy: null,
 };
@@ -629,13 +631,12 @@ interface LaunchPanel {
   milestoneShow: boolean;
   milestoneReached: boolean;
   milestoneLabel: string;
-  /** `stake`, which is permissionless -- offered once the milestone is past. */
-  stakeShow: boolean;
-  stakeReady: boolean;
-  stakeLabel: string;
-  stakeWait: string;
-  stake: () => void;
 }
+
+// `stake` is not offered here. It is still permissionless on chain, and this
+// page still reports what the vault is doing -- but committing what is left in
+// a retired pool to another six months is the opposite of what anyone came to
+// this page to do.
 
 /** Half the allocation: enough of a pool to be worth starting. */
 const MILESTONE = 0.5;
@@ -660,7 +661,6 @@ function launchPanel(): LaunchPanel {
   const stx = (ustx: number) => `${(ustx / 1e6).toFixed(2)} STX`;
 
   const bound = Boolean(bond?.bound);
-  const open = bound && (pool?.burn ?? 0) < num(bond!["start-height"]);
 
   // Nothing to read from: no deployment on this network. The rehearsal copy the
   // design shipped with stays, rather than a bar that reports a real zero.
@@ -681,11 +681,6 @@ function launchPanel(): LaunchPanel {
       milestoneShow: false,
       milestoneReached: false,
       milestoneLabel: "",
-      stakeShow: false,
-      stakeReady: false,
-      stakeLabel: "",
-      stakeWait: "",
-      stake: () => {},
     };
   }
 
@@ -700,22 +695,7 @@ function launchPanel(): LaunchPanel {
   const share = target > 0 ? Math.min(gathered / target, 1) : 0;
   const percent = share * 100;
 
-  const burn = pool.burn;
-  const start = num(bond!["start-height"]);
-  const opens = num(bond!["stake-opens-at"]);
-  const notice = num(bond!["notice-ends-at"]);
   const reached = share >= MILESTONE;
-  // Everything `stake` itself checks, so the button is offered only when the
-  // call would actually go through.
-  const stakeReady =
-    reached &&
-    burn >= opens &&
-    burn >= notice &&
-    burn < start &&
-    Boolean(preview) &&
-    num(preview!["sats"]) > 0 &&
-    preview!["meets-floor"] === true;
-
   const short = preview ? num(preview["short-ustx"]) : 0;
   const overAllocated = Boolean(preview?.["allocation-limited"]);
   const belowFloor = floorSats > 0 && preview !== null && !preview["meets-floor"];
@@ -750,8 +730,9 @@ function launchPanel(): LaunchPanel {
           ? "Below the floor: `stake` refuses until it is met."
           : "",
     hasNote: short > 0 || overAllocated || belowFloor,
-    ctaShow: open,
-    ctaLabel: gathered > 0 ? "Add to the pool" : "Deposit sBTC",
+    // The way out, not the way in: the only thing this page invites.
+    ctaShow: true,
+    ctaLabel: "Take your funds out",
 
     // The milestone is this page's, not the contract's: `stake` has no opinion
     // about half an allocation and never refuses over it. What it marks is the
@@ -762,104 +743,26 @@ function launchPanel(): LaunchPanel {
     milestoneLabel: reached
       ? `Past half the allocation — the pool is worth starting`
       : `50% · ${btc(target * MILESTONE)} launches it`,
-    stakeShow: reached && !pool.live && burn < start,
-    stakeReady,
-    stakeLabel: "Stake the pool — open epoch 0",
-    stakeWait: stakeReady
-      ? ""
-      : burn < notice
-        ? `The members' notice runs to burn ${fmt(notice)}, ${relative(notice, burn)}.`
-        : burn < opens
-          ? `The stake window opens at burn ${fmt(opens)}, ${relative(opens, burn)}.`
-          : "Nothing eligible to stake yet.",
-    stake: () => void doStake(),
   };
 }
 
-/**
- * `stake`, from the page.
- *
- * The manager is whatever `get-config` reports, never a value typed here: the
- * contract compares it against the one it was initialized with and refuses
- * anything else, so reading it back is the only way to pass the right one.
- */
-async function doStake(): Promise<void> {
-  const manager = String(state.pool?.config?.["signer-manager"] ?? "");
-  if (!manager) return setState({ notice: "The pool has no signer manager configured." });
-  const api = await chainApi();
-  await withWallet("the stake", () => api.poolCalls.stake(manager));
-}
-
-/// --- joining --------------------------------------------------------------------
+/// --- leaving --------------------------------------------------------------------
 
 const SALT_KEY = "esbee:salt";
 
 const field = (id: string): string =>
   (document.getElementById(id) as HTMLInputElement | null)?.value.trim() ?? "";
 
-const SATS_PER_BTC = 100_000_000;
-
-/**
- * The field, in the contract's unit.
- *
- * sats is what every call takes and what every read returns; sBTC is only a
- * way of writing it that has fewer zeros to miscount. The conversion happens
- * here and nowhere else, so no call can be given the wrong one.
- */
-const toSats = (value: string, unit: Unit): number => {
-  const n = Number(value);
-  if (!Number.isFinite(n) || n <= 0) return 0;
-  return unit === "sats" ? Math.floor(n) : Math.round(n * SATS_PER_BTC);
-};
-
-/** The same amount written for the field. Trailing zeros are noise. */
-const fromSats = (sats: number, unit: Unit): string =>
-  unit === "sats"
-    ? String(sats)
-    : (sats / SATS_PER_BTC).toFixed(8).replace(/\.?0+$/, "");
-
-const satsField = (): number => toSats(field("join-sats"), state.unit);
-
-/**
- * Change what the field is written in without changing what it says.
- *
- * Converting rather than clearing: the amount a member has already decided on
- * is the one thing a unit switch must not cost them.
- */
-function switchUnit(unit: Unit): void {
-  if (unit === state.unit) return;
-  const sats = satsField();
-  setState({ unit, amount: sats > 0 ? fromSats(sats, unit) : "" });
-}
-
-/** Put the whole balance in the field, and quote the STX it would need. */
-function useWholeBalance(): void {
-  const sats = state.member?.sbtc ?? 0;
-  if (sats <= 0) return;
-  setState({ amount: fromSats(sats, state.unit) });
-  void quoteFor(sats);
-}
-
-/** Quote the STX leg for an amount the member did not type. */
-async function quoteFor(sats: number): Promise<void> {
-  if (!configured() || sats <= 0) return;
-  try {
-    const api = await chainApi();
-    setState({ quotedFor: sats, quotedUstx: Number(await api.quote(sats)) });
-  } catch (error) {
-    setState({ notice: `Could not quote the STX leg: ${message(error)}` });
-  }
-}
-
-/** What a submitted deposit is doing, in the chain's own vocabulary. */
+/** What a submitted withdrawal is doing, in the chain's own vocabulary. */
 function pendingText(pending: Pending | null): string {
   if (!pending) return "";
   if (pending.status === "pending") {
-    return "In the mempool. It joins the queue as soon as a block carries it — " +
-      "you can close this page, it lands either way.";
+    return "In the mempool. The sBTC and the STX land back in your wallet as " +
+      "soon as a block carries it — you can close this page, it lands either way.";
   }
   if (pending.status === "success") {
-    return "Confirmed. The deposit is queued, and withdrawable until the pool stakes.";
+    return "Confirmed. The sBTC and the STX are back in your wallet, and this " +
+      "vault holds nothing of yours under that leg.";
   }
   if (pending.status.startsWith("dropped")) {
     return "Dropped from the mempool before it confirmed. Nothing moved.";
@@ -874,20 +777,13 @@ function pendingText(pending: Pending | null): string {
 }
 
 /**
- * The salt has to survive between the commit and the reveal, and stay secret
- * until it. So it lives in this browser and nowhere else -- lose it before
- * revealing and the commitment can only be cancelled, not used.
+ * The salt a commit was made with, if this browser is the one that made it.
+ *
+ * Nothing here generates one any more -- there is no commit on this page. What
+ * is left is reading back the salt an earlier visit stored, which is what a
+ * reveal needs and what a member without it has lost: an unrevealed commitment
+ * can then only be cancelled, never used.
  */
-function saltFor(txid: string, vout: number): string {
-  const key = `${SALT_KEY}:${txid}:${vout}`;
-  const kept = localStorage.getItem(key);
-  if (kept) return kept;
-  const bytes = crypto.getRandomValues(new Uint8Array(32));
-  const salt = [...bytes].map((b) => b.toString(16).padStart(2, "0")).join("");
-  localStorage.setItem(key, salt);
-  return salt;
-}
-
 const known = (txid: string, vout: number): string | null =>
   localStorage.getItem(`${SALT_KEY}:${txid}:${vout}`);
 
@@ -920,21 +816,23 @@ async function withWallet(
   }
 }
 
-async function doDeposit(): Promise<void> {
-  const sats = satsField();
-  if (sats <= 0) return setState({ notice: "Enter an amount first." });
+/**
+ * `withdraw`: the unstaked leg, both halves of it, out of the retired vault.
+ *
+ * One call takes back everything still queued -- the sBTC and the STX that was
+ * put up beside it -- and it is the whole reason this page still exists.
+ * Committed shares are not touched by it; those leave at the roll, which is
+ * what `request-exit` below is for.
+ *
+ * Followed in place rather than in a new tab: this is the transaction the
+ * member came here to make, and watching it settle is the answer to "is my
+ * money out yet".
+ */
+async function doWithdraw(): Promise<void> {
   const api = await chainApi();
-  const ustx = Number(await api.quote(sats));
-  const txid = await withWallet(
-    "the deposit",
-    () => api.poolCalls.deposit(sats, ustx),
-    false,
-  );
-  // The field is only cleared once the wallet has come back with something.
-  // A wallet that was dismissed, or a call that threw, leaves the amount where
-  // the member typed it -- retyping it is the last thing they want to do.
+  const txid = await withWallet("the withdrawal", () => api.poolCalls.withdraw(), false);
   if (!txid) return;
-  setState({ amount: "", quotedFor: 0, quotedUstx: 0, pending: { txid, status: "pending" } });
+  setState({ pending: { txid, status: "pending" } });
   watch(txid);
 }
 
@@ -1021,20 +919,6 @@ async function poll(txid: string): Promise<void> {
   }
 }
 
-async function doCommit(): Promise<void> {
-  const sats = satsField();
-  const txid = field("btc-txid");
-  const vout = Number(field("btc-vout") || 0);
-  if (sats <= 0 || !txid) {
-    return setState({ notice: "An amount and the txid you are about to broadcast." });
-  }
-  const api = await chainApi();
-  const salt = saltFor(txid, vout);
-  const digest = String(await api.depositDigest(txid, vout, salt));
-  const ustx = Number(await api.quote(sats));
-  await withWallet("the commitment", () => api.bridgeCalls.commit(digest, sats, ustx));
-}
-
 async function doReveal(): Promise<void> {
   const txid = field("btc-txid");
   const vout = Number(field("btc-vout") || 0);
@@ -1056,60 +940,19 @@ async function doConfirm(): Promise<void> {
   await withWallet("the confirmation", () => api.bridgeCalls.confirm(txid, vout));
 }
 
-/// --- the testnet faucets ----------------------------------------------------------
-
-type FaucetKind = "stx" | "sbtc";
-
-const FAUCET_LABEL: Record<FaucetKind, string> = { stx: "STX", sbtc: "sBTC" };
-
 /**
- * Both legs, from Hiro's testnet faucets.
+ * Give up on a bridged deposit instead of finishing it.
  *
- * A deposit needs sBTC *and* the STX the bond prices it at, so a reader who has
- * only ever held one of them cannot join. The faucet builds and broadcasts its
- * own transaction -- there is nothing to sign here, which is why this needs no
- * wallet SDK, only the address the wallet already gave us.
- *
- * Testnet only, because there is no such thing on mainnet. `config.network`
- * gates the buttons rather than this function, so the failure a reader can see
- * is a missing button and not a call that always says no.
+ * The other way out of the bridge, and the one this page is really about: a
+ * reveal that was never followed by bitcoin has the member's STX leg sitting in
+ * the contract, and cancelling is what returns it.
  */
-async function faucet(kind: FaucetKind): Promise<void> {
-  const address = state.account;
-  const label = FAUCET_LABEL[kind];
-  if (!address) return setState({ walletOpen: true });
-
-  setState({ notice: `Asking the ${label} faucet…` });
-  try {
-    const response = await fetch(
-      `${net().api}/extended/v1/faucets/${kind}?address=${encodeURIComponent(address)}`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ address }),
-      },
-    );
-    const body = (await response.json().catch(() => ({}))) as {
-      success?: boolean;
-      txId?: string;
-      error?: string;
-    };
-    // 429 is the one to expect: the faucet allows an address a request every
-    // few minutes, and says so itself. Pass its own words through.
-    if (!response.ok || body.success === false) {
-      throw new Error(body.error ?? `it answered ${response.status}`);
-    }
-    setState({
-      notice: body.txId
-        ? `${label} on the way — ${body.txId}`
-        : `${label} on the way`,
-    });
-    // A faucet transaction is an ordinary transaction: the balance moves when
-    // it confirms, not when the request returns.
-    window.setTimeout(() => void refresh(), 30_000);
-  } catch (error) {
-    setState({ notice: `The ${label} faucet said no: ${message(error)}` });
-  }
+async function doCancelDeposit(): Promise<void> {
+  const txid = field("btc-txid");
+  const vout = Number(field("btc-vout") || 0);
+  if (!txid) return setState({ notice: "Which txid?" });
+  const api = await chainApi();
+  await withWallet("the cancellation", () => api.bridgeCalls.cancelDeposit(txid, vout));
 }
 
 /**
@@ -1126,137 +969,156 @@ const walletMatchesNetwork = (address: string): boolean =>
 const poolAction = (label: string, pick: (api: Awaited<ReturnType<typeof chainApi>>) => Promise<string | null>) =>
   () => void withWallet(label, async () => pick(await chainApi()));
 
-interface JoinPanel {
-  open: boolean;
-  closed: boolean;
+interface ExitPanel {
+  /** The vault this page is about, spelled out rather than implied. */
+  contract: string;
+  contractName: string;
+  contractLink: string;
+  successor: string;
   connected: boolean;
-  /** No wallet: the balance row offers to connect rather than reading "—". */
+  /** No wallet: every row would read "—", so the card asks for one instead. */
   disconnected: boolean;
   connect: () => void;
-  closedWhy: string;
-  depositTo: string;
-  quote: string;
-  balance: string;
-  queuedSats: string;
-  queuedUstx: string;
-  committed: string;
-  releasedSats: string;
-  rewards: string;
-  hasQueued: boolean;
-  hasReleased: boolean;
-  hasRewards: boolean;
-  deposit: () => void;
+  /** The wallet is on another chain: nothing here would send. */
+  wrongNetwork: boolean;
+  networkWarning: string;
+
+  /** Unstaked: queued sBTC and the STX beside it. One call takes both back. */
+  unstakedSats: string;
+  unstakedUstx: string;
+  hasUnstaked: boolean;
+  /** The template has no `not`, and a row with nothing in it still says so. */
+  noUnstaked: boolean;
   withdraw: () => void;
-  commit: () => void;
-  reveal: () => void;
-  confirm: () => void;
+
+  /** Committed shares, which leave at the roll rather than on demand. */
+  committedSats: string;
+  committedUstx: string;
+  hasCommitted: boolean;
+  exiting: boolean;
+  notExiting: boolean;
+  exitNote: string;
+  requestExit: () => void;
+  cancelExit: () => void;
+
+  /** Principal an ended epoch has already released, waiting to be claimed. */
+  releasedSats: string;
+  releasedUstx: string;
+  hasReleased: boolean;
   claimPrincipal: () => void;
+
+  rewards: string;
+  hasRewards: boolean;
   claimRewards: () => void;
-  /** The amount field: what it is written in, and what is in it. */
-  amount: string;
-  amountLabel: string;
-  placeholder: string;
-  satsFg: string;
-  satsLine: string;
-  sbtcFg: string;
-  sbtcLine: string;
-  showSats: () => void;
-  showSbtc: () => void;
-  useMax: () => void;
-  maxHint: string;
-  /** A submitted deposit, followed until the chain settles it. */
+
+  /** Nothing of this member's is left in the vault. */
+  empty: boolean;
+  emptyNote: string;
+
+  /** The withdrawal, followed until the chain settles it. */
   pendingShow: boolean;
   pendingText: string;
   pendingTxid: string;
   pendingLink: string;
-  /** The wallet is on another chain: nothing here would send. */
-  wrongNetwork: boolean;
-  networkWarning: string;
-  /** Testnet only: both legs are a click away, so a reader can actually join. */
-  faucets: boolean;
-  faucetStx: () => void;
-  faucetSbtc: () => void;
 }
 
-function joinPanel(): JoinPanel {
-  const bond = state.pool?.bond ?? null;
-  const burn = state.pool?.burn ?? 0;
-  const open = Boolean(bond?.bound) && burn < num(bond?.["start-height"] ?? 0);
+/**
+ * Everything this member still has in `vault-1`, and the call that gets each
+ * part of it out.
+ *
+ * Four rows because the contract has four places a position can be sitting, and
+ * they come back by different routes and on different schedules:
+ *
+ *   unstaked   `withdraw` -- immediate, both legs, no waiting on anything
+ *   committed  `request-exit` -- honoured at the next roll, not before
+ *   released   `claim-principal` -- an epoch has ended and set it free
+ *   honey      `claim-rewards` -- the settled rewards it still owes
+ *
+ * Collapsing them into one "get me out" button would be a lie about at least
+ * two of them, so the card says which is which and offers the calls that exist.
+ */
+function exitPanel(): ExitPanel {
   const m = state.member;
   const settled = m?.settled ?? null;
+  const principal = m?.principal ?? null;
 
   const btc = (sats: number) => `${(sats / 1e8).toFixed(4)} BTC`;
   const stx = (ustx: number) => `${(ustx / 1e6).toFixed(2)} STX`;
 
   const queuedSats = settled ? num(settled["queued-sats"]) : 0;
-  const releasedSats = m?.principal ? num(m.principal["released-sats"]) : 0;
+  const queuedUstx = settled ? num(settled["queued-ustx"]) : 0;
+  const bondedSats = settled ? num(settled["bonded-sats"]) : 0;
+  const bondedUstx = settled ? num(settled["bonded-ustx"]) : 0;
+  const releasedSats = principal ? num(principal["released-sats"]) : 0;
+  const releasedUstx = principal ? num(principal["released-ustx"]) : 0;
+  const rewards = m?.rewards ?? 0;
+  // `exit-epoch` is an optional uint: a number once an exit is queued, null
+  // until then. Not a flag on the record, so this is the only way to read it.
+  const exiting = settled ? settled["exit-epoch"] != null : false;
+
   const mismatched = Boolean(state.account) && !walletMatchesNetwork(state.account!);
+  const anything =
+    queuedSats > 0 || queuedUstx > 0 || bondedSats > 0 || releasedSats > 0 || rewards > 0;
 
   return {
-    open,
-    closed: !open,
+    contract: poolContract(),
+    contractName: config.pool,
+    contractLink: explorerContract(poolContract()),
+    successor: config.successor,
     connected: state.connected,
     disconnected: !state.connected,
     connect: () => setState({ walletOpen: true }),
-    closedWhy: !configured()
-      ? "This page has no deployment configured, so nothing here would be sent."
-      : !bond?.bound
-        ? "Deposits open when the operator binds a bond. Nothing is locked meanwhile."
-        : "This bond has started; the next window opens when the pool binds again.",
-    depositTo: state.depositTo,
-    quote:
-      state.quotedFor > 0
-        ? `${fmt(state.quotedFor)} sats needs ${stx(state.quotedUstx)}`
-        : "enter an amount",
-    balance: m ? btc(m.sbtc) : "—",
-    queuedSats: btc(queuedSats),
-    queuedUstx: settled ? stx(num(settled["queued-ustx"])) : "0.00 STX",
-    committed: settled ? btc(num(settled["bonded-sats"])) : "0.0000 BTC",
-    releasedSats: btc(releasedSats),
-    rewards: btc(m?.rewards ?? 0),
-    hasQueued: queuedSats > 0,
-    hasReleased: releasedSats > 0,
-    hasRewards: (m?.rewards ?? 0) > 0,
-    amount: state.amount,
-    amountLabel: state.unit === "sats" ? "Amount in sats" : "Amount in sBTC",
-    placeholder: state.unit === "sats" ? "10000000" : "0.1",
-    // A quiet pair of words rather than a control: which unit the field is in
-    // matters, but not as much as anything else on this card.
-    satsFg: state.unit === "sats" ? "var(--color-text)" : "var(--color-neutral-700)",
-    satsLine: state.unit === "sats" ? "underline" : "none",
-    sbtcFg: state.unit === "sbtc" ? "var(--color-text)" : "var(--color-neutral-700)",
-    sbtcLine: state.unit === "sbtc" ? "underline" : "none",
-    showSats: () => switchUnit("sats"),
-    showSbtc: () => switchUnit("sbtc"),
-    useMax: () => useWholeBalance(),
-    maxHint: (m?.sbtc ?? 0) > 0 ? "use all" : "",
-    pendingShow: Boolean(state.pending),
-    pendingText: pendingText(state.pending),
-    pendingTxid: state.pending ? shorten(state.pending.txid) : "",
-    pendingLink: state.pending ? explorerTx(state.pending.txid) : "",
-    deposit: () => void doDeposit(),
-    withdraw: poolAction("the withdrawal", (api) => api.poolCalls.withdraw()),
-    commit: () => void doCommit(),
-    reveal: () => void doReveal(),
-    confirm: () => void doConfirm(),
-    claimPrincipal: poolAction("the claim", (api) =>
-      api.poolCalls.claimPrincipal(state.account!),
-    ),
-    claimRewards: poolAction("the claim", (api) =>
-      api.poolCalls.claimRewards(state.account!),
-    ),
     wrongNetwork: mismatched,
     networkWarning: mismatched
       ? `Your wallet is a ${/^S[PM]/.test(state.account!) ? "mainnet" : "testnet"} ` +
         `address and this page is on ${config.network}. Switch the wallet's network ` +
         `and reconnect — nothing here would reach ${config.network} otherwise.`
       : "",
-    // An address, not just a connection: the rehearsal connects without one,
-    // and the faucet has nowhere to send to. A mainnet address is no use to a
-    // testnet faucet either.
-    faucets: config.network === "testnet" && Boolean(state.account) && !mismatched,
-    faucetStx: () => void faucet("stx"),
-    faucetSbtc: () => void faucet("sbtc"),
+
+    unstakedSats: btc(queuedSats),
+    unstakedUstx: stx(queuedUstx),
+    // The STX leg alone is worth a button: a deposit whose sats were scaled out
+    // at a roll can leave uSTX queued with no sats beside it.
+    hasUnstaked: queuedSats > 0 || queuedUstx > 0,
+    noUnstaked: !(queuedSats > 0 || queuedUstx > 0),
+    withdraw: () => void doWithdraw(),
+
+    committedSats: btc(bondedSats),
+    committedUstx: stx(bondedUstx),
+    hasCommitted: bondedSats > 0,
+    exiting,
+    notExiting: !exiting,
+    exitNote: exiting
+      ? "Your exit is queued. The principal is released at the next roll, and " +
+        "the final epoch's honey when that epoch settles."
+      : "Committed shares are locked into the bond the vault is standing in. " +
+        "Requesting an exit is honoured at the next roll — it cannot be sooner, " +
+        "and this vault is not binding another bond.",
+    requestExit: poolAction("the exit request", (api) => api.poolCalls.requestExit()),
+    cancelExit: poolAction("the cancellation", (api) => api.poolCalls.cancelExit()),
+
+    releasedSats: btc(releasedSats),
+    releasedUstx: stx(releasedUstx),
+    hasReleased: releasedSats > 0 || releasedUstx > 0,
+    claimPrincipal: poolAction("the claim", (api) =>
+      api.poolCalls.claimPrincipal(state.account!),
+    ),
+
+    rewards: btc(rewards),
+    hasRewards: rewards > 0,
+    claimRewards: poolAction("the claim", (api) =>
+      api.poolCalls.claimRewards(state.account!),
+    ),
+
+    empty: state.connected && Boolean(m) && !anything,
+    emptyNote: `This address holds nothing in ${config.pool} — no unstaked sBTC ` +
+      `or STX, no committed shares, nothing left to claim. There is nothing here ` +
+      `to move.`,
+
+    pendingShow: Boolean(state.pending),
+    pendingText: pendingText(state.pending),
+    pendingTxid: state.pending ? shorten(state.pending.txid) : "",
+    pendingLink: state.pending ? explorerTx(state.pending.txid) : "",
   };
 }
 
@@ -1404,21 +1266,24 @@ function viewModel(): Scope {
     stage: stagePill(),
     bond: bondPanel(),
     launch: launchPanel(),
-    join: joinPanel(),
+    exit: exitPanel(),
 
-    // Which vault this page is about.
-    //
-    // Two of them exist on testnet now, holding different money under the same
-    // DAO, so the contract stops being a detail a reader can infer from the
-    // copy. The header names it, and links to it, and `retired*` is what points
-    // at the page for the one this replaced.
+    // The bridge, minus its first step. Committing a new L1 deposit into a
+    // retired vault is not offered; finishing or abandoning one that is already
+    // in flight is the only reason these are still here.
+    bridge: {
+      reveal: () => void doReveal(),
+      confirm: () => void doConfirm(),
+      cancel: () => void doCancelDeposit(),
+    },
+
+    // Which vault this page is about, and where the live one is. Two contracts
+    // under one DAO is exactly the situation in which a page has to say.
     poolShow: configured(),
     poolName: config.pool,
     poolContract: poolContract(),
     poolLink: explorerContract(poolContract()),
-    retiredShow: configured() && Boolean(config.retired),
-    retiredName: config.retired,
-    retiredContract: `${config.deployer}.${config.retired}`,
+    successor: config.successor,
 
     // Switching network is a reload, so the choice is a link-like button rather
     // than a control that pretends to toggle state in place.
@@ -1527,13 +1392,12 @@ async function refresh(): Promise<void> {
   if (!configured()) return;
   try {
     const api = await chainApi();
-    const [floor, pool, member, depositTo] = await Promise.all([
+    const [floor, pool, member] = await Promise.all([
       api.loadFloor(),
       api.loadPool(),
       api.loadMember(),
-      api.depositAddress().catch(() => ""),
     ]);
-    setState({ floor, pool, member, depositTo: String(depositTo ?? "") });
+    setState({ floor, pool, member });
   } catch (error) {
     setState({ notice: `Could not read the DAO: ${message(error)}` });
   }
@@ -1554,54 +1418,7 @@ function render(): void {
     bar.hidden = !state.notice;
   }
 
-  wireQuote();
   syncChat();
-}
-
-/**
- * Quote the STX leg as the amount is typed.
- *
- * Written straight into the DOM rather than through `setState`: a re-render
- * replaces the input the member is typing into, and the caret goes with it.
- * The inputs stay uncontrolled for the same reason -- their values are read
- * when a button is pressed, not held in state.
- */
-let quoting: ReturnType<typeof setTimeout> | null = null;
-function wireQuote(): void {
-  const input = document.getElementById("join-sats") as HTMLInputElement | null;
-  const out = document.getElementById("join-quote");
-  if (!input || !out || input.dataset.wired === "1") return;
-  input.dataset.wired = "1";
-
-  input.value = state.amount;
-
-  input.addEventListener("input", () => {
-    // Held so a re-render can put it back; not `setState`, which would replace
-    // the element under the caret.
-    state.amount = input.value;
-    const sats = toSats(input.value, state.unit);
-    if (quoting) clearTimeout(quoting);
-    if (sats <= 0) {
-      out.textContent = "enter an amount";
-      return;
-    }
-    out.textContent = "quoting…";
-    quoting = setTimeout(async () => {
-      if (!configured()) {
-        out.textContent = "no deployment configured";
-        return;
-      }
-      try {
-        const api = await chainApi();
-        const ustx = Number(await api.quote(sats));
-        state.quotedFor = sats;
-        state.quotedUstx = ustx;
-        out.textContent = `${fmt(sats)} sats needs ${(ustx / 1e6).toFixed(2)} STX`;
-      } catch (error) {
-        out.textContent = `could not quote: ${message(error)}`;
-      }
-    }, 350);
-  });
 }
 
 // Paint first, then reach for the chain: the page reads the same either way,

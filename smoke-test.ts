@@ -153,6 +153,13 @@ const scope: Record<string, unknown> = {
     { name: "testnet", label: "testnet", note: "", bg: "#c67139", fg: "#fff", choose: () => {} },
     { name: "mainnet", label: "mainnet", note: "not deployed", bg: "transparent", fg: "#201e1d", choose: () => {} },
   ],
+  poolShow: true,
+  poolName: "vault-2",
+  poolContract: "STFCGF789WX1B737VQYAQ6BG3QYVMJGPDJN4TJFM.vault-2",
+  poolLink: "https://explorer.hiro.so/txid/STFCGF789WX1B737VQYAQ6BG3QYVMJGPDJN4TJFM.vault-2?chain=testnet",
+  retiredShow: true,
+  retiredName: "vault-1",
+  retiredContract: "STFCGF789WX1B737VQYAQ6BG3QYVMJGPDJN4TJFM.vault-1",
 };
 
 const template = document.getElementById("tpl") as unknown as HTMLTemplateElement | null;
@@ -187,6 +194,17 @@ for (const phrase of [
 }
 
 check(mount!.querySelectorAll("svg").length > 0, "svg icons render in their namespace");
+
+// Two vaults exist under one DAO, so a page that does not name the one it is
+// reading is ambiguous about whose balances it is showing.
+check(
+  text.includes("Esbee DAO contract") && text.includes("vault-2"),
+  "the live page names the Esbee DAO contract it talks to",
+);
+check(
+  out.includes('href="v1/index.html"'),
+  "and points a member with a position in the retired one at its page",
+);
 
 // The join controls the member actually presses.
 for (const id of ["join-sats", "join-quote", "btc-txid", "btc-vout"]) {
@@ -352,7 +370,9 @@ check(deadLinks.length === 0, `no dead local links${deadLinks.length ? ` (${[...
 // The name is a word, not initials. Nothing on the site spells the S+B
 // derivation out -- not in the copy, not as a lockup, not in the mark's
 // description.
-const pages = ["index.html", "media-kit.html"].map((f) => readFileSync(f, "utf8"));
+const pages = ["index.html", "media-kit.html", "v1/index.html"].map((f) =>
+  readFileSync(f, "utf8"),
+);
 for (const banned of ["S · B", "S-B", "S + B", "gives S and B", "an S and a B", "into initials"]) {
   check(
     pages.every((page) => !page.includes(banned)),
@@ -538,6 +558,144 @@ if (entryFile) {
   }
 } else {
   ok.push("skipped bundle checks (run `pnpm run build` first)");
+}
+
+/// --- 6. the retired vault has a page of its own ------------------------------
+
+// `v1/` is a copy of the site pointed at `vault-1`, and the only thing anyone
+// should be able to do there is take their money out. Three things are worth
+// asserting: the two copies really are pointed at different contracts, the copy
+// has no way in, and its template resolves the same way the live one does.
+const v1Html = readFileSync("v1/index.html", "utf8");
+const v1App = readFileSync("v1/src/app.ts", "utf8");
+const v1Config = readFileSync("v1/src/config.ts", "utf8");
+const rootConfig = readFileSync("src/config.ts", "utf8");
+
+check(/pool: "vault-2"/.test(rootConfig), "the live page is pointed at vault-2");
+check(/retired: "vault-1"/.test(rootConfig), "and knows which vault it replaced");
+check(/pool: "vault-1"/.test(v1Config), "v1/ is pointed at vault-1");
+check(/successor: "vault-2"/.test(v1Config), "and knows where the live one is");
+
+// The whole point of the copy. A deposit call reachable from the retired page
+// would be money walking into a contract everyone is leaving.
+for (const call of ["poolCalls.deposit", "bridgeCalls.commit", "poolCalls.stake"]) {
+  check(!v1App.includes(call), `v1/ cannot ${call.split(".")[1]}`);
+}
+for (const call of [
+  "poolCalls.withdraw", "poolCalls.requestExit",
+  "poolCalls.claimPrincipal", "poolCalls.claimRewards",
+]) {
+  check(v1App.includes(call), `v1/ can ${call.split(".")[1]}`);
+}
+
+const v1LoopVars = new Set(
+  [...v1Html.matchAll(/<sc-for[^>]*\sas="([^"]+)"/g)].map((m) => m[1]),
+);
+const v1Roots = new Set(
+  [...v1Html.matchAll(/\{\{([^}]*)\}\}/g)]
+    .map((m) => m[1].trim().split(".")[0])
+    .filter((r) => r && r !== "true" && r !== "false" && !v1LoopVars.has(r)),
+);
+const v1Supplied = new Set([
+  ...keysOf(v1App),
+  ...keysOf(readFileSync("v1/src/chat.ts", "utf8")),
+]);
+const v1Missing = [...v1Roots].filter((r) => !v1Supplied.has(r));
+check(
+  v1Missing.length === 0,
+  `every v1 template binding is supplied${v1Missing.length ? ` (missing: ${v1Missing.join(", ")})` : ""}`,
+);
+
+const v1Dom = parseHTML(v1Html);
+const v1Template = v1Dom.document.getElementById("tpl") as unknown as HTMLTemplateElement | null;
+const v1Mount = v1Dom.document.getElementById("app");
+check(Boolean(v1Template) && Boolean(v1Mount), "v1/index.html has #tpl and #app");
+
+const v1Scope: Record<string, unknown> = {
+  ...scope,
+  poolName: "vault-1",
+  poolContract: "STFCGF789WX1B737VQYAQ6BG3QYVMJGPDJN4TJFM.vault-1",
+  poolLink: "https://explorer.hiro.so/txid/STFCGF789WX1B737VQYAQ6BG3QYVMJGPDJN4TJFM.vault-1?chain=testnet",
+  successor: "vault-2",
+  bridge: { reveal: () => {}, confirm: () => {}, cancel: () => {} },
+  exit: {
+    contract: "STFCGF789WX1B737VQYAQ6BG3QYVMJGPDJN4TJFM.vault-1",
+    contractName: "vault-1",
+    contractLink: "https://explorer.hiro.so/txid/STFCGF789WX1B737VQYAQ6BG3QYVMJGPDJN4TJFM.vault-1",
+    successor: "vault-2",
+    connected: true, disconnected: true, connect: () => {},
+    wrongNetwork: true, networkWarning: "Your wallet is a mainnet address",
+    unstakedSats: "0.1000 BTC", unstakedUstx: "5.00 STX",
+    hasUnstaked: true, noUnstaked: true, withdraw: () => {},
+    committedSats: "0.0000 BTC", committedUstx: "0.00 STX",
+    hasCommitted: true, exiting: true, notExiting: true,
+    exitNote: "Your exit is queued.", requestExit: () => {}, cancelExit: () => {},
+    releasedSats: "0.0000 BTC", releasedUstx: "0.00 STX",
+    hasReleased: true, claimPrincipal: () => {},
+    rewards: "0.0000 BTC", hasRewards: true, claimRewards: () => {},
+    empty: true, emptyNote: "This address holds nothing in vault-1",
+    pendingShow: true, pendingText: "In the mempool.",
+    pendingTxid: "0x1234…abcd", pendingLink: "https://explorer.hiro.so/txid/0x1234",
+  },
+};
+
+for (const node of renderChildren(
+  v1Template!.content,
+  v1Scope,
+  v1Dom.document as unknown as Document,
+)) {
+  v1Mount!.appendChild(node);
+}
+const v1Out = v1Mount!.innerHTML;
+const v1Text = v1Mount!.textContent!.replace(/\s+/g, " ");
+
+check(!v1Out.includes("{{"), "v1: no unresolved mustaches remain");
+check(!/<sc-(for|if)/.test(v1Out), "v1: no unresolved sc-for / sc-if remain");
+for (const phrase of [
+  "This is vault-1, the retired vault",
+  "Take your funds out",
+  "Withdraw sBTC and STX",
+  "Unstaked sBTC",
+  "Unstaked STX",
+]) {
+  check(v1Text.includes(phrase), `v1 keeps "${phrase}"`);
+}
+check(!v1Text.includes("Deposit sBTC"), "v1 offers no way in");
+check(v1Out.includes('href="../index.html"'), "v1 links back to the live vault");
+
+// The copy reaches up for the stylesheet and the mark rather than duplicating
+// them, so its links resolve from `v1/`, not from here.
+const v1Dead = [...v1Html.matchAll(/(?:href|src)="([^"]+)"/g)]
+  .map((m) => m[1])
+  .filter((h) => !h.includes("{{"))
+  .filter((h) => !/^(https?:|#|data:|mailto:)/.test(h))
+  .map((h) => h.split("#")[0])
+  .filter((h) => h && h !== "app.js" && !existsSync(`v1/${h}`));
+check(v1Dead.length === 0, `v1 has no dead local links${v1Dead.length ? ` (${[...new Set(v1Dead)].join(", ")})` : ""}`);
+
+if (built("dist/v1")) {
+  const v1Entry = readdirSync("dist/v1").find((f) => /^app-[A-Z0-9]+\.js$/.test(f));
+  check(Boolean(v1Entry), "dist/v1/ has a hashed entry of its own");
+  const v1Deployed = readFileSync("dist/v1/index.html", "utf8");
+  check(v1Deployed.includes(`src="${v1Entry}"`), "dist/v1/index.html names it");
+  // Separate bundles, so the contract each page is pointed at cannot leak
+  // across a chunk they both loaded. Read out of what was actually built,
+  // because that is the only place the two can be seen to differ.
+  const poolOf = (dir: string): string[] =>
+    readdirSync(dir)
+      .filter((f) => f.endsWith(".js"))
+      .flatMap((f) => [...readFileSync(`${dir}/${f}`, "utf8").matchAll(/pool:"([^"]+)"/g)])
+      .map((m) => m[1]);
+  check(
+    poolOf("dist/v1").includes("vault-1") && !poolOf("dist/v1").includes("vault-2"),
+    "and the retired page's bundle is built against vault-1",
+  );
+  check(
+    poolOf("dist").includes("vault-2") && !poolOf("dist").includes("vault-1"),
+    "while the live page's is built against vault-2",
+  );
+} else {
+  ok.push("skipped v1 bundle checks (run `pnpm run build` first)");
 }
 
 /// --- report ---------------------------------------------------------------------

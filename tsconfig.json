@@ -20,5 +20,5 @@
 
     "noEmit": true
   },
-  "include": ["src/**/*.ts", "smoke-test.ts"]
+  "include": ["src/**/*.ts", "v1/src/**/*.ts", "smoke-test.ts"]
 }
