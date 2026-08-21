@@ -568,6 +568,13 @@ a:hover { color: var(--color-accent-700); }
             <input class="input" id="btc-address" placeholder="bc1q…" value="{{ l1.address }}" autocomplete="off" spellcheck="false">
           </div>
           <p class="text-muted" style="margin:-4px 0 0;font-size:12.5px;line-height:1.5">{{ l1.addressNote }}</p>
+          <sc-if value="{{ l1.faucet }}">
+            <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+              <span class="text-muted" style="font-size:12.5px">Testnet faucet</span>
+              <button class="btn btn-secondary" sc-camel-on-click="{{ l1.faucetBtc }}" style="font-size:13px;padding:7px 14px">Get BTC</button>
+              <span class="text-muted" style="font-size:12px">paid to the address above</span>
+            </div>
+          </sc-if>
 
           <div style="display:flex;gap:12px;align-items:flex-start">
             <span style="flex:none;width:26px;height:26px;border-radius:50%;background:var(--color-accent);color:var(--color-bg);display:grid;place-items:center;font-family:var(--font-heading);font-size:13px">1</span>

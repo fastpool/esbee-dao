@@ -128,6 +128,7 @@ const scope: Record<string, unknown> = {
     targetAddress: "tb1pe7zjdf0kshuym99yprwdda3gnw753qrzlphheytmr6fg7ha2wy5q7lfplm",
     targetAmount: "0.10000000 BTC",
     canSend: true,
+    faucet: true, faucetBtc: () => {},
     offline: true,
     offlineWhy: "This page has no sBTC deposit service configured for testnet",
   },
@@ -250,6 +251,16 @@ for (const phrase of [
   check(text.includes(phrase), `the L1 card says "${phrase}"`);
 }
 check(!text.includes("3 · Broadcast"), "and no longer calls the third step a broadcast");
+// Three legs, three faucets: a reader on testnet who holds none of them can
+// still work either route through to the end.
+check(text.includes("Get BTC"), "the L1 card offers the bitcoin faucet");
+const appSourceFaucets = readFileSync("src/app.ts", "utf8");
+check(
+  /faucets\/\$\{kind\}/.test(appSourceFaucets) &&
+    appSourceFaucets.includes('"btc"') &&
+    appSourceFaucets.includes('query.set("xlarge", "true")'),
+  "and asks for the large drip, since the small one cannot fund a deposit",
+);
 // Leaving mid-term is `vault-2`'s one new power, and the card is mostly about
 // what it costs -- so the costs are what is worth asserting, not the button.
 for (const id of ["early-sats", "early-hint"]) {
@@ -601,8 +612,13 @@ if (entryFile) {
     .filter((f) => f.endsWith(".js"))
     .reduce((n, f) => n + statSync(`dist/${f}`).size, 0);
 
+  // A ceiling on the page's own code, not a target: what it is really guarding
+  // is the two assertions below it -- that neither the wallet SDK nor the chat's
+  // network layer has crept into the initial load. It moves when the page
+  // genuinely grows (~61 kB with the L1 route and the early exit) and should be
+  // read as "something heavy leaked" rather than "the page got bigger".
   check(
-    eagerBytes < 60_000,
+    eagerBytes < 70_000,
     `initial load is ${(eagerBytes / 1024).toFixed(1)} kB of ${(totalBytes / 1024).toFixed(0)} kB built`,
   );
   check(

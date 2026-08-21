@@ -341,6 +341,26 @@ inputs from the bitcoin API and hands both to `complete-btc-deposit`: the chain
 of txids is what proves on chain that the bitcoin came from the revealed
 address. At most eight inputs, which is the bridge's own limit.
 
+### Faucets
+
+Testnet only, and one per leg, because a reader who holds none of the three
+cannot work either route through to the end:
+
+| | |
+| --- | --- |
+| STX, sBTC | on the **With sBTC** card, paid to the connected Stacks account |
+| BTC | on the **With L1 bitcoin** card, paid to the bitcoin address in the field above it |
+
+The bitcoin one asks for `&xlarge=true`. The ordinary drip is a few thousand
+sats, which is under anything a bond will take — a faucet run that cannot fund
+a deposit is a wasted wait. It pays the address the card is about rather than
+anything of the wallet's choosing, because the bitcoin has to be *spent from*
+the address the commitment names.
+
+All three go straight to Hiro rather than through the site's proxy, which
+excludes them on purpose: they are rate-limited per IP, and behind a function
+every visitor would share one limit.
+
 ### The bitcoin side is configuration
 
 Three values per network, in `NETWORKS`: which bitcoin the pool's sBTC is on,

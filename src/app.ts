@@ -1078,6 +1078,9 @@ async function btcAddress(): Promise<{ text: string; pox: PoxAddress } | null> {
  * later, when the STX leg has already been paid.
  */
 async function doCommit(): Promise<void> {
+  // Reads keyed on the member come before the wallet call now, so the wallet
+  // has to be there before any of it rather than at the point of signing.
+  if (!state.account) return setState({ walletOpen: true });
   const sats = btcSats();
   const address = await btcAddress();
   if (sats <= 0) return setState({ notice: "How many sats will you send?" });
@@ -1094,14 +1097,50 @@ async function doCommit(): Promise<void> {
   }
   const salt = saltFor(address.text);
   const digest = String(await api.addressDigest(address.pox, salt));
+  // A second commit to the same address is `ERR_COMMITMENT_EXISTS`, and the
+  // digest does not carry the amount -- so a member changing their mind about
+  // how much to send finds their old commitment in the way rather than a new
+  // one made. Cancelling is theirs to do at any time; only a stranger has to
+  // wait out the TTL.
+  const existing = (await api.commitmentFor(state.account!, digest)) as Record<
+    string,
+    unknown
+  > | null;
+  if (existing) {
+    const already = num(existing["sats"]);
+    return setState({
+      notice:
+        `That address is already committed here, for ${fmt(already)} sats. ` +
+        (already === sats
+          ? "Reveal it — step 2."
+          : "Cancel it first if you mean to send a different amount, then commit again."),
+    });
+  }
   const ustx = Number(await api.bridgeQuote(sats));
-  await withWallet("the commitment", () =>
+  const txid = await withWallet("the commitment", () =>
     api.bridgeCalls.commitAddress(digest, sats, ustx),
   );
+  if (txid) {
+    setState({
+      notice:
+        "Committed. The reveal opens one bitcoin block later — about ten " +
+        "minutes — and step 2 says so if it is asked sooner.",
+    });
+  }
 }
 
-/** Step 2: name it, one burn block later. First reveal takes the address. */
+/**
+ * Step 2: name it, one burn block later. First reveal takes the address.
+ *
+ * The wait is a bitcoin block, not a Stacks one, and the difference is the
+ * whole point: a reveal in the same burn block as its commit is behind no
+ * commitment anybody could have raced, so the contract refuses it
+ * (`ERR_REVEAL_TOO_SOON`). Refused on chain means the transaction confirms,
+ * costs a fee and does nothing -- which is a poor way to learn about a wait, so
+ * the commitment is read first and the arithmetic is done here.
+ */
 async function doReveal(): Promise<void> {
+  if (!state.account) return setState({ walletOpen: true });
   const address = await btcAddress();
   if (!address) return setState({ notice: "Which address did you commit to?" });
   const salt = known(address.text);
@@ -1111,6 +1150,28 @@ async function doReveal(): Promise<void> {
     });
   }
   const api = await chainApi();
+  const digest = String(await api.addressDigest(address.pox, salt));
+  const [commitment, burn] = await Promise.all([
+    api.commitmentFor(state.account!, digest),
+    api.burnHeight(),
+  ]);
+  if (!commitment) {
+    const announced = await api.announcementFor(address.pox);
+    return setState({
+      notice: announced
+        ? "That address is already revealed — go on to the deposit."
+        : "No commitment on chain for that address. Commit it first, or it lapsed.",
+    });
+  }
+  const opensAt = num((commitment as Record<string, unknown>)["committed-at-height"]) + 1;
+  if (burn < opensAt) {
+    return setState({
+      notice:
+        `The reveal opens at burn height ${fmt(opensAt)} and the chain is at ` +
+        `${fmt(burn)} — one bitcoin block, so about ten minutes. Revealing now ` +
+        `would be refused on chain and cost you the fee.`,
+    });
+  }
   await withWallet("the reveal", () => api.bridgeCalls.revealAddress(address.pox, salt));
 }
 
@@ -1276,40 +1337,66 @@ async function retry<T>(run: () => Promise<T>, tries = 6): Promise<T> {
 
 /// --- the testnet faucets ----------------------------------------------------------
 
-type FaucetKind = "stx" | "sbtc";
+type FaucetKind = "stx" | "sbtc" | "btc";
 
-const FAUCET_LABEL: Record<FaucetKind, string> = { stx: "STX", sbtc: "sBTC" };
+const FAUCET_LABEL: Record<FaucetKind, string> = { stx: "STX", sbtc: "sBTC", btc: "BTC" };
 
 /**
- * Both legs, from Hiro's testnet faucets.
+ * Every leg, from Hiro's testnet faucets.
  *
  * A deposit needs sBTC *and* the STX the bond prices it at, so a reader who has
- * only ever held one of them cannot join. The faucet builds and broadcasts its
- * own transaction -- there is nothing to sign here, which is why this needs no
- * wallet SDK, only the address the wallet already gave us.
+ * only ever held one of them cannot join; the L1 route needs bitcoin instead of
+ * the sBTC. The faucet builds and broadcasts its own transaction -- there is
+ * nothing to sign here, which is why this needs no wallet SDK, only an address.
+ *
+ * Which address is not the same question for all three. `stx` and `sbtc` pay
+ * the Stacks account; `btc` pays a *bitcoin* address, and the one that matters
+ * is the address the L1 card is about -- the bitcoin has to be spent from the
+ * address the commitment names, so dripping it anywhere else is no use.
  *
  * Testnet only, because there is no such thing on mainnet. `config.network`
  * gates the buttons rather than this function, so the failure a reader can see
  * is a missing button and not a call that always says no.
  */
 async function faucet(kind: FaucetKind): Promise<void> {
-  const address = state.account;
   const label = FAUCET_LABEL[kind];
-  if (!address) return setState({ walletOpen: true });
+  const address =
+    kind === "btc" ? (field("btc-address") || state.btcAddress).trim() : state.account;
+  if (!address) {
+    return kind === "btc"
+      ? setState({
+          notice: "Put the bitcoin address you want paid in the field above first.",
+        })
+      : setState({ walletOpen: true });
+  }
+
+  const query = new URLSearchParams({ address });
+  // The ordinary bitcoin drip is a few thousand sats, which is below anything a
+  // bond will take. `xlarge` is the one worth pressing, so it is the one the
+  // button presses -- a faucet run that cannot fund a deposit is a wasted wait.
+  if (kind === "btc") query.set("xlarge", "true");
 
   setState({ notice: `Asking the ${label} faucet…` });
   try {
     const response = await fetch(
-      `${net().api}/extended/v1/faucets/${kind}?address=${encodeURIComponent(address)}`,
+      `${net().api}/extended/v1/faucets/${kind}?${query.toString()}`,
       {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ address }),
+        // The Stacks faucets take the address in the body as well; the bitcoin
+        // one takes the query string alone, and is given nothing to disagree
+        // with itself about.
+        ...(kind === "btc"
+          ? {}
+          : {
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ address }),
+            }),
       },
     );
     const body = (await response.json().catch(() => ({}))) as {
       success?: boolean;
       txId?: string;
+      txid?: string;
       error?: string;
     };
     // 429 is the one to expect: the faucet allows an address a request every
@@ -1317,14 +1404,16 @@ async function faucet(kind: FaucetKind): Promise<void> {
     if (!response.ok || body.success === false) {
       throw new Error(body.error ?? `it answered ${response.status}`);
     }
+    // Two spellings, because the bitcoin faucet does not use the Stacks one.
+    const txid = body.txId ?? body.txid;
     setState({
-      notice: body.txId
-        ? `${label} on the way — ${body.txId}`
-        : `${label} on the way`,
+      notice: txid ? `${label} on the way — ${txid}` : `${label} on the way`,
     });
     // A faucet transaction is an ordinary transaction: the balance moves when
-    // it confirms, not when the request returns.
-    window.setTimeout(() => void refresh(), 30_000);
+    // it confirms, not when the request returns. Bitcoin takes rather longer
+    // than a Stacks block, and nothing on this page reads a bitcoin balance
+    // anyway -- so only the Stacks legs are worth re-reading for.
+    if (kind !== "btc") window.setTimeout(() => void refresh(), 30_000);
   } catch (error) {
     setState({ notice: `The ${label} faucet said no: ${message(error)}` });
   }
@@ -1498,6 +1587,9 @@ interface L1Panel {
   /** No bitcoin API and no Emily: this page cannot finish the route. */
   offline: boolean;
   offlineWhy: string;
+  /** Testnet only: bitcoin to actually deposit, paid to the address above. */
+  faucet: boolean;
+  faucetBtc: () => void;
 }
 
 /**
@@ -1545,6 +1637,10 @@ function l1Panel(): L1Panel {
     targetAmount: target ? `${(target.sats / 1e8).toFixed(8)} BTC` : "",
     canSend: state.connected && !mismatched && btc.configured,
     offline: !btc.configured,
+    // An address, not just a connection: the faucet has to pay somewhere, and
+    // the address this card is about is the only one worth paying.
+    faucet: config.network === "testnet" && Boolean(state.btcAddress),
+    faucetBtc: () => void faucet("btc"),
     offlineWhy:
       `This page has no sBTC deposit service configured for ${config.network}: ` +
       `${btc.api ? "" : "no bitcoin API"}${!btc.api && !btc.emily ? " and " : ""}` +
