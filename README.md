@@ -357,6 +357,14 @@ a deposit is a wasted wait. It pays the address the card is about rather than
 anything of the wallet's choosing, because the bitcoin has to be *spent from*
 the address the commitment names.
 
+**It has to be an address of this chain's** — Hiro's faucet pays testnet, and a
+`bc1…` handed to it is a request that can only fail. So the field is prompted
+with `tb1q…` on testnet and `bc1q…` on mainnet, the address prefilled from the
+wallet is the one on the chain the page is about, and an address belonging to
+another chain is refused with a sentence rather than posted. `config.ts` owns
+that test (`onConfiguredChain`), next to the chain it is testing against;
+`l1.ts` does the real decoding before anything is committed.
+
 All three go straight to Hiro rather than through the site's proxy, which
 excludes them on purpose: they are rate-limited per IP, and behind a function
 every visitor would share one limit.

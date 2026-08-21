@@ -182,6 +182,34 @@ export const net = (): NetworkInfo => NETWORKS[config.network];
  * being public. `configured` is what the L1 card asks before it offers to move
  * bitcoin: everything up to the reveal is Stacks and works without them.
  */
+/**
+ * Whether a bitcoin address belongs to the chain this page is configured for.
+ *
+ * A prefix test rather than a decode, for the same reason `app.ts` repeats the
+ * Stacks one: the answer decides what a reader is shown and which address is
+ * prefilled, and it must not cost the bitcoin module. `l1.ts` does the real
+ * decoding before anything is committed, and is the one that refuses.
+ *
+ * It matters most at the faucet, which pays whatever address it is given: a
+ * mainnet address handed to a testnet faucet is a request that can only fail,
+ * and one handed to a mainnet faucet does not exist.
+ */
+export const onConfiguredChain = (address: string): boolean => {
+  const value = address.trim();
+  if (!value) return false;
+  const { chain } = bitcoin();
+  const bech = /^(bcrt1|bc1|tb1)/i.exec(value)?.[1]?.toLowerCase();
+  if (bech) {
+    return bech === { mainnet: "bc1", testnet: "tb1", regtest: "bcrt1" }[chain];
+  }
+  // base58: mainnet pays 1… and 3…; every other chain pays m…, n… and 2….
+  return chain === "mainnet" ? /^[13]/.test(value) : /^[mn2]/.test(value);
+};
+
+/** What an address on that chain looks like, for a field's placeholder. */
+export const addressExample = (): string =>
+  ({ mainnet: "bc1q…", testnet: "tb1q…", regtest: "bcrt1q…" })[bitcoin().chain];
+
 export const bitcoin = (): BitcoinInfo & { configured: boolean } => {
   const base = net().bitcoin;
   const chain = params.get("btcChain") ?? base.chain;

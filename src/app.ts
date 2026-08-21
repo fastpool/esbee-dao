@@ -11,6 +11,7 @@
 // calls the contract actually has, and the copy describes what that call does.
 import { mountInto, type Scope } from "./render.js";
 import {
+  addressExample,
   apiBase,
   bitcoin,
   config,
@@ -19,6 +20,7 @@ import {
   explorerTx,
   hasDeployment,
   net,
+  onConfiguredChain,
   poolContract,
   setNetwork,
   SWITCHABLE,
@@ -1370,6 +1372,17 @@ async function faucet(kind: FaucetKind): Promise<void> {
       : setState({ walletOpen: true });
   }
 
+  // A faucet pays whatever address it is given. Hiro's is testnet's, so a
+  // mainnet address here is a request that can only fail -- and one the member
+  // could not have spent from anyway, since the commitment is about this chain.
+  if (kind === "btc" && !onConfiguredChain(address)) {
+    return setState({
+      notice:
+        `${address} is not a ${bitcoin().chain} bitcoin address, and the faucet ` +
+        `only pays ${bitcoin().chain}. One like ${addressExample()} is what it wants.`,
+    });
+  }
+
   const query = new URLSearchParams({ address });
   // The ordinary bitcoin drip is a few thousand sats, which is below anything a
   // bond will take. `xlarge` is the one worth pressing, so it is the one the
@@ -1571,6 +1584,7 @@ interface L1Panel {
   quote: string;
   /** The address the bitcoin will come from, prefilled from the wallet. */
   address: string;
+  addressPlaceholder: string;
   addressNote: string;
   commit: () => void;
   reveal: () => void;
@@ -1623,9 +1637,13 @@ function l1Panel(): L1Panel {
         ? `${fmt(state.quotedFor)} sats needs ${(state.quotedUstx / 1e6).toFixed(2)} STX`
         : "quoted when you commit",
     address: state.btcAddress,
-    addressNote: state.btcAddress
-      ? "Send from this address and no other — the bridge checks every input against it."
-      : "The address you will send the bitcoin from. Any address you control will do.",
+    addressPlaceholder: addressExample(),
+    addressNote: !state.btcAddress
+      ? `The address you will send the bitcoin from — ${addressExample()}. Any address you control will do.`
+      : onConfiguredChain(state.btcAddress)
+        ? "Send from this address and no other — the bridge checks every input against it."
+        : `That is not a ${btc.chain} address. This page is about ${btc.chain} bitcoin, ` +
+          `and an address on another chain can neither be paid by the faucet nor spent from here.`,
     commit: () => void doCommit(),
     reveal: () => void doReveal(),
     deposit: () => void doDepositBtc(),
@@ -1637,9 +1655,12 @@ function l1Panel(): L1Panel {
     targetAmount: target ? `${(target.sats / 1e8).toFixed(8)} BTC` : "",
     canSend: state.connected && !mismatched && btc.configured,
     offline: !btc.configured,
-    // An address, not just a connection: the faucet has to pay somewhere, and
-    // the address this card is about is the only one worth paying.
-    faucet: config.network === "testnet" && Boolean(state.btcAddress),
+    // Offered whenever there is a faucet to ask, and not gated on what is in
+    // the field: the field is uncontrolled, so its value is not in state until
+    // the next render, and a button that appears a beat after the address was
+    // typed reads as a broken button. `faucet()` reads the field itself and
+    // says what is wrong with it -- empty, or an address for another chain.
+    faucet: config.network === "testnet",
     faucetBtc: () => void faucet("btc"),
     offlineWhy:
       `This page has no sBTC deposit service configured for ${config.network}: ` +

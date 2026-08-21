@@ -120,7 +120,8 @@ const scope: Record<string, unknown> = {
     recipient: "STFCGF789WX1B737VQYAQ6BG3QYVMJGPDJN4TJFM.bond-treasury-2",
     amount: "10000000", amountLabel: "Amount in sats", placeholder: "10000000",
     quote: "10,000,000 sats needs 5.00 STX",
-    address: "tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx",
+    address: "tb1qn69zsypuk4frdlmnwhzfa7ugvqvak3n32hg33z",
+    addressPlaceholder: "tb1q…",
     addressNote: "Send from this address and no other",
     commit: () => {}, reveal: () => {}, deposit: () => {},
     register: () => {}, complete: () => {}, cancel: () => {},
@@ -254,6 +255,17 @@ check(!text.includes("3 · Broadcast"), "and no longer calls the third step a br
 // Three legs, three faucets: a reader on testnet who holds none of them can
 // still work either route through to the end.
 check(text.includes("Get BTC"), "the L1 card offers the bitcoin faucet");
+// The faucet pays a bitcoin address, and Hiro's pays testnet ones. A page about
+// testnet that prompts for `bc1q…` is asking for a request that cannot succeed.
+const configSource = readFileSync("src/config.ts", "utf8");
+check(
+  /testnet: "tb1q…"/.test(configSource) && /mainnet: "bc1q…"/.test(configSource),
+  "the address field is prompted for the chain the page is on",
+);
+check(
+  configSource.includes("onConfiguredChain"),
+  "and an address for another chain is refused before the faucet is asked",
+);
 const appSourceFaucets = readFileSync("src/app.ts", "utf8");
 check(
   /faucets\/\$\{kind\}/.test(appSourceFaucets) &&

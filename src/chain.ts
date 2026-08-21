@@ -22,7 +22,7 @@ import {
   isConnected,
   request,
 } from "@stacks/connect";
-import { apiBase, config, configured, net } from "./config.js";
+import { apiBase, config, configured, net, onConfiguredChain } from "./config.js";
 import { num, plain, type Plain } from "./plain.js";
 
 export { num, plain, type Plain };
@@ -136,10 +136,23 @@ export interface BitcoinAccount {
  * is actually being built.
  */
 export function storedBitcoinAddress(): string | null {
-  const entries = getLocalStorage()?.addresses?.btc ?? [];
-  const payment =
-    entries.find((entry) => !/^(bc1p|tb1p|bcrt1p)/.test(entry?.address ?? "")) ?? entries[0];
-  return payment?.address ?? null;
+  return pickPayment(getLocalStorage()?.addresses?.btc ?? [])?.address ?? null;
+}
+
+/**
+ * The address to deposit from, out of everything the wallet handed over.
+ *
+ * Two filters, in this order. The chain first: a wallet keeps addresses for
+ * whichever bitcoin it is on, and offering a member a mainnet address on a page
+ * about testnet gets them a faucet that says no and a commitment to an address
+ * they cannot spend from. Then the shape: taproot accounts are where ordinals
+ * live, and spendable coins are on the payment address beside them.
+ */
+function pickPayment<T extends { address?: string }>(entries: T[]): T | undefined {
+  const usable = entries.filter((entry) => entry?.address);
+  const here = usable.filter((entry) => onConfiguredChain(entry.address!));
+  const from = here.length ? here : usable;
+  return from.find((entry) => !/^(bc1p|tb1p|bcrt1p)/.test(entry.address!)) ?? from[0];
 }
 
 export async function bitcoinAccount(): Promise<BitcoinAccount | null> {
@@ -149,11 +162,15 @@ export async function bitcoinAccount(): Promise<BitcoinAccount | null> {
   const entries = (result?.addresses ?? []).filter(
     (entry) => entry?.address && entry.symbol !== "STX" && !/^S[PTMN]/.test(entry.address),
   );
-  const payment =
-    entries.find((entry) => entry.type === "p2wpkh") ??
-    entries.find((entry) => !/^(bc1p|tb1p|bcrt1p)/.test(entry.address!)) ??
-    entries[0];
+  const payment = pickPayment(entries);
   if (!payment?.address) return null;
+  if (!onConfiguredChain(payment.address)) {
+    throw new Error(
+      `The wallet's bitcoin address (${payment.address}) is not on the ` +
+        `${config.network === "mainnet" ? "mainnet" : "testnet"} bitcoin this page ` +
+        "is configured for. Switch the wallet's network and reconnect.",
+    );
+  }
   return { address: payment.address, publicKey: payment.publicKey ?? "" };
 }
 
