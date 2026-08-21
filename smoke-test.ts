@@ -128,7 +128,6 @@ const scope: Record<string, unknown> = {
     targetShow: true,
     targetAddress: "tb1pe7zjdf0kshuym99yprwdda3gnw753qrzlphheytmr6fg7ha2wy5q7lfplm",
     targetAmount: "0.10000000 BTC",
-    canSend: true,
     faucet: true, faucetBtc: () => {},
     offline: true,
     offlineWhy: "This page has no sBTC deposit service configured for testnet",

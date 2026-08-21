@@ -607,9 +607,7 @@ a:hover { color: var(--color-accent-700); }
           <div class="row" style="display:flex;gap:8px;flex-wrap:wrap">
             <button class="btn btn-secondary" sc-camel-on-click="{{ l1.commit }}" style="font-size:13px">1 · Commit</button>
             <button class="btn btn-secondary" sc-camel-on-click="{{ l1.reveal }}" style="font-size:13px">2 · Reveal</button>
-            <sc-if value="{{ l1.canSend }}">
-              <button class="btn btn-primary" sc-camel-on-click="{{ l1.deposit }}" style="font-size:13px">3 · Deposit</button>
-            </sc-if>
+            <button class="btn btn-primary" sc-camel-on-click="{{ l1.deposit }}" style="font-size:13px">3 · Deposit</button>
             <button class="btn btn-secondary" disabled title="The sBTC signers sweep it in their own time; nothing to press." style="font-size:13px">4 · Wait</button>
             <button class="btn btn-secondary" sc-camel-on-click="{{ l1.complete }}" style="font-size:13px">5 · Complete</button>
           </div>

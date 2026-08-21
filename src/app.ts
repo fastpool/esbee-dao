@@ -1230,28 +1230,73 @@ async function register(target: DepositTarget, txid: string): Promise<number> {
   return vout;
 }
 
-/** Step 3: send the bitcoin, and register it. */
+/**
+ * Step 3: send the bitcoin, and register it.
+ *
+ * Three things in a row, and they are kept apart on purpose, because the
+ * bitcoin moves in the middle of them. Once the wallet has sent, nothing that
+ * happens afterwards should read as "the deposit failed" -- the sats are on
+ * bitcoin either way, at an address this page can still show, and what is left
+ * is telling the signers about them. So each stage reports itself, and the two
+ * after the send say what is true of the money rather than of the step.
+ */
 async function doDepositBtc(): Promise<void> {
+  if (!state.account) return setState({ walletOpen: true });
   const sats = btcSats();
   if (sats <= 0) return setState({ notice: "How many sats are you sending?" });
+
+  let target: DepositTarget;
   try {
     setState({ notice: "Deriving the deposit address…" });
-    const target = await depositTarget(sats);
-    const api = await chainApi();
+    target = await depositTarget(sats);
+  } catch (error) {
+    return setState({ notice: `Could not derive the deposit address: ${message(error)}` });
+  }
+
+  let txid: string | null;
+  try {
     setState({ notice: `Confirm the deposit to ${target.address} in your wallet…` });
-    const txid = await api.sendBitcoin(target.address, sats);
-    if (!txid) return setState({ notice: "The wallet returned no transaction id." });
-    setValue("btc-txid", txid);
+    const api = await chainApi();
+    txid = await api.sendBitcoin(target.address, sats);
+  } catch (error) {
+    // The address is on the card by now, derived a moment ago. A wallet that
+    // cannot reach this bitcoin -- or a member who would rather send from
+    // somewhere else -- has everything they need to pay it by hand.
+    return setState({
+      notice:
+        `The wallet did not send it: ${message(error)}. The deposit address is on ` +
+        `the card if you would rather pay it yourself.`,
+    });
+  }
+  if (!txid) return setState({ notice: "The wallet returned no transaction id." });
+  setValue("btc-txid", txid);
+
+  // Past here the bitcoin has moved.
+  if (!bitcoin().configured) {
+    return setState({
+      notice:
+        `Sent — ${txid}. Nothing has told the sBTC signers about it: this page ` +
+        `has no deposit API configured for ${config.network}, and an unregistered ` +
+        `deposit is not swept. The address it went to is on the card; register it ` +
+        `there, or reload with ?btcApi= and ?emily= and press Register.`,
+    });
+  }
+  try {
     setState({ notice: "Sent. Telling the sBTC signers about it…" });
     // The transaction has to be readable before it can be registered, and a
     // send that has only just left the wallet may not have reached the API yet.
-    const vout = await retry(() => register(target, txid));
+    const vout = await retry(() => register(target, txid!));
     setValue("btc-vout", String(vout));
     setState({
-      notice: `Registered. The signers sweep it in their own time; step 5 credits it when they have.`,
+      notice: "Registered. The signers sweep it in their own time; step 5 credits it when they have.",
     });
   } catch (error) {
-    setState({ notice: `The deposit failed: ${message(error)}` });
+    setState({
+      notice:
+        `Sent — ${txid} — but registering it failed: ${message(error)}. The bitcoin ` +
+        `is at the deposit address on the card and nothing is lost; press Register ` +
+        `to try again.`,
+    });
   }
 }
 
@@ -1596,8 +1641,6 @@ interface L1Panel {
   targetShow: boolean;
   targetAddress: string;
   targetAmount: string;
-  /** The wallet can send it; otherwise the address is there to send to by hand. */
-  canSend: boolean;
   /** No bitcoin API and no Emily: this page cannot finish the route. */
   offline: boolean;
   offlineWhy: string;
@@ -1624,7 +1667,6 @@ interface L1Panel {
  */
 function l1Panel(): L1Panel {
   const btc = bitcoin();
-  const mismatched = Boolean(state.account) && !walletMatchesNetwork(state.account!);
   const target = state.deposit;
 
   return {
@@ -1653,7 +1695,6 @@ function l1Panel(): L1Panel {
     targetShow: Boolean(target),
     targetAddress: target?.address ?? "",
     targetAmount: target ? `${(target.sats / 1e8).toFixed(8)} BTC` : "",
-    canSend: state.connected && !mismatched && btc.configured,
     offline: !btc.configured,
     // Offered whenever there is a faucet to ask, and not gated on what is in
     // the field: the field is uncontrolled, so its value is not in state until
@@ -1665,9 +1706,10 @@ function l1Panel(): L1Panel {
     offlineWhy:
       `This page has no sBTC deposit service configured for ${config.network}: ` +
       `${btc.api ? "" : "no bitcoin API"}${!btc.api && !btc.emily ? " and " : ""}` +
-      `${btc.emily ? "" : "no Emily to register the deposit with"}. Committing and ` +
-      `revealing are Stacks calls and work regardless; sending bitcoin does not, ` +
-      `because a deposit the signers are never told about is never swept. ` +
+      `${btc.emily ? "" : "no Emily to register the deposit with"}. Every step here ` +
+      `still works — the wallet makes an ordinary bitcoin transaction — but nothing ` +
+      `here can tell the signers about it, and a deposit they are not told about ` +
+      `sits at its address until it is registered or its reclaim path opens. ` +
       `Pass ?btcApi= and ?emily=, or fill in NETWORKS in config.ts.`,
   };
 }
