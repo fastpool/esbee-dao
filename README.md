@@ -330,11 +330,20 @@ is generated in the browser and kept in `localStorage` against the address.
 **Step 3 is a real deposit, not an instruction.** `get-deposit-address` names a
 *principal* — an sBTC deposit credits a Stacks account, it does not pay a
 bitcoin address the treasury owns. So the page derives the deposit address
-itself, in `src/l1.ts`: a one-off taproot output whose script tree holds the
-treasury principal, the signers' current aggregate key (read from the sBTC
-registry, because it rotates) and a reclaim path belonging to the member (built
-from the wallet's own bitcoin public key). The wallet then sends to it, and the
-deposit is registered with Emily — which is what makes the signers sweep it.
+itself, in `src/l1.ts`: a taproot output whose script tree holds the treasury
+principal, the signers' current aggregate key (read from the sBTC registry,
+because it rotates) and a reclaim path belonging to the member (built from the
+wallet's own bitcoin public key). The wallet then sends to it, and the deposit
+is registered with Emily — which is what makes the signers sweep it.
+
+**There is no fixed deposit address**, and that is the part worth saying twice.
+It is derived per member: the reclaim leaf is theirs, so two members depositing
+to the same treasury pay two different addresses, and an address copied from
+somebody else credits them and not you. It does *not* depend on the amount, so
+the card can show it before one is typed — **Show the deposit address** derives
+it without sending anything, for a hardware wallet or any wallet that cannot
+reach this bitcoin. Pressing **3 · Deposit** shows the same address and then
+asks the wallet to pay it.
 
 Step 5 fetches the deposit transaction and the transaction behind each of its
 inputs from the bitcoin API and hands both to `complete-btc-deposit`: the chain
@@ -371,19 +380,33 @@ every visitor would share one limit.
 
 ### The bitcoin side is configuration
 
-Three values per network, in `NETWORKS`: which bitcoin the pool's sBTC is on,
-an esplora-compatible API to read a transaction back from, and the Emily the
-signers poll. They belong to the sBTC deployment rather than to this pool, and
-`?btcChain=`, `?btcApi=` and `?emily=` override them for a visit.
+Three values per network, in `NETWORKS`. They belong to the sBTC deployment
+rather than to this pool, and `?btcChain=`, `?btcApi=` and `?emily=` override
+them for a visit.
 
-**Testnet's are deliberately blank.** This pool's sBTC deployment
-(`SN3VMHXEN64ZZF71JQ5VESXDWTR301XTTXGF4J8F1`) is not the public sBTC testnet:
-its swept deposits are in no public Emily, and its bitcoin transactions are on
-no public mempool. Pointing them at the public endpoints would take a member's
-bitcoin and never have it swept — a deposit nobody registers sits at its derived
-address until the reclaim path opens ~950 blocks later. So the card refuses to
-send while they are empty and says exactly what is missing; commit and reveal
-are Stacks calls and work regardless. Filling in the three is all it takes.
+| | testnet |
+| --- | --- |
+| `chain` | `testnet` — Stacks testnet is anchored to **bitcoin testnet4**, which encodes addresses exactly as testnet3 does (`tb1…`, m/n/2 in base58), so only the API has to name testnet4 |
+| `api` | `https://mempool.space/testnet4/api`, esplora-compatible, for reading a deposit back |
+| `emily` | `https://temp.sbtc-emily-dev.com` — **https**, because the page is served over TLS and a browser blocks a plain-text fetch out of it |
+
+If the environment's bitcoin is not the public testnet4, `?btcApi=` points at
+its own explorer instead; nothing else changes.
+
+### Emily's token does not travel in the bundle
+
+The testnet instance wants an auth token, and a token in a static bundle is not
+a token. So `netlify/functions/emily.mjs` answers `/emily/<network>/*` and
+attaches it server-side — the same trade `hiro.mjs` makes for the Hiro key, and
+`scripts/build.mjs` points the bundle at `/emily` only when `NETLIFY` is set.
+
+    EMILY_API_TOKEN     the token, in the Netlify UI, never in the repo
+    EMILY_TOKEN_HEADER  the header to send it as; `x-api-key` by default
+
+Without the variable the function still forwards, unauthenticated, so a preview
+or a fork gets Emily's own answer rather than a page that cannot say what went
+wrong. A local build talks to Emily directly, and `?emily=` points at an
+instance of your own.
 
 `src/l1.ts` is behind its own dynamic `import()`, like the chain layer:
 `@scure/btc-signer` and the sBTC deposit builder are ~210 kB and only a member

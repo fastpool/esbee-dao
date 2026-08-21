@@ -32,6 +32,14 @@ const API_PROXY = JSON.stringify(
   process.env.API_PROXY ?? (process.env.NETLIFY ? "/api" : ""),
 );
 
+// The same switch for Emily, which is a second function answering a second
+// host: `netlify/functions/emily.mjs`, which attaches the deposit API's token.
+// Empty off a Netlify build, so a local build talks to Emily directly and needs
+// no function running.
+const EMILY_PROXY = JSON.stringify(
+  process.env.EMILY_PROXY ?? (process.env.NETLIFY ? "/emily" : ""),
+);
+
 // The live site, and the retired vault's page under it. Each is an entry, the
 // pages that name it, and the directory it is written to.
 const SITES = [
@@ -66,6 +74,7 @@ for (const site of SITES) {
       // to Hiro directly, anonymously. `API_PROXY=` in the environment overrides
       // both, for a build that is deployed somewhere else again.
       `--define:__API_PROXY__=${API_PROXY}`,
+      `--define:__EMILY_PROXY__=${EMILY_PROXY}`,
     ],
     { stdio: "inherit" },
   );

@@ -24,7 +24,8 @@
 # Without the variable the function still proxies, anonymously, so a preview
 # deploy or a fork is degraded rather than broken. `scripts/build.mjs` points
 # the bundle at /api only when NETLIFY is set, so a local build talks to Hiro
-# directly and needs no function to be running.
+# directly and needs no function to be running. The same is true of
+# `netlify/functions/emily.mjs` and EMILY_API_TOKEN, below.
 [functions]
   directory = "netlify/functions"
 
@@ -63,6 +64,20 @@
 # no-store, and this keeps any CDN in front of it from disagreeing.
 [[headers]]
   for = "/api/*"
+  [headers.values]
+    Cache-Control = "no-store"
+
+# ── the Emily proxy ────────────────────────────────────────────────────────
+# `netlify/functions/emily.mjs` answers /emily/<network>/* and forwards to the
+# sBTC deposit API with this site's token attached. Set EMILY_API_TOKEN under
+# Site configuration -> Environment variables; it is never in the repo, and
+# never in the bundle. EMILY_TOKEN_HEADER overrides the header name for an
+# instance that wants something other than `x-api-key`.
+#
+# Registering a deposit is a write and its answer is about one transaction, so
+# nothing in front of it should hold on to a reply.
+[[headers]]
+  for = "/emily/*"
   [headers.values]
     Cache-Control = "no-store"
 

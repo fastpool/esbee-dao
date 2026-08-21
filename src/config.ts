@@ -26,7 +26,15 @@ export interface BitcoinInfo {
   chain: "mainnet" | "testnet" | "regtest";
   /** An esplora-compatible API. "" means the page cannot read a tx back. */
   api: string;
-  /** Emily, which tells the signers a deposit exists. "" means it cannot. */
+  /**
+   * Emily, which tells the signers a deposit exists. "" means it cannot.
+   *
+   * On Netlify this is the site's own `/emily/<network>`, which attaches the
+   * instance's token server-side -- the same trade `apiBase()` makes for the
+   * Hiro key, and for the same reason: a token in a static bundle is not a
+   * token. Anywhere else it is the host itself, unauthenticated, so a local
+   * build needs no function running.
+   */
   emily: string;
 }
 
@@ -46,14 +54,21 @@ export const NETWORKS: Record<NetworkName, NetworkInfo> = {
     explorer: "https://explorer.hiro.so",
     sbtc: "SN3VMHXEN64ZZF71JQ5VESXDWTR301XTTXGF4J8F1.sbtc-token",
     pox: "ST000000000000000000002AMW42H.pox-5",
-    // This sBTC deployment is not the public sBTC testnet: its swept deposits
-    // are in no public Emily, and its bitcoin transactions are on no public
-    // mempool. Which bitcoin it watches, and where its Emily is, are things
-    // the environment's operator knows -- so they are left blank rather than
-    // pointed at the public endpoints, which would take a member's deposit and
-    // never have it swept. `?btcChain=`, `?btcApi=` and `?emily=` fill them in
-    // for a visit; the three go together.
-    bitcoin: { chain: "testnet", api: "", emily: "" },
+    // Stacks testnet is anchored to bitcoin testnet4, which encodes addresses
+    // exactly as testnet3 does -- `tb1…`, and m/n/2 in base58 -- so `testnet`
+    // is the right chain for an address either way, and only the API has to
+    // name testnet4 specifically.
+    //
+    // Emily is a dev instance. `https`, not `http`: this page is served over
+    // TLS and a browser blocks a plain-text fetch out of it, so an `http://`
+    // endpoint here would not be reachable at all. `?btcApi=` and `?emily=`
+    // point a visit somewhere else -- at the environment's own explorer, if its
+    // bitcoin is not the public testnet4.
+    bitcoin: {
+      chain: "testnet",
+      api: "https://mempool.space/testnet4/api",
+      emily: "https://temp.sbtc-emily-dev.com",
+    },
   },
   mainnet: {
     api: "https://api.hiro.so",
@@ -211,14 +226,21 @@ export const addressExample = (): string =>
   ({ mainnet: "bc1q…", testnet: "tb1q…", regtest: "bcrt1q…" })[bitcoin().chain];
 
 export const bitcoin = (): BitcoinInfo & { configured: boolean } => {
+  // `EMILY_PROXY` is defined at the foot of this file, beside the other build
+  // switch. Read here rather than there because this is the only caller.
   const base = net().bitcoin;
   const chain = params.get("btcChain") ?? base.chain;
+  // Registering a deposit is the one call this site makes that carries a
+  // secret, so on Netlify it goes through the site's own function. `?emily=`
+  // still wins, for a developer pointing at an instance of their own.
+  const emily =
+    params.get("emily") ?? (EMILY_PROXY ? `${EMILY_PROXY}/${network}` : base.emily);
   const info = {
     chain: (chain === "mainnet" || chain === "testnet" || chain === "regtest"
       ? chain
       : base.chain) as BitcoinInfo["chain"],
     api: (params.get("btcApi") ?? base.api).replace(/\/$/, ""),
-    emily: (params.get("emily") ?? base.emily).replace(/\/$/, ""),
+    emily: emily.replace(/\/$/, ""),
   };
   return { ...info, configured: Boolean(info.api && info.emily) };
 };
@@ -238,7 +260,19 @@ export const bitcoin = (): BitcoinInfo & { configured: boolean } => {
  */
 declare const __API_PROXY__: string | undefined;
 
+/**
+ * And where a deposit is registered, which is the same decision again.
+ *
+ * Separate from the one above because it is a different function answering a
+ * different host: `netlify/functions/emily.mjs`, which attaches the instance's
+ * token. Off a Netlify deploy it is empty and `bitcoin()` talks to Emily
+ * directly, unauthenticated -- which is what a local build should do, and what
+ * `?emily=` overrides when a developer has a token of their own.
+ */
+declare const __EMILY_PROXY__: string | undefined;
+
 const PROXY = typeof __API_PROXY__ === "string" ? __API_PROXY__ : "";
+const EMILY_PROXY = typeof __EMILY_PROXY__ === "string" ? __EMILY_PROXY__ : "";
 
 export const apiBase = (): string =>
   PROXY ? `${PROXY}/${config.network}` : net().api;

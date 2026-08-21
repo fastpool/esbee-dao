@@ -1300,6 +1300,28 @@ async function doDepositBtc(): Promise<void> {
   }
 }
 
+/**
+ * Show where the bitcoin has to go, without sending any.
+ *
+ * The address does not depend on the amount -- it commits to the recipient, the
+ * signers' key and the member's reclaim path, and nothing else -- so it can be
+ * shown before an amount has been decided, and paid from anywhere. Which is the
+ * point: a member with a hardware wallet, or one whose wallet cannot reach this
+ * bitcoin, needs the address rather than a button that spends for them.
+ */
+async function doShowDeposit(): Promise<void> {
+  if (!state.account) return setState({ walletOpen: true });
+  try {
+    setState({ notice: "Deriving the deposit address…" });
+    const target = await depositTarget(btcSats());
+    setState({
+      notice: `Pay ${target.address} from the address you revealed, then press Register.`,
+    });
+  } catch (error) {
+    setState({ notice: `Could not derive the deposit address: ${message(error)}` });
+  }
+}
+
 /** The same registration, for bitcoin sent from somewhere this page cannot drive. */
 async function doRegister(): Promise<void> {
   const txid = field("btc-txid");
@@ -1639,6 +1661,8 @@ interface L1Panel {
   cancel: () => void;
   /** The deposit address, once this page has derived one. */
   targetShow: boolean;
+  targetHidden: boolean;
+  showAddress: () => void;
   targetAddress: string;
   targetAmount: string;
   /** No bitcoin API and no Emily: this page cannot finish the route. */
@@ -1693,8 +1717,12 @@ function l1Panel(): L1Panel {
     complete: () => void doComplete(),
     cancel: () => void doCancelL1(),
     targetShow: Boolean(target),
+    targetHidden: !target,
+    showAddress: () => void doShowDeposit(),
     targetAddress: target?.address ?? "",
-    targetAmount: target ? `${(target.sats / 1e8).toFixed(8)} BTC` : "",
+    // The address does not depend on the amount, so it is worth deriving before
+    // one is typed -- and the heading says the amount only when there is one.
+    targetAmount: target && target.sats > 0 ? ` · ${(target.sats / 1e8).toFixed(8)} BTC` : "",
     offline: !btc.configured,
     // Offered whenever there is a faucet to ask, and not gated on what is in
     // the field: the field is uncontrolled, so its value is not in state until
