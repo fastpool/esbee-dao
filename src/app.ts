@@ -12,6 +12,7 @@
 import { mountInto, type Scope } from "./render.js";
 import {
   apiBase,
+  bitcoin,
   config,
   configured,
   explorerContract,
@@ -26,6 +27,7 @@ import { num } from "./plain.js";
 import { discuss, mountChat, syncChat } from "./chat.js";
 import type {
   MemberPosition,
+  PoxAddress,
   Floor,
   FloorEntry,
   PoolState,
@@ -102,8 +104,13 @@ interface State {
   notice: string;
   memberSats: number;
   member: MemberPosition | null;
-  /** The treasury address L1 bitcoin has to be sent to. */
+  /** The principal an sBTC deposit has to credit. Not a bitcoin address. */
   depositTo: string;
+  /** The L1 route's own fields, held across a re-render like the join card's. */
+  btcAmount: string;
+  btcAddress: string;
+  /** The deposit address this page derived, once it has derived one. */
+  deposit: DepositTarget | null;
   /** Last quoted STX leg, in uSTX, for whatever is typed in the sats field. */
   quotedFor: number;
   quotedUstx: number;
@@ -111,6 +118,8 @@ interface State {
   unit: Unit;
   /** The amount as typed, so a re-render can put it back where it was. */
   amount: string;
+  /** The same, for the early exit's own field. Sats, and only sats. */
+  earlyAmount: string;
   /** A deposit the wallet accepted, followed until it settles. */
   pending: Pending | null;
   /**
@@ -122,6 +131,14 @@ interface State {
 }
 
 type Unit = "sats" | "sbtc";
+
+/** Where an sBTC deposit has to be sent, and what proves what it was for. */
+interface DepositTarget {
+  address: string;
+  depositScript: string;
+  reclaimScript: string;
+  sats: number;
+}
 
 interface Pending {
   txid: string;
@@ -143,10 +160,14 @@ const state: State = {
   memberSats: 10_000_000, // only used to size the rehearsal's weight
   member: null,
   depositTo: "",
+  btcAmount: "",
+  btcAddress: "",
+  deposit: null,
   quotedFor: 0,
   quotedUstx: 0,
   unit: "sats",
   amount: "",
+  earlyAmount: "",
   pending: null,
   dummy: null,
 };
@@ -877,9 +898,13 @@ function pendingText(pending: Pending | null): string {
  * The salt has to survive between the commit and the reveal, and stay secret
  * until it. So it lives in this browser and nowhere else -- lose it before
  * revealing and the commitment can only be cancelled, not used.
+ *
+ * Keyed by the address now rather than by a txid: version 2 commits to where
+ * the bitcoin will come *from*, which is a thing the member has before they
+ * build anything.
  */
-function saltFor(txid: string, vout: number): string {
-  const key = `${SALT_KEY}:${txid}:${vout}`;
+function saltFor(address: string): string {
+  const key = `${SALT_KEY}:${address}`;
   const kept = localStorage.getItem(key);
   if (kept) return kept;
   const bytes = crypto.getRandomValues(new Uint8Array(32));
@@ -888,8 +913,8 @@ function saltFor(txid: string, vout: number): string {
   return salt;
 }
 
-const known = (txid: string, vout: number): string | null =>
-  localStorage.getItem(`${SALT_KEY}:${txid}:${vout}`);
+const known = (address: string): string | null =>
+  localStorage.getItem(`${SALT_KEY}:${address}`);
 
 /**
  * Run a wallet call and report it, returning the txid it produced.
@@ -1021,39 +1046,232 @@ async function poll(txid: string): Promise<void> {
   }
 }
 
-async function doCommit(): Promise<void> {
-  const sats = satsField();
-  const txid = field("btc-txid");
-  const vout = Number(field("btc-vout") || 0);
-  if (sats <= 0 || !txid) {
-    return setState({ notice: "An amount and the txid you are about to broadcast." });
-  }
-  const api = await chainApi();
-  const salt = saltFor(txid, vout);
-  const digest = String(await api.depositDigest(txid, vout, salt));
-  const ustx = Number(await api.quote(sats));
-  await withWallet("the commitment", () => api.bridgeCalls.commit(digest, sats, ustx));
+/**
+ * The bitcoin side, loaded only when a member works this card.
+ *
+ * @scure/btc-signer and the sBTC deposit builder are the heaviest thing the
+ * site can load and the fewest visitors need them, so they sit behind their own
+ * dynamic import -- the same trade `chain.ts` makes for the wallet SDK.
+ */
+type L1Module = typeof import("./l1.js");
+let l1: L1Module | null = null;
+const l1Api = async (): Promise<L1Module> => (l1 ??= await import("./l1.js"));
+
+/** The amount typed into this card, in the contract's own unit. */
+const btcSats = (): number => toSats(field("btc-sats"), state.unit);
+
+/** The address typed into it, decoded, or null if it is not one. */
+async function btcAddress(): Promise<{ text: string; pox: PoxAddress } | null> {
+  const text = field("btc-address");
+  if (!text) return null;
+  const pox = (await l1Api()).readAddress(text);
+  return pox ? { text, pox } : null;
 }
 
-async function doReveal(): Promise<void> {
-  const txid = field("btc-txid");
-  const vout = Number(field("btc-vout") || 0);
-  const salt = known(txid, vout);
-  if (!salt) {
+/**
+ * Step 1: commit to the address the bitcoin will come from.
+ *
+ * The digest is the contract's own -- `get-address-digest` over the
+ * scriptPubKey and the salt -- so a client cannot disagree with it about what
+ * was committed to. Checking the script first turns "this bridge cannot take a
+ * p2pk address" into a sentence rather than into a reverted reveal two blocks
+ * later, when the STX leg has already been paid.
+ */
+async function doCommit(): Promise<void> {
+  const sats = btcSats();
+  const address = await btcAddress();
+  if (sats <= 0) return setState({ notice: "How many sats will you send?" });
+  if (!address) {
     return setState({
-      notice: "No salt stored here for that txid — commit again from this browser.",
+      notice: "That is not a bitcoin address this page can read for this network.",
     });
   }
   const api = await chainApi();
-  await withWallet("the reveal", () => api.bridgeCalls.reveal(txid, vout, salt));
+  if (!(await api.addressScript(address.pox))) {
+    return setState({
+      notice: "The bridge cannot take that address shape. A p2wpkh or p2tr address will do.",
+    });
+  }
+  const salt = saltFor(address.text);
+  const digest = String(await api.addressDigest(address.pox, salt));
+  const ustx = Number(await api.bridgeQuote(sats));
+  await withWallet("the commitment", () =>
+    api.bridgeCalls.commitAddress(digest, sats, ustx),
+  );
 }
 
-async function doConfirm(): Promise<void> {
+/** Step 2: name it, one burn block later. First reveal takes the address. */
+async function doReveal(): Promise<void> {
+  const address = await btcAddress();
+  if (!address) return setState({ notice: "Which address did you commit to?" });
+  const salt = known(address.text);
+  if (!salt) {
+    return setState({
+      notice: "No salt stored here for that address — commit again from this browser.",
+    });
+  }
+  const api = await chainApi();
+  await withWallet("the reveal", () => api.bridgeCalls.revealAddress(address.pox, salt));
+}
+
+/**
+ * Where the bitcoin has to go: an sBTC deposit address for the treasury.
+ *
+ * Derived rather than looked up. `get-deposit-address` names the *principal*
+ * the signers must credit; the bitcoin address that makes them credit it is a
+ * one-off taproot output whose script tree holds that principal, the signers'
+ * current key, and a reclaim path belonging to this member. All three come from
+ * somewhere authoritative -- the bridge, the sBTC registry, and the wallet.
+ */
+async function depositTarget(sats: number): Promise<DepositTarget> {
+  const [api, bitcoinSide] = await Promise.all([chainApi(), l1Api()]);
+  const account = await api.bitcoinAccount();
+  if (!account?.publicKey) {
+    throw new Error(
+      "The wallet did not hand over a bitcoin public key, and the reclaim path " +
+        "of a deposit address is built from one.",
+    );
+  }
+  const [recipient, signers] = await Promise.all([
+    api.depositRecipient(),
+    bitcoinSide.signersPublicKey(api.readOnly),
+  ]);
+  const built = bitcoinSide.depositAddress({
+    recipient: String(recipient),
+    signersPublicKey: signers,
+    reclaimPublicKey: bitcoinSide.xOnly(account.publicKey),
+  });
+  const target = { ...built, sats };
+  setState({ deposit: target });
+  return target;
+}
+
+/**
+ * Tell the sBTC signers a deposit exists.
+ *
+ * Not a formality: they do not watch bitcoin for deposits, they are told about
+ * them. Bitcoin sent to a deposit address nobody registered is swept by nobody
+ * and sits there until its reclaim path opens, ~950 blocks later.
+ */
+async function register(target: DepositTarget, txid: string): Promise<number> {
+  const bitcoinSide = await l1Api();
+  const vout = await bitcoinSide.outputIndex(txid, target.address);
+  const raw = await bitcoinSide.rawTx(txid);
+  await bitcoinSide.notify({
+    txid,
+    vout,
+    depositScript: target.depositScript,
+    reclaimScript: target.reclaimScript,
+    raw,
+  });
+  return vout;
+}
+
+/** Step 3: send the bitcoin, and register it. */
+async function doDepositBtc(): Promise<void> {
+  const sats = btcSats();
+  if (sats <= 0) return setState({ notice: "How many sats are you sending?" });
+  try {
+    setState({ notice: "Deriving the deposit address…" });
+    const target = await depositTarget(sats);
+    const api = await chainApi();
+    setState({ notice: `Confirm the deposit to ${target.address} in your wallet…` });
+    const txid = await api.sendBitcoin(target.address, sats);
+    if (!txid) return setState({ notice: "The wallet returned no transaction id." });
+    setValue("btc-txid", txid);
+    setState({ notice: "Sent. Telling the sBTC signers about it…" });
+    // The transaction has to be readable before it can be registered, and a
+    // send that has only just left the wallet may not have reached the API yet.
+    const vout = await retry(() => register(target, txid));
+    setValue("btc-vout", String(vout));
+    setState({
+      notice: `Registered. The signers sweep it in their own time; step 5 credits it when they have.`,
+    });
+  } catch (error) {
+    setState({ notice: `The deposit failed: ${message(error)}` });
+  }
+}
+
+/** The same registration, for bitcoin sent from somewhere this page cannot drive. */
+async function doRegister(): Promise<void> {
+  const txid = field("btc-txid");
+  const sats = btcSats();
+  if (!txid) return setState({ notice: "Which txid?" });
+  try {
+    const target = state.deposit ?? (await depositTarget(sats));
+    const vout = await register(target, txid);
+    setValue("btc-vout", String(vout));
+    setState({ notice: "Registered with the sBTC signers." });
+  } catch (error) {
+    setState({ notice: `Could not register it: ${message(error)}` });
+  }
+}
+
+/**
+ * Step 5: credit the member, with the proof of whose bitcoin it was.
+ *
+ * The transaction and the transaction behind each of its inputs, fetched here
+ * rather than typed: the chain of txids is what the contract checks, and no
+ * member is going to paste eight raw transactions by hand.
+ */
+async function doComplete(): Promise<void> {
   const txid = field("btc-txid");
   const vout = Number(field("btc-vout") || 0);
   if (!txid) return setState({ notice: "Which txid?" });
+  try {
+    setState({ notice: "Reading the deposit back from bitcoin…" });
+    const bitcoinSide = await l1Api();
+    const raw = await bitcoinSide.rawTx(txid);
+    const parents = await bitcoinSide.parents(raw);
+    const api = await chainApi();
+    await withWallet("the credit", () =>
+      api.bridgeCalls.complete(txid, vout, raw, parents),
+    );
+  } catch (error) {
+    setState({ notice: `Could not complete it: ${message(error)}` });
+  }
+}
+
+/** Take the STX leg back from a commitment or an announcement that lapsed. */
+async function doCancelL1(): Promise<void> {
+  const address = await btcAddress();
   const api = await chainApi();
-  await withWallet("the confirmation", () => api.bridgeCalls.confirm(txid, vout));
+  if (address) {
+    const salt = known(address.text);
+    const announced = await api.announcementFor(address.pox);
+    if (announced) {
+      return void withWallet("the cancellation", () =>
+        api.bridgeCalls.cancelDeposit(address.pox),
+      );
+    }
+    if (salt) {
+      const digest = String(await api.addressDigest(address.pox, salt));
+      return void withWallet("the cancellation", () =>
+        api.bridgeCalls.cancelCommitment(state.account!, digest),
+      );
+    }
+  }
+  setState({ notice: "Nothing here to cancel for that address." });
+}
+
+/** Write into an uncontrolled field the way a member would have. */
+function setValue(id: string, value: string): void {
+  const input = document.getElementById(id) as HTMLInputElement | null;
+  if (input) input.value = value;
+}
+
+/** Try something a few times, for a bitcoin API that has not caught up yet. */
+async function retry<T>(run: () => Promise<T>, tries = 6): Promise<T> {
+  let last: unknown;
+  for (let attempt = 0; attempt < tries; attempt++) {
+    try {
+      return await run();
+    } catch (error) {
+      last = error;
+      await new Promise((done) => setTimeout(done, 5_000));
+    }
+  }
+  throw last;
 }
 
 /// --- the testnet faucets ----------------------------------------------------------
@@ -1134,7 +1352,6 @@ interface JoinPanel {
   disconnected: boolean;
   connect: () => void;
   closedWhy: string;
-  depositTo: string;
   quote: string;
   balance: string;
   queuedSats: string;
@@ -1147,9 +1364,6 @@ interface JoinPanel {
   hasRewards: boolean;
   deposit: () => void;
   withdraw: () => void;
-  commit: () => void;
-  reveal: () => void;
-  confirm: () => void;
   claimPrincipal: () => void;
   claimRewards: () => void;
   /** The amount field: what it is written in, and what is in it. */
@@ -1203,7 +1417,6 @@ function joinPanel(): JoinPanel {
       : !bond?.bound
         ? "Deposits open when the operator binds a bond. Nothing is locked meanwhile."
         : "This bond has started; the next window opens when the pool binds again.",
-    depositTo: state.depositTo,
     quote:
       state.quotedFor > 0
         ? `${fmt(state.quotedFor)} sats needs ${stx(state.quotedUstx)}`
@@ -1236,9 +1449,6 @@ function joinPanel(): JoinPanel {
     pendingLink: state.pending ? explorerTx(state.pending.txid) : "",
     deposit: () => void doDeposit(),
     withdraw: poolAction("the withdrawal", (api) => api.poolCalls.withdraw()),
-    commit: () => void doCommit(),
-    reveal: () => void doReveal(),
-    confirm: () => void doConfirm(),
     claimPrincipal: poolAction("the claim", (api) =>
       api.poolCalls.claimPrincipal(state.account!),
     ),
@@ -1258,6 +1468,211 @@ function joinPanel(): JoinPanel {
     faucetStx: () => void faucet("stx"),
     faucetSbtc: () => void faucet("sbtc"),
   };
+}
+
+/// --- the L1 route ------------------------------------------------------------
+
+interface L1Panel {
+  /** The principal an sBTC deposit has to credit. */
+  recipient: string;
+  /** The amount field, and what it is written in -- shared with the join card. */
+  amount: string;
+  amountLabel: string;
+  placeholder: string;
+  quote: string;
+  /** The address the bitcoin will come from, prefilled from the wallet. */
+  address: string;
+  addressNote: string;
+  commit: () => void;
+  reveal: () => void;
+  deposit: () => void;
+  register: () => void;
+  complete: () => void;
+  cancel: () => void;
+  /** The deposit address, once this page has derived one. */
+  targetShow: boolean;
+  targetAddress: string;
+  targetAmount: string;
+  /** The wallet can send it; otherwise the address is there to send to by hand. */
+  canSend: boolean;
+  /** No bitcoin API and no Emily: this page cannot finish the route. */
+  offline: boolean;
+  offlineWhy: string;
+}
+
+/**
+ * The five steps, as version 2 of the bridge has them.
+ *
+ * What changed is the first two: version 1 committed to a *transaction*, which
+ * does not exist until it has been built and signed, so a member had to drive
+ * their wallet in two halves and any wallet that cannot hand back a
+ * signed-but-unbroadcast transaction was shut out. Version 2 commits to the
+ * *address the bitcoin will come from* -- something the member already has --
+ * so both Stacks calls happen first and the bitcoin can then be sent by
+ * anything, this page included.
+ *
+ * The card refuses to send bitcoin where the network's sBTC side is not
+ * configured. That is not caution for its own sake: a deposit nobody registers
+ * with Emily is swept by nobody, and the bitcoin sits at a derived address
+ * until its reclaim path opens.
+ */
+function l1Panel(): L1Panel {
+  const btc = bitcoin();
+  const mismatched = Boolean(state.account) && !walletMatchesNetwork(state.account!);
+  const target = state.deposit;
+
+  return {
+    recipient: state.depositTo || "—",
+    amount: state.btcAmount,
+    amountLabel: state.unit === "sats" ? "Amount in sats" : "Amount in sBTC",
+    placeholder: state.unit === "sats" ? "10000000" : "0.1",
+    quote:
+      state.quotedFor > 0
+        ? `${fmt(state.quotedFor)} sats needs ${(state.quotedUstx / 1e6).toFixed(2)} STX`
+        : "quoted when you commit",
+    address: state.btcAddress,
+    addressNote: state.btcAddress
+      ? "Send from this address and no other — the bridge checks every input against it."
+      : "The address you will send the bitcoin from. Any address you control will do.",
+    commit: () => void doCommit(),
+    reveal: () => void doReveal(),
+    deposit: () => void doDepositBtc(),
+    register: () => void doRegister(),
+    complete: () => void doComplete(),
+    cancel: () => void doCancelL1(),
+    targetShow: Boolean(target),
+    targetAddress: target?.address ?? "",
+    targetAmount: target ? `${(target.sats / 1e8).toFixed(8)} BTC` : "",
+    canSend: state.connected && !mismatched && btc.configured,
+    offline: !btc.configured,
+    offlineWhy:
+      `This page has no sBTC deposit service configured for ${config.network}: ` +
+      `${btc.api ? "" : "no bitcoin API"}${!btc.api && !btc.emily ? " and " : ""}` +
+      `${btc.emily ? "" : "no Emily to register the deposit with"}. Committing and ` +
+      `revealing are Stacks calls and work regardless; sending bitcoin does not, ` +
+      `because a deposit the signers are never told about is never swept. ` +
+      `Pass ?btcApi= and ?emily=, or fill in NETWORKS in config.ts.`,
+  };
+}
+
+/// --- leaving before the term is up -------------------------------------------
+
+interface EarlyPanel {
+  /** There is a committed position in a live epoch, so this is worth showing. */
+  show: boolean;
+  /** …and nothing is stopping the call, so the form is worth showing. */
+  ready: boolean;
+  /** What is committed, which is the most an early exit can take. */
+  committed: string;
+  committedSats: string;
+  /** What the contract says the call would do, and what it would cost. */
+  ustxAtRoll: string;
+  banked: string;
+  atRisk: string;
+  hasAtRisk: boolean;
+  sync: () => void;
+  amount: string;
+  placeholder: string;
+  useAll: () => void;
+  unstake: () => void;
+  /** An exit is already queued, and the contract refuses while it is. */
+  blocked: boolean;
+  blockedWhy: string;
+  cancelExit: () => void;
+}
+
+/**
+ * `unstake-sbtc-early`: the committed position, back before the term is up.
+ *
+ * The whole card is about what it costs, because the call itself is one line
+ * and the price of it is not obvious:
+ *
+ *   the sats come back as *released principal*, not into the wallet. pox-5
+ *   hands them to the pool, the pool passes them to the treasury, and
+ *   `claim-principal` is the second call that finally moves them.
+ *
+ *   the STX leg does not come back now. pox-5 frees a staker's locked STX on
+ *   the bond's own unlock cycle, so a member taking their whole position out is
+ *   marked as exiting and the roll releases the STX, exactly as it would have.
+ *
+ *   rewards the pool has not recognised yet are forfeited, because shares are
+ *   what a payout is split by and these shares are gone the moment the call
+ *   returns. `sync-rewards` is permissionless and banks what has arrived, so
+ *   the card offers it first when the contract says there is something at risk.
+ *
+ * Every number here is `get-early-unstake-preview`, so the page never has to
+ * reproduce the split in JavaScript.
+ */
+function earlyPanel(): EarlyPanel {
+  const m = state.member;
+  const settled = m?.settled ?? null;
+  const preview = m?.early ?? null;
+  const held = settled ? num(settled["bonded-sats"]) : 0;
+  // `exit-epoch` is an optional uint: a number once an exit is queued, null
+  // until then. `unstake-sbtc-early` refuses while one is set.
+  const exiting = settled ? settled["exit-epoch"] != null : false;
+  const live = Boolean(state.pool?.live);
+  const atRisk = preview ? num(preview["at-risk-rewards"]) : 0;
+
+  const btc = (sats: number) => `${(sats / 1e8).toFixed(4)} BTC`;
+  const stx = (ustx: number) => `${(ustx / 1e6).toFixed(2)} STX`;
+
+  return {
+    // Not offered where it could not be made: an early exit needs a live epoch
+    // to leave and a committed position to take out of it.
+    show: state.connected && configured() && held > 0 && live,
+    ready: state.connected && configured() && held > 0 && live && !exiting,
+    committed: btc(held),
+    committedSats: fmt(held),
+    ustxAtRoll: stx(preview ? num(preview["ustx-at-roll"]) : 0),
+    banked: btc(preview ? num(preview["banked-rewards"]) : 0),
+    atRisk: btc(atRisk),
+    hasAtRisk: atRisk > 0,
+    sync: poolAction("the reward sync", (api) => api.poolCalls.syncRewards()),
+    amount: state.earlyAmount,
+    placeholder: String(held),
+    useAll: () => setState({ earlyAmount: String(held) }),
+    unstake: () => void doEarlyUnstake(),
+    blocked: exiting,
+    blockedWhy:
+      "You have already requested an exit, and the contract will not unstake " +
+      "early while one is queued — those sats are promised to the roll. Cancel " +
+      "the request first if you would rather not wait for it.",
+    cancelExit: poolAction("the cancellation", (api) => api.poolCalls.cancelExit()),
+  };
+}
+
+/**
+ * The early exit, from the page.
+ *
+ * The amount is checked here against what is committed only to say so in
+ * words: the contract checks it too, and refuses with `ERR_INVALID_AMOUNT`
+ * either way. The manager is the one `get-config` reports, never a value typed
+ * here — the same rule `stake` follows, and for the same reason.
+ *
+ * The explorer opens rather than the transaction being watched in place: what
+ * follows a successful call is a second one, `claim-principal`, and the card
+ * says so rather than implying the sats are already in the wallet.
+ */
+async function doEarlyUnstake(): Promise<void> {
+  const sats = toSats(field("early-sats"), "sats");
+  const held = num(state.member?.settled?.["bonded-sats"] ?? 0);
+  if (sats <= 0) return setState({ notice: "Enter how many sats to take out." });
+  if (sats > held) {
+    return setState({
+      notice: `That is more than the ${fmt(held)} sats you have committed.`,
+    });
+  }
+  const manager = String(state.pool?.config?.["signer-manager"] ?? "");
+  if (!manager) return setState({ notice: "The pool has no signer manager configured." });
+  const api = await chainApi();
+  // pox-5 refuses this during a reward cycle's prepare phase, so a call can
+  // bounce on timing alone. Said here rather than left to the wallet's own
+  // rendering of a pox-5 error code, which is not one a reader can act on.
+  const txid = await withWallet("the early exit", () =>
+    api.poolCalls.unstakeEarly(manager, sats),
+  );
+  if (txid) setState({ earlyAmount: "" });
 }
 
 /// --- the view model ---------------------------------------------------------------
@@ -1405,6 +1820,8 @@ function viewModel(): Scope {
     bond: bondPanel(),
     launch: launchPanel(),
     join: joinPanel(),
+    l1: l1Panel(),
+    early: earlyPanel(),
 
     // Which vault this page is about.
     //
@@ -1490,7 +1907,7 @@ function viewModel(): Scope {
     ],
     faq: [
       { q: "What happens if the bond is too small for everything queued?", a: "The roll still happens — missing the window is far worse than rolling light. stake commits what fits, scales every member’s sats by the same fraction, and releases the remainder." },
-      { q: "Can I leave mid-bond?", a: "You can request an exit at any time; it is honoured at the next roll. Your principal comes back then, and the final cycle’s honey when that epoch settles." },
+      { q: "Can I leave mid-bond?", a: "Two ways. Request an exit and it is honoured at the next roll: your principal comes back then, and the final cycle’s honey when that epoch settles. Or leave now — unstake-sbtc-early takes committed sats straight back out of the bond, which is what pox-5 always allowed. The sats become claimable principal at once; the STX leg still waits for the roll, and the rest of that bond’s honey is forfeited." },
       { q: "Why is my weight the square root?", a: "So that capital buys influence at a decreasing rate. Ten thousand times the stake is a hundred times the say — enough to matter, not enough to decide alone." },
       { q: "Why can a queued deposit not vote?", a: "It is withdrawable on demand. Counting it would let anyone rent a majority for a single transaction: deposit, vote, withdraw." },
       { q: "Who can execute a passed proposal?", a: "Anyone. The mandate is the vote, not the executor. If the underlying call fails, the mandate survives and can be spent once it would succeed." },
@@ -1531,9 +1948,19 @@ async function refresh(): Promise<void> {
       api.loadFloor(),
       api.loadPool(),
       api.loadMember(),
-      api.depositAddress().catch(() => ""),
+      api.depositRecipient().catch(() => ""),
     ]);
-    setState({ floor, pool, member, depositTo: String(depositTo ?? "") });
+    // The bitcoin address the L1 card starts with, taken from the connection
+    // rather than asked for: a member who wants to deposit from a different
+    // address of theirs types over it.
+    const btc = api.storedBitcoinAddress();
+    setState({
+      floor,
+      pool,
+      member,
+      depositTo: String(depositTo ?? ""),
+      ...(btc && !state.btcAddress ? { btcAddress: btc } : {}),
+    });
   } catch (error) {
     setState({ notice: `Could not read the DAO: ${message(error)}` });
   }
@@ -1555,6 +1982,8 @@ function render(): void {
   }
 
   wireQuote();
+  wireEarly();
+  wireL1();
   syncChat();
 }
 
@@ -1602,6 +2031,55 @@ function wireQuote(): void {
       }
     }, 350);
   });
+}
+
+/**
+ * The early exit's amount field: held across a re-render, and read back in
+ * whichever unit has fewer zeros to miscount.
+ *
+ * Same shape as `wireQuote` and for the same reason -- a re-render replaces the
+ * element being typed into -- but with nothing to ask the chain: sats to BTC is
+ * a division, and the card has already been told what the call would return.
+ */
+function wireEarly(): void {
+  const input = document.getElementById("early-sats") as HTMLInputElement | null;
+  const out = document.getElementById("early-hint");
+  if (!input || !out || input.dataset.wired === "1") return;
+  input.dataset.wired = "1";
+
+  input.value = state.earlyAmount;
+
+  const show = (value: string) => {
+    const sats = toSats(value, "sats");
+    out.textContent = sats > 0 ? `= ${(sats / SATS_PER_BTC).toFixed(8)} BTC` : "";
+  };
+  show(input.value);
+
+  input.addEventListener("input", () => {
+    // Held so a re-render can put it back; not `setState`, which would replace
+    // the element under the caret.
+    state.earlyAmount = input.value;
+    show(input.value);
+  });
+}
+
+/**
+ * The L1 card's own two fields, held across a re-render.
+ *
+ * Same reason as the other two: the inputs are uncontrolled because a
+ * re-render replaces the element being typed into and the caret goes with it.
+ * These hold the amount and the address between steps, which here span several
+ * transactions and at least one burn block.
+ */
+function wireL1(): void {
+  const hold = (id: string, keep: (value: string) => void) => {
+    const input = document.getElementById(id) as HTMLInputElement | null;
+    if (!input || input.dataset.wired === "1") return;
+    input.dataset.wired = "1";
+    input.addEventListener("input", () => keep(input.value));
+  };
+  hold("btc-sats", (value) => (state.btcAmount = value));
+  hold("btc-address", (value) => (state.btcAddress = value));
 }
 
 // Paint first, then reach for the chain: the page reads the same either way,

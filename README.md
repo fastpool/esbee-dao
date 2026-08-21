@@ -24,6 +24,7 @@ else on the page is a plain static file.
 | `src/config.ts` | where the contracts are — dependency-free, deliberately |
 | `src/plain.ts` | unwrapping decoded Clarity values |
 | `src/chain.ts` | stacks.js: wallet, read-only calls, and every call the DAO has |
+| `src/l1.ts` | the bitcoin side of the L1 route: address decoding, the derived sBTC deposit address, and Emily. Loaded on demand |
 | `src/app.ts` | state, the view model, and the fallback fixtures |
 | `src/chat.ts` | the discussion panel: its state, view model and rendering |
 | `src/nostr.ts` | what the chat runs on -- relays, keys, the two rooms, member verification. Loaded after the page paints |
@@ -303,15 +304,94 @@ The "Two ways in" cards are working forms, not illustrations.
 both. The button only appears while a bond is bound and its start height is
 still ahead; otherwise the card says why not.
 
-**With L1 bitcoin** — the contract's five steps, with buttons for the three that
-are Stacks transactions: commit, reveal, confirm. The treasury address is read
-from `get-deposit-address` rather than written down. The salt is generated in
-the browser and kept in `localStorage` against the txid, because it has to
-survive between the commit and the reveal and stay secret until it.
+**With L1 bitcoin** — bridge v2's five steps. What changed from v1 is what is
+committed to: v1 committed to the *transaction*, whose txid does not exist until
+it has been built and signed, so a member had to drive their wallet in two
+halves and any wallet that cannot hand back a signed-but-unbroadcast transaction
+was shut out. **v2 commits to the address the bitcoin will come from** — one the
+member already has — so both Stacks calls happen before anything is built.
+
+    1  commit-btc-address    a salted hash of the address, plus the amount.
+                             Takes the STX leg.
+    2  reveal-btc-address    the address itself, one burn block later.
+                             First reveal takes it.
+    3  deposit               bitcoin, to a derived sBTC deposit address
+    4  wait                  the signers sweep it
+    5  complete-btc-deposit  the transaction and its parents, as proof
+
+The card asks for the amount and the address up front, prefills the address from
+the connected wallet's bitcoin account, and checks the shape against the
+bridge's own `get-address-script` before committing anything — an address the
+bridge cannot turn into a scriptPubKey is a sentence here rather than a reverted
+reveal after the STX leg has been paid. The digest is `get-address-digest`, so a
+client cannot disagree with the contract about what was committed to. The salt
+is generated in the browser and kept in `localStorage` against the address.
+
+**Step 3 is a real deposit, not an instruction.** `get-deposit-address` names a
+*principal* — an sBTC deposit credits a Stacks account, it does not pay a
+bitcoin address the treasury owns. So the page derives the deposit address
+itself, in `src/l1.ts`: a one-off taproot output whose script tree holds the
+treasury principal, the signers' current aggregate key (read from the sBTC
+registry, because it rotates) and a reclaim path belonging to the member (built
+from the wallet's own bitcoin public key). The wallet then sends to it, and the
+deposit is registered with Emily — which is what makes the signers sweep it.
+
+Step 5 fetches the deposit transaction and the transaction behind each of its
+inputs from the bitcoin API and hands both to `complete-btc-deposit`: the chain
+of txids is what proves on chain that the bitcoin came from the revealed
+address. At most eight inputs, which is the bridge's own limit.
+
+### The bitcoin side is configuration
+
+Three values per network, in `NETWORKS`: which bitcoin the pool's sBTC is on,
+an esplora-compatible API to read a transaction back from, and the Emily the
+signers poll. They belong to the sBTC deployment rather than to this pool, and
+`?btcChain=`, `?btcApi=` and `?emily=` override them for a visit.
+
+**Testnet's are deliberately blank.** This pool's sBTC deployment
+(`SN3VMHXEN64ZZF71JQ5VESXDWTR301XTTXGF4J8F1`) is not the public sBTC testnet:
+its swept deposits are in no public Emily, and its bitcoin transactions are on
+no public mempool. Pointing them at the public endpoints would take a member's
+bitcoin and never have it swept — a deposit nobody registers sits at its derived
+address until the reclaim path opens ~950 blocks later. So the card refuses to
+send while they are empty and says exactly what is missing; commit and reveal
+are Stacks calls and work regardless. Filling in the three is all it takes.
+
+`src/l1.ts` is behind its own dynamic `import()`, like the chain layer:
+`@scure/btc-signer` and the sBTC deposit builder are ~210 kB and only a member
+working this card ever needs them.
 
 **Your position**, once a wallet is connected: queued, committed, released and
 unclaimed honey, with Withdraw / Claim buttons that appear only when there is
-something to act on. A member who still holds a position in `vault-1` is pointed
+something to act on.
+
+### Leaving before the term is up
+
+`vault-2`'s one new power, and the card under **Your position** is mostly about
+what it costs, because the call itself is one line and the price of it is not.
+Every number in it is `get-early-unstake-preview`, so the page never reproduces
+the split in JavaScript:
+
+| | |
+| --- | --- |
+| committed | the most an early exit can take. Partial amounts are allowed |
+| STX at the roll | pox-5 frees a staker's locked STX on the bond's own unlock cycle. No call here hands it over sooner |
+| honey banked | already accrued to the member; leaving does not touch it |
+| honey at risk | reward sBTC the pool holds but has not split yet. The member's shares leave the epoch when the call returns, so it would go to whoever stays |
+
+The at-risk row comes with a **Sync rewards first** button when it is non-zero.
+`sync-rewards` is permissionless and banks everything that has actually
+arrived, which is the difference between forfeiting that sBTC and keeping it.
+
+What comes back arrives as **released principal**, not in the wallet:
+`claim-principal` is the second call, and the card says so rather than implying
+the sats have already moved. The card is not shown at all without a live epoch
+and a committed position, and an exit already queued blocks the call — the
+contract refuses while one is set, so the card says that and offers
+`cancel-exit` instead.
+
+The card is on the live page only. `v1/` is about a contract that does not have
+the function. A member who still holds a position in `vault-1` is pointed
 at `/v1/` from here — that is the whole of the migration, because there is no
 call that moves one.
 
@@ -334,6 +414,11 @@ quote writes straight into the DOM for the same reason.
 | `vote(id, support)` | the vote floor's for/against buttons |
 | `propose-trust-signer` / `-distrust-signer` / `-signer-change` / `-operator-change` / `-sweep` | wired in `chain.ts`, ready for a compose form |
 | `execute-trust-signer` / `-distrust-signer` / `-operator-change` / `-sweep` | permissionless: the mandate is the vote, not the executor |
+| `deposit` / `deposit-stx` / `withdraw` / `claim-principal` / `claim-rewards` | the join card and **Your position** |
+| `unstake-sbtc-early(manager, sats)` | leaving mid-term. `manager` is the principal `get-config` reports, never one typed on the page — the same rule `stake` follows |
+| `commit-btc-address` / `reveal-btc-address` / `complete-btc-deposit` | the L1 route, bridge v2 |
+| `cancel-btc-commitment` / `cancel-btc-deposit` | taking the STX leg back from a commitment or an announcement the bitcoin never followed |
+| `sync-rewards` | permissionless, offered beside the early exit so its at-risk honey is banked first |
 
 `execute-signer-change` is the exception. It takes both managers as trait
 references rather than principals, so it cannot be driven from a proposal id

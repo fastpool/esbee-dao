@@ -116,6 +116,32 @@ const scope: Record<string, unknown> = {
     wrongNetwork: true, networkWarning: "Your wallet is a mainnet address",
     faucets: true, faucetStx: () => {}, faucetSbtc: () => {},
   },
+  l1: {
+    recipient: "STFCGF789WX1B737VQYAQ6BG3QYVMJGPDJN4TJFM.bond-treasury-2",
+    amount: "10000000", amountLabel: "Amount in sats", placeholder: "10000000",
+    quote: "10,000,000 sats needs 5.00 STX",
+    address: "tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx",
+    addressNote: "Send from this address and no other",
+    commit: () => {}, reveal: () => {}, deposit: () => {},
+    register: () => {}, complete: () => {}, cancel: () => {},
+    targetShow: true,
+    targetAddress: "tb1pe7zjdf0kshuym99yprwdda3gnw753qrzlphheytmr6fg7ha2wy5q7lfplm",
+    targetAmount: "0.10000000 BTC",
+    canSend: true,
+    offline: true,
+    offlineWhy: "This page has no sBTC deposit service configured for testnet",
+  },
+  early: {
+    show: true, ready: true,
+    committed: "0.0500 BTC", committedSats: "5,000,000",
+    ustxAtRoll: "12.00 STX", banked: "0.0013 BTC", atRisk: "0.0004 BTC",
+    hasAtRisk: true, sync: () => {},
+    amount: "5000000", placeholder: "5000000", useAll: () => {},
+    unstake: () => {},
+    blocked: true,
+    blockedWhy: "You have already requested an exit",
+    cancelExit: () => {},
+  },
   stage: {
     label: "Deposits open · bond 3 starts in 10d 7h",
     bg: "var(--color-accent-2-200)",
@@ -207,8 +233,37 @@ check(
 );
 
 // The join controls the member actually presses.
-for (const id of ["join-sats", "join-quote", "btc-txid", "btc-vout"]) {
+for (const id of ["join-sats", "join-quote", "btc-sats", "btc-address", "btc-txid", "btc-vout"]) {
   check(Boolean(mount!.querySelector(`#${id}`)), `the join form has #${id}`);
+}
+// Bridge v2 commits to the address the bitcoin comes from, not to the
+// transaction -- so the card asks for an address and an amount up front, and
+// its third step is a deposit this page can actually make.
+for (const phrase of [
+  "Your bitcoin address",
+  "1 · Commit",
+  "2 · Reveal",
+  "3 · Deposit",
+  "5 · Complete",
+  "sBTC deposit address",
+]) {
+  check(text.includes(phrase), `the L1 card says "${phrase}"`);
+}
+check(!text.includes("3 · Broadcast"), "and no longer calls the third step a broadcast");
+// Leaving mid-term is `vault-2`'s one new power, and the card is mostly about
+// what it costs -- so the costs are what is worth asserting, not the button.
+for (const id of ["early-sats", "early-hint"]) {
+  check(Boolean(mount!.querySelector(`#${id}`)), `the early exit has #${id}`);
+}
+for (const phrase of [
+  "Leave before the term is up",
+  "unstake-sbtc-early",
+  "STX at the roll",
+  "Honey at risk",
+  "Sync rewards first",
+  "released principal",
+]) {
+  check(text.includes(phrase), `the early exit says "${phrase}"`);
 }
 check(
   mount!.querySelectorAll("button").length >= 8,
@@ -426,7 +481,20 @@ for (const fn of [
   "execute-sweep", "execute-signer-change",
   "get-proposal", "get-status", "get-vote", "get-weight", "get-quorum",
   "get-proposal-count", "current-epoch",
+  // vault-2's own: the early exit, what it would cost, and the permissionless
+  // call that banks the rewards it would otherwise forfeit.
+  "unstake-sbtc-early", "get-early-unstake-preview", "sync-rewards",
+  // bridge v2: the address is what is committed to, and completing a deposit
+  // takes the transaction and its parents rather than a bare txid.
+  "commit-btc-address", "reveal-btc-address", "complete-btc-deposit",
+  "get-address-digest", "get-address-script", "cancel-btc-deposit",
 ]) {
+  check(chainSource.includes(`"${fn}"`), `chain.ts calls ${fn}`);
+}
+for (const gone of ["commit-btc-deposit", "reveal-btc-deposit", "confirm-btc-deposit"]) {
+  check(!chainSource.includes(`"${gone}"`), `chain.ts no longer calls ${gone}`);
+}
+for (const fn of [] as string[]) {
   check(chainSource.includes(`"${fn}"`), `chain.ts calls ${fn}`);
 }
 check(chainSource.includes("@stacks/connect"), "chain.ts uses @stacks/connect for the wallet");

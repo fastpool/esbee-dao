@@ -112,6 +112,60 @@ export async function signMessage(
   return { signature: result.signature, publicKey: result.publicKey ?? "" };
 }
 
+export interface BitcoinAccount {
+  address: string;
+  publicKey: string;
+}
+
+/**
+ * The wallet's bitcoin account: the address a deposit will come from, and the
+ * key that can reclaim it if the signers never sweep.
+ *
+ * Asked for rather than read out of `getLocalStorage`, which keeps addresses
+ * but strips public keys -- and the reclaim leaf of a deposit address is built
+ * from one. The payment address is the one wanted: `p2wpkh` where the wallet
+ * offers a choice, never the ordinals/taproot account, which is not where
+ * spendable coins live.
+ */
+/**
+ * The wallet's bitcoin address as the connection already left it here.
+ *
+ * For prefilling a field, and nothing more: `getLocalStorage` keeps addresses
+ * but strips public keys, and it costs no prompt. Asking the wallet properly is
+ * `bitcoinAccount()` below, which is worth a prompt only when a deposit address
+ * is actually being built.
+ */
+export function storedBitcoinAddress(): string | null {
+  const entries = getLocalStorage()?.addresses?.btc ?? [];
+  const payment =
+    entries.find((entry) => !/^(bc1p|tb1p|bcrt1p)/.test(entry?.address ?? "")) ?? entries[0];
+  return payment?.address ?? null;
+}
+
+export async function bitcoinAccount(): Promise<BitcoinAccount | null> {
+  const result = (await request("getAddresses", {})) as {
+    addresses?: { symbol?: string; address?: string; publicKey?: string; type?: string }[];
+  };
+  const entries = (result?.addresses ?? []).filter(
+    (entry) => entry?.address && entry.symbol !== "STX" && !/^S[PTMN]/.test(entry.address),
+  );
+  const payment =
+    entries.find((entry) => entry.type === "p2wpkh") ??
+    entries.find((entry) => !/^(bc1p|tb1p|bcrt1p)/.test(entry.address!)) ??
+    entries[0];
+  if (!payment?.address) return null;
+  return { address: payment.address, publicKey: payment.publicKey ?? "" };
+}
+
+/** Send bitcoin, from the connected wallet, to an address this page derived. */
+export async function sendBitcoin(address: string, sats: number): Promise<string | null> {
+  const result = (await request("sendTransfer", {
+    recipients: [{ address, amount: String(sats) }],
+    network: config.network === "mainnet" ? "mainnet" : "testnet",
+  })) as { txid?: string };
+  return result?.txid ?? null;
+}
+
 /// --- reads -------------------------------------------------------------------
 
 /**
@@ -262,88 +316,196 @@ export const poolCalls = {
   withdraw: () => call(pool(), "withdraw"),
   requestExit: () => call(pool(), "request-exit"),
   cancelExit: () => call(pool(), "cancel-exit"),
+  /**
+   * Leave mid-term: `sats` of the committed position, back out of the bond.
+   *
+   * `manager` is a trait argument, and the same principal `stake` takes -- the
+   * one `get-config` reports, never a value typed here. `Cl.principal` builds a
+   * contract principal from `SP….signer-manager` on its own.
+   *
+   * No post conditions, and not for want of care: nothing leaves the member's
+   * wallet. pox-5 hands the sats to the pool, which passes them to the treasury
+   * and credits them as released principal -- `claim-principal` is what
+   * finally moves them, and it carries its own conditions.
+   */
+  unstakeEarly: (manager: string, sats: number) =>
+    call(pool(), "unstake-sbtc-early", [Cl.principal(manager), Cl.uint(sats)]),
+  /**
+   * Recognise reward sBTC that has arrived but not been split yet.
+   *
+   * Permissionless, and worth making before leaving early: an early unstake
+   * takes the member's shares out of the epoch, and anything unrecognised at
+   * that moment is split among whoever is left instead.
+   */
+  syncRewards: () => call(pool(), "sync-rewards"),
   claimRewards: (member: string) =>
     call(pool(), "claim-rewards", [Cl.principal(member)]),
   claimPrincipal: (member: string) =>
     call(pool(), "claim-principal", [Cl.principal(member)]),
 };
 
+/**
+ * An address as the bridge takes it: a version byte and a hash.
+ *
+ * The same shape pox-5 uses for a reward address, and the one thing every
+ * bridge-v2 call is keyed on. `l1.ts` produces it from an address string;
+ * nothing here parses bitcoin.
+ */
+export interface PoxAddress {
+  version: string;
+  hashbytes: string;
+}
+
+const addressTuple = (address: PoxAddress) =>
+  Cl.tuple({
+    version: Cl.bufferFromHex(strip(address.version)),
+    hashbytes: Cl.bufferFromHex(strip(address.hashbytes)),
+  });
+
+/**
+ * The L1 route, version 2.
+ *
+ * Version 1 committed to the *transaction*: a txid, which does not exist until
+ * the transaction has been built and signed. Version 2 commits to the *address
+ * the bitcoin will come from*, which the member already has -- so the two
+ * Stacks calls come first and the bitcoin can then be sent by anything.
+ */
 export const bridgeCalls = {
-  commit: (digest: string, sats: number, ustx: number) =>
+  /** Commit to the address, and to how many sats will arrive from it. */
+  commitAddress: (digest: string, sats: number, ustx: number) =>
     call(
       bridge(),
-      "commit-btc-deposit",
+      "commit-btc-address",
       [Cl.bufferFromHex(strip(digest)), Cl.uint(sats)],
       // The commit takes the STX leg; the sats arrive later, on bitcoin.
       ustx > 0 ? [Pc.principal(signer()).willSendEq(ustx).ustx()] : undefined,
     ),
-  reveal: (txid: string, voutIndex: number, salt: string) =>
-    call(bridge(), "reveal-btc-deposit", [
-      Cl.bufferFromHex(strip(txid)),
-      Cl.uint(voutIndex),
+  /** Name it, one burn block later. First reveal takes the address. */
+  revealAddress: (address: PoxAddress, salt: string) =>
+    call(bridge(), "reveal-btc-address", [
+      addressTuple(address),
       Cl.bufferFromHex(strip(salt)),
     ]),
-  confirm: (txid: string, voutIndex: number) =>
-    call(bridge(), "confirm-btc-deposit", [
+  /**
+   * Credit the member, once the signers have swept it.
+   *
+   * `tx` and `parents` are the deposit transaction and the transaction behind
+   * each of its inputs: the chain of txids is what proves, on chain, that the
+   * bitcoin came from the revealed address.
+   */
+  complete: (txid: string, voutIndex: number, tx: string, parents: string[]) =>
+    call(bridge(), "complete-btc-deposit", [
       Cl.bufferFromHex(strip(txid)),
       Cl.uint(voutIndex),
+      Cl.bufferFromHex(strip(tx)),
+      Cl.list(parents.map((parent) => Cl.bufferFromHex(strip(parent)))),
     ]),
+  /** Take the STX leg back from a commitment that was never revealed. */
   cancelCommitment: (member: string, digest: string) =>
     call(bridge(), "cancel-btc-commitment", [
       Cl.principal(member),
       Cl.bufferFromHex(strip(digest)),
     ]),
-  cancelDeposit: (txid: string, voutIndex: number) =>
-    call(bridge(), "cancel-btc-deposit", [
-      Cl.bufferFromHex(strip(txid)),
-      Cl.uint(voutIndex),
-    ]),
+  /** …or from a revealed address the bitcoin never followed. */
+  cancelDeposit: (address: PoxAddress) =>
+    call(bridge(), "cancel-btc-deposit", [addressTuple(address)]),
 };
 
 /** The STX leg the bound bond prices `sats` at. */
 export const quote = (sats: number): Promise<Plain> =>
   readOnly(pool(), "get-required-ustx", [Cl.uint(sats)]);
 
-/** Where L1 bitcoin has to be sent. Never the ledger's own address. */
-export const depositAddress = (): Promise<Plain> =>
+/**
+ * Who the sBTC deposit has to credit. A principal, not a bitcoin address:
+ * an sBTC deposit names the Stacks account it mints to, and only the treasury
+ * will do -- `complete-btc-deposit` refuses anything else.
+ */
+export const depositRecipient = (): Promise<Plain> =>
   readOnly(bridge(), "get-deposit-address");
 
 /** What to commit to, computed by the contract so a client cannot disagree. */
-export const depositDigest = (
-  txid: string,
-  voutIndex: number,
-  salt: string,
-): Promise<Plain> =>
-  readOnly(bridge(), "get-deposit-digest", [
-    Cl.bufferFromHex(strip(txid)),
-    Cl.uint(voutIndex),
+export const addressDigest = (address: PoxAddress, salt: string): Promise<Plain> =>
+  readOnly(bridge(), "get-address-digest", [
+    addressTuple(address),
     Cl.bufferFromHex(strip(salt)),
   ]);
+
+/**
+ * The scriptPubKey the bridge would key an announcement on.
+ *
+ * `null` for an address shape it cannot take, which is the cheapest possible
+ * way to tell a member that before they have committed anything.
+ */
+export const addressScript = (address: PoxAddress): Promise<Plain> =>
+  readOnly(bridge(), "get-address-script", [addressTuple(address)]);
+
+/** The STX leg the bridge itself prices `sats` at. */
+export const bridgeQuote = (sats: number): Promise<Plain> =>
+  readOnly(bridge(), "get-required-ustx", [Cl.uint(sats)]);
+
+/** A commitment this member has made and not yet revealed, if any. */
+export const commitmentFor = (member: string, digest: string): Promise<Plain> =>
+  readOnly(bridge(), "get-commitment", [
+    Cl.principal(member),
+    Cl.bufferFromHex(strip(digest)),
+  ]);
+
+/** A revealed address the bitcoin has not arrived for yet, if any. */
+export const announcementFor = (address: PoxAddress): Promise<Plain> =>
+  readOnly(bridge(), "get-announcement", [addressTuple(address)]);
+
+/** Whether a bitcoin output has already been credited to somebody. */
+export const creditedDeposit = (txid: string, voutIndex: number): Promise<Plain> =>
+  readOnly(bridge(), "get-credited-deposit", [
+    Cl.bufferFromHex(strip(txid)),
+    Cl.uint(voutIndex),
+  ]);
+
+/** `get-early-unstake-preview`: what leaving mid-term returns, and what it costs. */
+export interface EarlyUnstake {
+  /** The committed sBTC it would hand back. */
+  sats: number;
+  /** The STX leg, which the roll releases rather than this call. */
+  "ustx-at-roll": number;
+  /** Rewards already accrued to this member, which leaving does not touch. */
+  "banked-rewards": number;
+  /** Reward sBTC the pool holds but has not split yet, at this member's
+   *  current weight. Forfeited unless `sync-rewards` runs first. */
+  "at-risk-rewards": number;
+}
 
 export interface MemberPosition {
   settled: Record<string, Plain> | null;
   principal: Record<string, Plain> | null;
   rewards: number;
   sbtc: number;
+  /** What an early exit would do, computed by the contract rather than here. */
+  early: EarlyUnstake | null;
 }
 
 /** Everything the join panel says about the connected member. */
 export async function loadMember(): Promise<MemberPosition | null> {
   if (!configured() || !account) return null;
   const [sbtcAddress, sbtcName] = net().sbtc.split(".") as [string, string];
-  const [settled, principal, rewards, sbtc] = await Promise.all([
+  const [settled, principal, rewards, sbtc, early] = await Promise.all([
     readOnly(pool(), "get-settled-member", [Cl.principal(account)]),
     readOnly(pool(), "get-claimable-principal", [Cl.principal(account)]),
     readOnly(pool(), "get-claimable-rewards", [Cl.principal(account)]),
     readOnly({ address: sbtcAddress, name: sbtcName }, "get-balance", [
       Cl.principal(account),
     ]).catch(() => 0),
+    // Only `vault-2` and later have it. A pool without one is not an error
+    // here -- it is a pool the early exit is simply not offered on.
+    readOnly(pool(), "get-early-unstake-preview", [Cl.principal(account)]).catch(
+      () => null,
+    ),
   ]);
   return {
     settled: settled as Record<string, Plain> | null,
     principal: principal as Record<string, Plain> | null,
     rewards: Number(rewards ?? 0),
     sbtc: Number(sbtc ?? 0),
+    early: early as unknown as EarlyUnstake | null,
   };
 }
 

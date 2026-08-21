@@ -497,7 +497,7 @@ a:hover { color: var(--color-accent-700); }
       <div style="background:var(--color-bg);border-radius:28px;padding:clamp(20px,3vw,28px)">
         <span class="tag tag-neutral">shares</span>
         <h4 style="margin:12px 0 6px;font-size:21px">Your weight in an epoch</h4>
-        <p style="margin:0;font-size:14px;line-height:1.6;opacity:.8">One share per committed satoshi, struck at the roll. Leave, and you keep the shares of the epoch you were part of — and its final honey.</p>
+        <p style="margin:0;font-size:14px;line-height:1.6;opacity:.8">One share per committed satoshi, struck at the roll. Leave at a roll and you keep the shares of the epoch you were part of — and its final honey. Leave <em>early</em> and the shares go with the sats, which is what makes the split honest for whoever stays.</p>
       </div>
     </div>
 
@@ -556,19 +556,30 @@ a:hover { color: var(--color-accent-700); }
         </div>
       </div>
       <div style="background:var(--color-bg);border-radius:28px;padding:clamp(22px,3vw,30px)">
-        <h4 style="margin:0 0 14px;font-size:22px">With L1 bitcoin</h4>
+        <h4 style="margin:0 0 8px;font-size:22px">With L1 bitcoin</h4>
+        <p class="text-muted" style="margin:0 0 14px;font-size:14px;line-height:1.6">You commit to the address the bitcoin will come from, reveal it a block later, and then send. Nothing has to be built before the first two steps — the address is one you already have.</p>
         <div style="display:flex;flex-direction:column;gap:12px">
+          <div class="field">
+            <label for="btc-sats">{{ l1.amountLabel }}</label>
+            <input class="input" id="btc-sats" inputmode="decimal" placeholder="{{ l1.placeholder }}" value="{{ l1.amount }}" autocomplete="off">
+          </div>
+          <div class="field">
+            <label for="btc-address">Your bitcoin address</label>
+            <input class="input" id="btc-address" placeholder="bc1q…" value="{{ l1.address }}" autocomplete="off" spellcheck="false">
+          </div>
+          <p class="text-muted" style="margin:-4px 0 0;font-size:12.5px;line-height:1.5">{{ l1.addressNote }}</p>
+
           <div style="display:flex;gap:12px;align-items:flex-start">
             <span style="flex:none;width:26px;height:26px;border-radius:50%;background:var(--color-accent);color:var(--color-bg);display:grid;place-items:center;font-family:var(--font-heading);font-size:13px">1</span>
-            <p style="margin:0;font-size:14px;line-height:1.55;opacity:.85"><strong style="font-family:var(--font-heading);font-weight:400">Commit</strong> a hash of the transaction you are about to make. This takes the STX leg, and gives nothing away.</p>
+            <p style="margin:0;font-size:14px;line-height:1.55;opacity:.85"><strong style="font-family:var(--font-heading);font-weight:400">Commit</strong> a hash of that address and the amount. This takes the STX leg, and gives the address away to nobody.</p>
           </div>
           <div style="display:flex;gap:12px;align-items:flex-start">
             <span style="flex:none;width:26px;height:26px;border-radius:50%;background:var(--color-accent);color:var(--color-bg);display:grid;place-items:center;font-family:var(--font-heading);font-size:13px">2</span>
-            <p style="margin:0;font-size:14px;line-height:1.55;opacity:.85"><strong style="font-family:var(--font-heading);font-weight:400">Reveal</strong> it one bitcoin block later, which claims the txid before anyone else can see it.</p>
+            <p style="margin:0;font-size:14px;line-height:1.55;opacity:.85"><strong style="font-family:var(--font-heading);font-weight:400">Reveal</strong> it one bitcoin block later, which claims the address before anyone watching the mempool can.</p>
           </div>
           <div style="display:flex;gap:12px;align-items:flex-start">
             <span style="flex:none;width:26px;height:26px;border-radius:50%;background:var(--color-accent);color:var(--color-bg);display:grid;place-items:center;font-family:var(--font-heading);font-size:13px">3</span>
-            <p style="margin:0;font-size:14px;line-height:1.55;opacity:.85"><strong style="font-family:var(--font-heading);font-weight:400">Broadcast</strong> to the treasury address — only now. Never to the ledger: sBTC landing there is taken for honey and split.</p>
+            <p style="margin:0;font-size:14px;line-height:1.55;opacity:.85"><strong style="font-family:var(--font-heading);font-weight:400">Deposit</strong> — only now, and only from the address you revealed. The page derives the sBTC deposit address that credits the treasury, sends to it, and registers the deposit with the signers.</p>
           </div>
           <div style="display:flex;gap:12px;align-items:flex-start">
             <span style="flex:none;width:26px;height:26px;border-radius:50%;background:var(--color-accent);color:var(--color-bg);display:grid;place-items:center;font-family:var(--font-heading);font-size:13px">4</span>
@@ -576,30 +587,53 @@ a:hover { color: var(--color-accent-700); }
           </div>
           <div style="display:flex;gap:12px;align-items:flex-start">
             <span style="flex:none;width:26px;height:26px;border-radius:50%;background:var(--color-accent);color:var(--color-bg);display:grid;place-items:center;font-family:var(--font-heading);font-size:13px">5</span>
-            <p style="margin:0;font-size:14px;line-height:1.55;opacity:.85"><strong style="font-family:var(--font-heading);font-weight:400">Confirm</strong> once it has landed. Permissionless — a keeper can do this for you.</p>
+            <p style="margin:0;font-size:14px;line-height:1.55;opacity:.85"><strong style="font-family:var(--font-heading);font-weight:400">Complete</strong> once it has landed. Permissionless — a keeper can do this for you.</p>
           </div>
-          <div class="field" style="margin-top:2px">
-            <label for="btc-txid">Txid you are about to broadcast</label>
-            <input class="input" id="btc-txid" placeholder="64 hex characters" autocomplete="off">
-          </div>
-          <div class="field">
-            <label for="btc-vout">Output index</label>
-            <input class="input" id="btc-vout" inputmode="numeric" value="0" autocomplete="off">
-          </div>
+
           <div style="display:flex;justify-content:space-between;gap:10px;font-size:12.5px;padding:11px 16px;background:var(--color-surface);border-radius:999px">
-            <span class="text-muted">send to</span><span style="font-family:ui-monospace,monospace;overflow-wrap:anywhere;text-align:right">{{ join.depositTo }}</span>
+            <span class="text-muted">credits</span><span style="font-family:ui-monospace,monospace;overflow-wrap:anywhere;text-align:right">{{ l1.recipient }}</span>
           </div>
-          <!-- Three of the five steps are calls this page makes. Steps 3 and 4
-               happen on bitcoin and in the signers' own time: they sit in the row
-               so the order still reads, and cannot be pressed. -->
+
+          <!-- Steps 1, 2, 3 and 5 are calls this page makes. Step 4 happens in
+               the signers' own time: it sits in the row so the order still
+               reads, and cannot be pressed. -->
           <div class="row" style="display:flex;gap:8px;flex-wrap:wrap">
-            <button class="btn btn-secondary" sc-camel-on-click="{{ join.commit }}" style="font-size:13px">1 · Commit</button>
-            <button class="btn btn-secondary" sc-camel-on-click="{{ join.reveal }}" style="font-size:13px">2 · Reveal</button>
-            <button class="btn btn-secondary" disabled title="You broadcast this one yourself, from your own bitcoin wallet." style="font-size:13px">3 · Broadcast</button>
+            <button class="btn btn-secondary" sc-camel-on-click="{{ l1.commit }}" style="font-size:13px">1 · Commit</button>
+            <button class="btn btn-secondary" sc-camel-on-click="{{ l1.reveal }}" style="font-size:13px">2 · Reveal</button>
+            <sc-if value="{{ l1.canSend }}">
+              <button class="btn btn-primary" sc-camel-on-click="{{ l1.deposit }}" style="font-size:13px">3 · Deposit</button>
+            </sc-if>
             <button class="btn btn-secondary" disabled title="The sBTC signers sweep it in their own time; nothing to press." style="font-size:13px">4 · Wait</button>
-            <button class="btn btn-secondary" sc-camel-on-click="{{ join.confirm }}" style="font-size:13px">5 · Confirm</button>
+            <button class="btn btn-secondary" sc-camel-on-click="{{ l1.complete }}" style="font-size:13px">5 · Complete</button>
           </div>
-          <p class="text-muted" style="margin:2px 0 0;font-size:13px;line-height:1.55">The salt that ties your commit to your reveal is generated here and kept in this browser. Do not broadcast until the reveal has confirmed.</p>
+
+          <sc-if value="{{ l1.targetShow }}">
+            <div style="display:flex;flex-direction:column;gap:6px;padding:12px 16px;border-radius:var(--radius-md);background:var(--color-surface)">
+              <div style="font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--color-accent)">sBTC deposit address · {{ l1.targetAmount }}</div>
+              <span style="font-family:ui-monospace,monospace;font-size:12.5px;overflow-wrap:anywhere">{{ l1.targetAddress }}</span>
+              <p class="text-muted" style="margin:2px 0 0;font-size:12.5px;line-height:1.5">Derived for this deposit alone. Sending from elsewhere works too — pay this address from the revealed one, put the txid below, and press Register.</p>
+            </div>
+          </sc-if>
+
+          <sc-if value="{{ l1.offline }}">
+            <p style="margin:0;font-size:13px;line-height:1.55;color:var(--color-accent-800)">{{ l1.offlineWhy }}</p>
+          </sc-if>
+
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,180px),1fr));gap:12px">
+            <div class="field">
+              <label for="btc-txid">Deposit txid</label>
+              <input class="input" id="btc-txid" placeholder="64 hex characters" autocomplete="off" spellcheck="false">
+            </div>
+            <div class="field">
+              <label for="btc-vout">Output index</label>
+              <input class="input" id="btc-vout" inputmode="numeric" value="0" autocomplete="off">
+            </div>
+          </div>
+          <div class="row" style="display:flex;gap:8px;flex-wrap:wrap">
+            <button class="btn btn-secondary" sc-camel-on-click="{{ l1.register }}" style="font-size:13px">Register a deposit I sent</button>
+            <button class="btn btn-secondary" sc-camel-on-click="{{ l1.cancel }}" style="font-size:13px">Cancel and take the STX back</button>
+          </div>
+          <p class="text-muted" style="margin:2px 0 0;font-size:13px;line-height:1.55">The salt that ties your commit to your reveal is generated here and kept in this browser, against the address. Do not send until the reveal has confirmed.</p>
         </div>
       </div>
     </div>
@@ -642,6 +676,70 @@ a:hover { color: var(--color-accent-700); }
         <p class="text-muted" style="margin:12px 0 0;font-size:13px;line-height:1.55">A queued deposit is withdrawable on demand and carries no vote. It becomes committed shares at the roll, and only then does it earn.</p>
         <sc-if value="{{ retiredShow }}">
           <p style="margin:10px 0 0;font-size:13px;line-height:1.55">Still holding a position in <span style="font-family:ui-monospace,monospace">{{ retiredName }}</span>? Nothing moves between the two contracts on its own — <a href="v1/index.html" style="color:var(--color-accent-800)">take it out there</a>, then deposit it here.</p>
+        </sc-if>
+      </div>
+    </sc-if>
+
+    <!-- Leaving mid-term. Its own card rather than a fourth button on the one
+         above: the other three hand something over on the spot, and this one
+         is a trade -- what comes back, what waits for the roll, and what is
+         given up for not waiting. -->
+    <sc-if value="{{ early.show }}">
+      <div style="background:var(--color-bg);border-radius:28px;padding:clamp(22px,3vw,30px);margin-top:clamp(12px,2vw,20px)">
+        <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:baseline;justify-content:space-between">
+          <h4 style="margin:0;font-size:22px">Leave before the term is up</h4>
+          <span class="tag tag-neutral" style="flex:none;font-family:ui-monospace,monospace">unstake-sbtc-early</span>
+        </div>
+        <p class="text-muted" style="margin:6px 0 16px;font-size:14px;line-height:1.6;max-width:62ch">pox-5 never required the wait: its own unstake takes any amount at any point in a bond. This vault takes it up on that, and the four numbers below are the whole of what it costs — read from the contract, not worked out here.</p>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,150px),1fr));gap:10px">
+          <div style="padding:12px 16px;background:var(--color-surface);border-radius:var(--radius-md)">
+            <div style="font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--color-accent)">Committed</div>
+            <div style="font-family:var(--font-heading);font-size:19px">{{ early.committed }}</div>
+            <div class="text-muted" style="font-size:12px">the most it can take</div>
+          </div>
+          <div style="padding:12px 16px;background:var(--color-surface);border-radius:var(--radius-md)">
+            <div style="font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--color-accent)">STX at the roll</div>
+            <div style="font-family:var(--font-heading);font-size:19px">{{ early.ustxAtRoll }}</div>
+            <div class="text-muted" style="font-size:12px">not returned by this call</div>
+          </div>
+          <div style="padding:12px 16px;background:var(--color-surface);border-radius:var(--radius-md)">
+            <div style="font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--color-accent)">Honey banked</div>
+            <div style="font-family:var(--font-heading);font-size:19px">{{ early.banked }}</div>
+            <div class="text-muted" style="font-size:12px">yours either way</div>
+          </div>
+          <div style="padding:12px 16px;background:var(--color-surface);border-radius:var(--radius-md)">
+            <div style="font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--color-accent-2-800)">Honey at risk</div>
+            <div style="font-family:var(--font-heading);font-size:19px">{{ early.atRisk }}</div>
+            <div class="text-muted" style="font-size:12px">forfeited unless synced</div>
+          </div>
+        </div>
+
+        <sc-if value="{{ early.blocked }}">
+          <p style="margin:14px 0 0;font-size:13px;line-height:1.55;color:var(--color-accent-800)">{{ early.blockedWhy }}</p>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px">
+            <button class="btn btn-secondary" sc-camel-on-click="{{ early.cancelExit }}" style="font-size:13px">Cancel the exit request</button>
+          </div>
+        </sc-if>
+
+        <sc-if value="{{ early.ready }}">
+          <sc-if value="{{ early.hasAtRisk }}">
+            <div style="display:flex;flex-wrap:wrap;gap:10px 14px;align-items:center;justify-content:space-between;margin-top:14px;padding:12px 16px;border-radius:var(--radius-md);background:var(--color-accent-2-100)">
+              <p style="margin:0;font-size:13px;line-height:1.55;max-width:52ch;color:var(--color-accent-2-800)">{{ early.atRisk }} of reward sBTC has arrived but has not been split yet. Your shares leave the epoch the moment you unstake, so it would be split among whoever is left. Syncing first banks your part of it — anyone may make the call.</p>
+              <button class="btn btn-secondary" sc-camel-on-click="{{ early.sync }}" style="font-size:13px;flex:none">Sync rewards first</button>
+            </div>
+          </sc-if>
+          <div style="display:flex;flex-direction:column;gap:8px;margin-top:14px;max-width:46ch">
+            <div class="field">
+              <div style="display:flex;justify-content:space-between;align-items:center;gap:10px">
+                <label for="early-sats" style="margin:0">How many sats to take out</label>
+                <button sc-camel-on-click="{{ early.useAll }}" style="background:none;border:0;padding:0;font:inherit;font-size:12px;cursor:pointer;color:var(--color-accent-800)" style-hover="text-decoration:underline">all {{ early.committedSats }}</button>
+              </div>
+              <input class="input" id="early-sats" inputmode="numeric" placeholder="{{ early.placeholder }}" value="{{ early.amount }}" autocomplete="off">
+            </div>
+            <div id="early-hint" class="text-muted" style="font-size:12.5px;font-family:var(--font-heading);min-height:1em"></div>
+            <button class="btn btn-primary btn-block" sc-camel-on-click="{{ early.unstake }}">Unstake early</button>
+          </div>
+          <p class="text-muted" style="margin:12px 0 0;font-size:13px;line-height:1.55;max-width:62ch">What comes back arrives as <strong style="font-family:var(--font-heading);font-weight:400">released principal</strong>, not in your wallet: claim it above once this confirms. Take the whole position and you are marked as exiting, and the roll releases the STX leg — pox-5 frees a staker's locked STX on the bond's own unlock cycle, so no call here can hand it over sooner. pox-5 also refuses during a reward cycle's prepare phase; if it bounces on that, try again a few blocks later.</p>
         </sc-if>
       </div>
     </sc-if>

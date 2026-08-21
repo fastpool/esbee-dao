@@ -10,6 +10,26 @@
 
 export type NetworkName = "testnet" | "mainnet" | "devnet";
 
+/**
+ * The bitcoin side of the L1 route, which is not one thing but three.
+ *
+ * A deposit only reaches the pool if all of them agree with the sBTC
+ * deployment in `sbtc` below: the address is encoded for the chain its signers
+ * watch, the transaction is read back from an API that indexes that chain, and
+ * the deposit is registered with the Emily those signers poll. An sBTC deposit
+ * nobody is told about is not swept -- the bitcoin sits at a taproot address
+ * until its reclaim path opens -- so where any of this is unknown the page
+ * refuses to send rather than guessing.
+ */
+export interface BitcoinInfo {
+  /** What an address is encoded for: `tb1…` for testnet, `bcrt1…` for regtest. */
+  chain: "mainnet" | "testnet" | "regtest";
+  /** An esplora-compatible API. "" means the page cannot read a tx back. */
+  api: string;
+  /** Emily, which tells the signers a deposit exists. "" means it cannot. */
+  emily: string;
+}
+
 export interface NetworkInfo {
   api: string;
   explorer: string;
@@ -17,6 +37,7 @@ export interface NetworkInfo {
   sbtc: string;
   /** pox-5, whose boot address differs between mainnet and the rest. */
   pox: string;
+  bitcoin: BitcoinInfo;
 }
 
 export const NETWORKS: Record<NetworkName, NetworkInfo> = {
@@ -25,18 +46,36 @@ export const NETWORKS: Record<NetworkName, NetworkInfo> = {
     explorer: "https://explorer.hiro.so",
     sbtc: "SN3VMHXEN64ZZF71JQ5VESXDWTR301XTTXGF4J8F1.sbtc-token",
     pox: "ST000000000000000000002AMW42H.pox-5",
+    // This sBTC deployment is not the public sBTC testnet: its swept deposits
+    // are in no public Emily, and its bitcoin transactions are on no public
+    // mempool. Which bitcoin it watches, and where its Emily is, are things
+    // the environment's operator knows -- so they are left blank rather than
+    // pointed at the public endpoints, which would take a member's deposit and
+    // never have it swept. `?btcChain=`, `?btcApi=` and `?emily=` fill them in
+    // for a visit; the three go together.
+    bitcoin: { chain: "testnet", api: "", emily: "" },
   },
   mainnet: {
     api: "https://api.hiro.so",
     explorer: "https://explorer.hiro.so",
     sbtc: "SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-token",
     pox: "SP000000000000000000002Q6VF78.pox-5",
+    bitcoin: {
+      chain: "mainnet",
+      api: "https://mempool.space/api",
+      emily: "https://sbtc-emily.com",
+    },
   },
   devnet: {
     api: "http://localhost:3999",
     explorer: "http://localhost:8000",
     sbtc: "SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-token",
     pox: "ST000000000000000000002AMW42H.pox-5",
+    bitcoin: {
+      chain: "regtest",
+      api: "http://localhost:3010/api/proxy",
+      emily: "http://localhost:3031",
+    },
   },
 };
 
@@ -134,6 +173,27 @@ export const config = {
 export const configured = (): boolean => Boolean(config.deployer);
 
 export const net = (): NetworkInfo => NETWORKS[config.network];
+
+/**
+ * The bitcoin side, with the per-visit overrides applied.
+ *
+ * Overridable because the three values belong to the sBTC deployment rather
+ * than to this pool, and an environment can be stood up without any of them
+ * being public. `configured` is what the L1 card asks before it offers to move
+ * bitcoin: everything up to the reveal is Stacks and works without them.
+ */
+export const bitcoin = (): BitcoinInfo & { configured: boolean } => {
+  const base = net().bitcoin;
+  const chain = params.get("btcChain") ?? base.chain;
+  const info = {
+    chain: (chain === "mainnet" || chain === "testnet" || chain === "regtest"
+      ? chain
+      : base.chain) as BitcoinInfo["chain"],
+    api: (params.get("btcApi") ?? base.api).replace(/\/$/, ""),
+    emily: (params.get("emily") ?? base.emily).replace(/\/$/, ""),
+  };
+  return { ...info, configured: Boolean(info.api && info.emily) };
+};
 
 /**
  * Where reads go, which is not always the node itself.
