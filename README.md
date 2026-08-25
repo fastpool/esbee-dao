@@ -415,20 +415,25 @@ every visitor would share one limit.
 
 ### The bitcoin side is configuration
 
-Three values per network, in `NETWORKS`. They belong to the sBTC deployment
-rather than to this pool, and `?btcChain=`, `?btcApi=` and `?emily=` override
-them for a visit.
+Four values per network, in `NETWORKS`. They belong to the sBTC deployment
+rather than to this pool, and `?btcChain=`, `?btcApi=`, `?btcExplorer=` and
+`?emily=` override them for a visit.
 
 | | testnet |
 | --- | --- |
 | `chain` | `regtest` — Stacks testnet is anchored to a **regtest** burnchain, not testnet4. `/v2/info` gives it away: `parent_network_id` is `0xdab5bffa`, the regtest magic, where testnet3 and testnet4 are `0x0709110b`. So its addresses are `bcrt1…`, and a `tb1…` is the wrong chain here |
-| `api` | `https://mempool.space/testnet4/api`, esplora-compatible — **and a loose end**: a public explorer cannot index a private regtest, so reading a deposit back needs `?btcApi=` pointed at that environment's own explorer |
+| `api` | `https://mempool.bitcoin.regtest.hiro.so/api`, esplora-compatible — that regtest's own mempool instance, which is the only thing that can see into it. Its tip agrees with the Stacks node's `burn_block_height`, which is the check that it is the same chain |
+| `explorer` | the same host without `/api`, for linking a bitcoin txid. Its own field because `NETWORKS[].explorer` is the **Stacks** one, and a bitcoin txid pointed there is a dead link that looks live |
 | `emily` | `https://temp.sbtc-emily-dev.com` — **https**, because the page is served over TLS and a browser blocks a plain-text fetch out of it |
 
-`?btcApi=` points a visit at another explorer; nothing else changes. Where the
-API cannot see the chain at all, the card says so in those words rather than
-reporting a 404 — the bitcoin is sent and safe either way, and what is missing
-is the read that registers it.
+`?btcApi=` and `?btcExplorer=` point a visit at another instance; nothing else
+changes. Where the API cannot see the chain at all, the card says so in those
+words rather than reporting a 404 — the bitcoin is sent and safe either way,
+and what is missing is the read that registers it.
+
+Every bitcoin txid the card can show is a link: the faucet's payment and the
+deposit itself, beside the fields they belong to, in the same monospace-and-↗
+the Stacks txid uses in the **With sBTC** card.
 
 **In the wallet**, the network to be on is the one Leather calls **sBTC
 Testnet**: plain "Testnet" there hands out `tb1…` addresses, which belong to a

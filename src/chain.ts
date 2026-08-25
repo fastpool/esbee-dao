@@ -163,13 +163,47 @@ function pickPayment<T extends { address?: string }>(entries: T[]): T | undefine
   return from.find((entry) => !/^(bc1p|tb1p|bcrt1p)/.test(entry.address!)) ?? from[0];
 }
 
-export async function bitcoinAccount(): Promise<BitcoinAccount | null> {
+/**
+ * The wallet's bitcoin account, and the key behind it.
+ *
+ * `want` is the address the deposit is actually about -- the one committed and
+ * revealed. Pass it wherever it is known, because the key this returns ends up
+ * in the reclaim leaf of a deposit address, and a reclaim path is only worth
+ * anything to whoever holds the key it names. Taking "some payment address the
+ * wallet leads with" instead builds a deposit whose reclaim belongs to a
+ * different account than the one the bitcoin came from -- which looks like it
+ * worked right up until the signers fail to sweep and the member reaches for a
+ * key they never used.
+ *
+ * Without `want` this falls back to the wallet's payment address, which is
+ * what the address suggestion beside the field wants.
+ */
+export async function bitcoinAccount(want?: string): Promise<BitcoinAccount | null> {
   const result = (await request("getAddresses", {})) as {
     addresses?: { symbol?: string; address?: string; publicKey?: string; type?: string }[];
   };
   const entries = (result?.addresses ?? []).filter(
     (entry) => entry?.address && entry.symbol !== "STX" && !/^S[PTMN]/.test(entry.address),
   );
+
+  const wanted = want?.trim().toLowerCase();
+  if (wanted) {
+    const match = entries.find((entry) => entry.address!.toLowerCase() === wanted);
+    if (!match) {
+      const offered = entries.map((entry) => entry.address).join(", ");
+      throw new Error(
+        `This deposit is for ${want}, and the wallet does not offer that address` +
+          `${offered ? ` — it offers ${offered}` : ""}. Only the wallet that holds ` +
+          `it can build the reclaim path for a deposit from it. ` +
+          (offered && !onConfiguredChain(offered.split(", ")[0]!)
+            ? walletNetworkAdvice()
+            : "Switch to the account that address belongs to, or press \u201cShow the " +
+              "deposit address\u201d and pay it from the wallet that has it."),
+      );
+    }
+    return { address: match.address!, publicKey: match.publicKey ?? "" };
+  }
+
   const payment = pickPayment(entries);
   if (!payment?.address) return null;
   if (!onConfiguredChain(payment.address)) {
@@ -189,11 +223,27 @@ export async function bitcoinAccount(): Promise<BitcoinAccount | null> {
  * same word here. Stacks testnet is anchored to a regtest burnchain, and a
  * wallet told "testnet" for a `bcrt1…` recipient has been told something
  * untrue about which chain the transfer is on.
+ *
+ * On a private chain it is not named at all, and that is the important half.
+ * `mainnet` and `testnet` mean the same thing to every wallet; `regtest` does
+ * not. A wallet running its own sBTC environment knows that chain under its
+ * own name, and a hint it does not recognise does not fall back to the network
+ * the member selected -- it sends the wallet looking for coins on a key path
+ * that has none, which surfaces as `InsufficientFunds` from coin selection
+ * with the funds sitting in plain sight on the address the page suggested.
+ *
+ * Nothing is lost by leaving it out. The recipient address already says which
+ * chain this is -- `bcrt1…` is spendable on exactly one -- and which network
+ * the wallet is on is the member's own choice, which the card tells them to
+ * set to sBTC Testnet. A hint that disagrees with that choice can only
+ * misdirect it.
  */
 export async function sendBitcoin(address: string, sats: number): Promise<string | null> {
+  const chain = bitcoin().chain;
+  const named = chain === "mainnet" || chain === "testnet";
   const result = (await request("sendTransfer", {
     recipients: [{ address, amount: String(sats) }],
-    network: bitcoin().chain,
+    ...(named ? { network: chain } : {}),
   })) as { txid?: string };
   return result?.txid ?? null;
 }
@@ -301,14 +351,19 @@ export async function call(
     // than one is otherwise free to sign with a different one, and a post
     // condition about an address that is not sending cannot fire.
     address: me,
-    // Deny is the default and the right one where the member is *sending*: the
-    // wallet then refuses anything the conditions below do not name. Calls that
-    // only move assets the other way -- a claim, a withdrawal -- have nothing
-    // for the member to over-send, and pass `allow` rather than enumerate the
+    // Deny is the right mode wherever the member is *sending*: the wallet then
+    // refuses any transfer the conditions below do not name. Calls that only
+    // move assets the other way -- a claim, a withdrawal -- have nothing for
+    // the member to over-send, and pass `allow` rather than enumerate the
     // contract's own outgoing transfers.
-    ...(conditions
-      ? { postConditions: conditions, postConditionMode: "deny" as const }
-      : { postConditionMode: "allow" as const }),
+    //
+    // An empty array is not the same as none, and the test is `undefined`
+    // rather than truthiness so it cannot be "tidied" into one. `[]` is deny
+    // with nothing permitted: the strongest statement available, and the right
+    // one for a call that should move no assets whatever.
+    ...(conditions === undefined
+      ? { postConditionMode: "allow" as const }
+      : { postConditions: conditions, postConditionMode: "deny" as const }),
   })) as { txid?: string; txId?: string };
   return result?.txid ?? result?.txId ?? null;
 }
@@ -412,12 +467,23 @@ export const bridgeCalls = {
       // The commit takes the STX leg; the sats arrive later, on bitcoin.
       ustx > 0 ? [Pc.principal(signer()).willSendEq(ustx).ustx()] : undefined,
     ),
-  /** Name it, one burn block later. First reveal takes the address. */
+  /**
+   * Name it, one burn block later. First reveal takes the address.
+   *
+   * Deny with nothing permitted. The reveal is bookkeeping -- it writes the
+   * announcement, drops the commitment and prints; it moves no STX and no
+   * sBTC, and the STX leg it names was taken at the commit. So the wallet is
+   * told this transaction may move nothing at all, and will refuse to sign if
+   * some future version of the contract, or a contract at this address that is
+   * not the one intended, tries to.
+   */
   revealAddress: (address: PoxAddress, salt: string) =>
-    call(bridge(), "reveal-btc-address", [
-      addressTuple(address),
-      Cl.bufferFromHex(strip(salt)),
-    ]),
+    call(
+      bridge(),
+      "reveal-btc-address",
+      [addressTuple(address), Cl.bufferFromHex(strip(salt))],
+      [],
+    ),
   /**
    * Credit the member, once the signers have swept it.
    *
@@ -729,8 +795,13 @@ export interface StakePreview {
   scaled: boolean;
   "stx-limited": boolean;
   "allocation-limited": boolean;
-  "min-sats": number;
-  "meets-floor": boolean;
+  /**
+   * The launch floor, on the vaults that have one. `bind-next-bond` takes no
+   * `min-sats`, so a vault bound by it reports neither -- absent is no floor,
+   * not a floor of zero that was missed.
+   */
+  "min-sats"?: number;
+  "meets-floor"?: boolean;
 }
 
 /** A bond period as pox-5 describes it, whether or not the pool is in it. */

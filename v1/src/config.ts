@@ -27,9 +27,9 @@ export interface NetworkInfo {
    * the page is drawn at.
    *
    * Not the same number everywhere, and the difference is not cosmetic:
-   * bitcoin's ten minutes on mainnet, but the testnet4 chain Stacks testnet is
-   * anchored to runs its difficulty-reset rule hard and has been landing
-   * blocks at about four, and a devnet regtest mines on a timer of seconds.
+   * bitcoin's ten minutes on mainnet, but the burnchain under Stacks testnet is
+   * a regtest one mined on a timer and lands blocks about four minutes apart,
+   * and a devnet regtest mines on a timer of seconds.
    * `?blockMinutes=` overrides it where a chain does neither.
    */
   blockMinutes: number;
@@ -41,8 +41,8 @@ export const NETWORKS: Record<NetworkName, NetworkInfo> = {
     explorer: "https://explorer.hiro.so",
     sbtc: "SN3VMHXEN64ZZF71JQ5VESXDWTR301XTTXGF4J8F1.sbtc-token",
     pox: "ST000000000000000000002AMW42H.pox-5",
-    // Measured, not nominal: testnet4's twenty-minute rule keeps it well under
-    // bitcoin's ten.
+    // Measured over 150 blocks, not nominal: the burnchain here is a regtest
+    // one mined on a timer, 4.01 minutes apart.
     blockMinutes: 4,
   },
   mainnet: {
@@ -156,8 +156,8 @@ export const net = (): NetworkInfo => NETWORKS[config.network];
 /**
  * How long a burn block takes on the configured chain.
  *
- * A function rather than a constant so `?blockMinutes=` can override it: a
- * private burnchain keeps neither bitcoin's pace nor testnet4's, and a
+ * A function rather than a constant so `?blockMinutes=` can override it:
+ * another burnchain keeps neither bitcoin's pace nor this one's, and a
  * countdown drawn at the wrong one is worse than no countdown at all.
  */
 export const blockMinutes = (): number => {

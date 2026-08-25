@@ -560,7 +560,17 @@ a:hover { color: var(--color-accent-700); }
         <p class="text-muted" style="margin:0 0 14px;font-size:14px;line-height:1.6">You commit to the address the bitcoin will come from, reveal it a block later, and then send. Nothing has to be built before the first two steps — the address is one you already have.</p>
         <div style="display:flex;flex-direction:column;gap:12px">
           <div class="field">
-            <label for="btc-sats">{{ l1.amountLabel }}</label>
+            <!-- The same unit switch the sBTC card has, in this card's own
+                 unit: what is sent here is bitcoin, not sBTC. One unit for the
+                 page, so a switch in either card converts both fields. -->
+            <div style="display:flex;justify-content:space-between;align-items:center;gap:10px">
+              <label for="btc-sats" style="margin:0">{{ l1.amountLabel }}</label>
+              <div style="display:flex;align-items:baseline;gap:7px;flex:none;font-size:12px">
+                <button sc-camel-on-click="{{ l1.showSats }}" style="background:none;border:0;padding:0;font:inherit;font-size:12px;cursor:pointer;color:{{ l1.satsFg }};text-decoration:{{ l1.satsLine }};text-underline-offset:3px">sats</button>
+                <span style="color:var(--color-neutral-500)">·</span>
+                <button sc-camel-on-click="{{ l1.showBtc }}" style="background:none;border:0;padding:0;font:inherit;font-size:12px;cursor:pointer;color:{{ l1.btcFg }};text-decoration:{{ l1.btcLine }};text-underline-offset:3px">BTC</button>
+              </div>
+            </div>
             <input class="input" id="btc-sats" inputmode="decimal" placeholder="{{ l1.placeholder }}" value="{{ l1.amount }}" autocomplete="off">
           </div>
           <div class="field">
@@ -572,6 +582,11 @@ a:hover { color: var(--color-accent-700); }
                a different one. An offer, not a correction: any address the
                member controls will do, and only they know which they will send
                from. -->
+          <!-- The wallet cannot reach this bitcoin at all. Said before the two
+               Stacks calls, since finding out at step 3 costs both of them. -->
+          <sc-if value="{{ l1.walletWrongShow }}">
+            <p style="margin:-6px 0 0;font-size:13px;line-height:1.55;color:var(--color-accent-800);overflow-wrap:anywhere">{{ l1.walletWrongNote }}</p>
+          </sc-if>
           <sc-if value="{{ l1.suggestShow }}">
             <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:-6px 0 0">
               <span class="text-muted" style="font-size:12.5px">{{ l1.suggestNote }}</span>
@@ -584,6 +599,14 @@ a:hover { color: var(--color-accent-700); }
               <span class="text-muted" style="font-size:12.5px">Testnet faucet</span>
               <button class="btn btn-secondary" sc-camel-on-click="{{ l1.faucetBtc }}" style="font-size:13px;padding:7px 14px">Get BTC</button>
               <span class="text-muted" style="font-size:12px">paid to the address above</span>
+            </div>
+          </sc-if>
+          <!-- The faucet's own payment, on the bitcoin explorer. The notice bar
+               is text, and a txid nobody can follow is a receipt for nothing. -->
+          <sc-if value="{{ l1.faucetTxShow }}">
+            <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:baseline;margin:-6px 0 0">
+              <span class="text-muted" style="font-size:12.5px">Faucet payment</span>
+              <a href="{{ l1.faucetTxLink }}" target="_blank" rel="noopener" style="font-size:12px;font-family:ui-monospace,monospace;color:var(--color-accent-800);text-decoration:none" style-hover="text-decoration:underline">{{ l1.faucetTxShort }} ↗</a>
             </div>
           </sc-if>
 
@@ -613,23 +636,23 @@ a:hover { color: var(--color-accent-700); }
                are ticked off rather than merely still there. -->
           <div style="display:flex;gap:12px;align-items:flex-start;opacity:{{ l1.s1.dim }}">
             <span style="flex:none;width:26px;height:26px;border-radius:50%;background:{{ l1.s1.bg }};color:{{ l1.s1.fg }};display:grid;place-items:center;font-family:var(--font-heading);font-size:13px">{{ l1.s1.mark }}</span>
-            <p style="margin:0;font-size:14px;line-height:1.55"><strong style="font-family:var(--font-heading);font-weight:400">Commit</strong> a hash of that address and the amount. This takes the STX leg, and gives the address away to nobody. <span style="font-family:var(--font-heading);font-size:12px;color:var(--color-accent)">{{ l1.s1.state }}</span></p>
+            <p style="margin:0;font-size:14px;line-height:1.55"><strong style="font-family:var(--font-heading);font-weight:400">Commit</strong> a hash of that address and the amount. This takes the STX leg, and gives the address away to nobody. <span style="font-family:var(--font-heading);font-size:12px;color:{{ l1.s1.tone }}">{{ l1.s1.state }}</span></p>
           </div>
           <div style="display:flex;gap:12px;align-items:flex-start;opacity:{{ l1.s2.dim }}">
             <span style="flex:none;width:26px;height:26px;border-radius:50%;background:{{ l1.s2.bg }};color:{{ l1.s2.fg }};display:grid;place-items:center;font-family:var(--font-heading);font-size:13px">{{ l1.s2.mark }}</span>
-            <p style="margin:0;font-size:14px;line-height:1.55"><strong style="font-family:var(--font-heading);font-weight:400">Reveal</strong> it one bitcoin block later, which claims the address before anyone watching the mempool can. <span style="font-family:var(--font-heading);font-size:12px;color:var(--color-accent)">{{ l1.s2.state }}</span></p>
+            <p style="margin:0;font-size:14px;line-height:1.55"><strong style="font-family:var(--font-heading);font-weight:400">Reveal</strong> it one bitcoin block later, which claims the address before anyone watching the mempool can. <span style="font-family:var(--font-heading);font-size:12px;color:{{ l1.s2.tone }}">{{ l1.s2.state }}</span></p>
           </div>
           <div style="display:flex;gap:12px;align-items:flex-start;opacity:{{ l1.s3.dim }}">
             <span style="flex:none;width:26px;height:26px;border-radius:50%;background:{{ l1.s3.bg }};color:{{ l1.s3.fg }};display:grid;place-items:center;font-family:var(--font-heading);font-size:13px">{{ l1.s3.mark }}</span>
-            <p style="margin:0;font-size:14px;line-height:1.55"><strong style="font-family:var(--font-heading);font-weight:400">Deposit</strong> — only now, and only from the address you revealed. The page derives the sBTC deposit address that credits the treasury, sends to it, and registers the deposit with the signers. <span style="font-family:var(--font-heading);font-size:12px;color:var(--color-accent)">{{ l1.s3.state }}</span></p>
+            <p style="margin:0;font-size:14px;line-height:1.55"><strong style="font-family:var(--font-heading);font-weight:400">Deposit</strong> — only now, and only from the address you revealed. The page derives the sBTC deposit address that credits the treasury, sends to it, and registers the deposit with the signers. <span style="font-family:var(--font-heading);font-size:12px;color:{{ l1.s3.tone }}">{{ l1.s3.state }}</span></p>
           </div>
           <div style="display:flex;gap:12px;align-items:flex-start;opacity:{{ l1.s4.dim }}">
             <span style="flex:none;width:26px;height:26px;border-radius:50%;background:{{ l1.s4.bg }};color:{{ l1.s4.fg }};display:grid;place-items:center;font-family:var(--font-heading);font-size:13px">{{ l1.s4.mark }}</span>
-            <p style="margin:0;font-size:14px;line-height:1.55"><strong style="font-family:var(--font-heading);font-weight:400">Wait</strong> for the sBTC signers to sweep it. They take their fee out of the amount, and the pool credits what arrives. <span style="font-family:var(--font-heading);font-size:12px;color:var(--color-accent)">{{ l1.s4.state }}</span></p>
+            <p style="margin:0;font-size:14px;line-height:1.55"><strong style="font-family:var(--font-heading);font-weight:400">Wait</strong> for the sBTC signers to sweep it. They take their fee out of the amount, and the pool credits what arrives. <span style="font-family:var(--font-heading);font-size:12px;color:{{ l1.s4.tone }}">{{ l1.s4.state }}</span></p>
           </div>
           <div style="display:flex;gap:12px;align-items:flex-start;opacity:{{ l1.s5.dim }}">
             <span style="flex:none;width:26px;height:26px;border-radius:50%;background:{{ l1.s5.bg }};color:{{ l1.s5.fg }};display:grid;place-items:center;font-family:var(--font-heading);font-size:13px">{{ l1.s5.mark }}</span>
-            <p style="margin:0;font-size:14px;line-height:1.55"><strong style="font-family:var(--font-heading);font-weight:400">Complete</strong> once it has landed. Permissionless — a keeper can do this for you. <span style="font-family:var(--font-heading);font-size:12px;color:var(--color-accent)">{{ l1.s5.state }}</span></p>
+            <p style="margin:0;font-size:14px;line-height:1.55"><strong style="font-family:var(--font-heading);font-weight:400">Complete</strong> once it has landed. Permissionless — a keeper can do this for you. <span style="font-family:var(--font-heading);font-size:12px;color:{{ l1.s5.tone }}">{{ l1.s5.state }}</span></p>
           </div>
 
           <div style="display:flex;justify-content:space-between;gap:10px;font-size:12.5px;padding:11px 16px;background:var(--color-surface);border-radius:999px">
@@ -718,6 +741,12 @@ a:hover { color: var(--color-accent-700); }
               <input class="input" id="btc-vout" inputmode="numeric" value="{{ l1.vout }}" autocomplete="off">
             </div>
           </div>
+          <sc-if value="{{ l1.txidShow }}">
+            <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:baseline;margin:-4px 0 0">
+              <span class="text-muted" style="font-size:12.5px">This deposit on bitcoin</span>
+              <a href="{{ l1.txidLink }}" target="_blank" rel="noopener" style="font-size:12px;font-family:ui-monospace,monospace;color:var(--color-accent-800);text-decoration:none" style-hover="text-decoration:underline">{{ l1.txidShort }} ↗</a>
+            </div>
+          </sc-if>
           <div class="row" style="display:flex;gap:8px;flex-wrap:wrap">
             <button class="btn btn-secondary" sc-camel-on-click="{{ l1.register }}" style="font-size:13px">Register a deposit I sent</button>
             <button class="btn btn-secondary" sc-camel-on-click="{{ l1.cancel }}" style="font-size:13px">Cancel and take the STX back</button>

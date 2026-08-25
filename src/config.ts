@@ -27,6 +27,14 @@ export interface BitcoinInfo {
   /** An esplora-compatible API. "" means the page cannot read a tx back. */
   api: string;
   /**
+   * Where a *bitcoin* txid is worth linking to, without the `/api`.
+   *
+   * Its own field rather than `NetworkInfo.explorer`, which is the Stacks one:
+   * the two are different hosts on every network here, and a bitcoin txid
+   * pointed at the Stacks explorer is a dead link that looks like a live one.
+   */
+  explorer: string;
+  /**
    * Emily, which tells the signers a deposit exists. "" means it cannot.
    *
    * On Netlify this is the site's own `/emily/<network>`, which attaches the
@@ -82,14 +90,19 @@ export const NETWORKS: Record<NetworkName, NetworkInfo> = {
     // bitcoin's difficulty rules at all -- it is mined on a timer, which is why
     // four minutes holds so steadily.
     //
-    // The API is the loose end: `mempool.space` indexes public chains, and a
-    // private regtest is not one, so reading a deposit back does not work
-    // against it. `?btcApi=` points a visit at the environment's own explorer.
+    // The API and the explorer are that regtest's own mempool instance, which
+    // is the only thing that can see into it -- a public explorer indexes
+    // public chains, and this is not one. Its tip agrees with the Stacks
+    // node's `burn_block_height`, which is the check that it is the same
+    // chain, and it answers esplora's shapes. `?btcApi=` and `?btcExplorer=`
+    // point a visit at another.
+    //
     // Emily is a dev instance, `https` rather than `http`: this page is served
     // over TLS and a browser blocks a plain-text fetch out of it.
     bitcoin: {
       chain: "regtest",
-      api: "https://mempool.space/testnet4/api",
+      api: "https://mempool.bitcoin.regtest.hiro.so/api",
+      explorer: "https://mempool.bitcoin.regtest.hiro.so",
       emily: "https://temp.sbtc-emily-dev.com",
     },
   },
@@ -102,6 +115,7 @@ export const NETWORKS: Record<NetworkName, NetworkInfo> = {
     bitcoin: {
       chain: "mainnet",
       api: "https://mempool.space/api",
+      explorer: "https://mempool.space",
       emily: "https://sbtc-emily.com",
     },
   },
@@ -114,6 +128,7 @@ export const NETWORKS: Record<NetworkName, NetworkInfo> = {
     bitcoin: {
       chain: "regtest",
       api: "http://localhost:3010/api/proxy",
+      explorer: "http://localhost:3010",
       emily: "http://localhost:3031",
     },
   },
@@ -303,6 +318,7 @@ export const bitcoin = (): BitcoinInfo & { configured: boolean } => {
       ? chain
       : base.chain) as BitcoinInfo["chain"],
     api: (params.get("btcApi") ?? base.api).replace(/\/$/, ""),
+    explorer: (params.get("btcExplorer") ?? base.explorer).replace(/\/$/, ""),
     emily: emily.replace(/\/$/, ""),
   };
   return { ...info, configured: Boolean(info.api && info.emily) };
@@ -341,6 +357,20 @@ export const apiBase = (): string =>
   PROXY ? `${PROXY}/${config.network}` : net().api;
 export const explorerTx = (txid: string): string =>
   `${net().explorer}/txid/${txid}?chain=${config.network}`;
+
+/**
+ * The same for a *bitcoin* transaction, which is a different explorer.
+ *
+ * `0x` off the front: the bridge and the wallet both hand txids around with
+ * it, and no bitcoin explorer takes one that way. "" where this network has no
+ * explorer configured, so a caller can leave the link out rather than render
+ * one that goes nowhere.
+ */
+export const explorerBtcTx = (txid: string): string => {
+  const base = bitcoin().explorer;
+  const bare = txid.trim().replace(/^0x/, "");
+  return base && bare ? `${base}/tx/${bare}` : "";
+};
 
 /**
  * The contract this page is actually talking to, and where to go and read it.

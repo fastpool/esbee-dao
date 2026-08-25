@@ -230,16 +230,26 @@ const gateLabels = (): string[] => [
 
 /// --- chain -> the design's shape -------------------------------------------------
 
+/** "1 hour", "3 hours" -- a count and its unit, said the way a person would. */
+const plural = (n: number, unit: string): string =>
+  `${n} ${unit}${n === 1 ? "" : "s"}`;
+
 // A burn block is not ten minutes everywhere -- see `blockMinutes` in
 // config.ts -- and a countdown drawn at the wrong pace is what makes a window
 // look further off than it is. Whole hours either way, which is all the
 // precision these countdowns need.
+//
+// Spelled out rather than abbreviated: "2 days 19 hours" is what someone
+// reads, and "2d 19h" is what someone parses.
 function duration(blocks: number): string {
   const hours = Math.round((Math.abs(blocks) * blockMinutes()) / 60);
   if (hours < 1) return "under an hour";
-  if (hours < 48) return `${hours}h`;
+  if (hours < 48) return plural(hours, "hour");
   const days = Math.floor(hours / 24);
-  return `${days}d ${hours % 24}h`;
+  const rest = hours % 24;
+  return rest === 0
+    ? plural(days, "day")
+    : `${plural(days, "day")} ${plural(rest, "hour")}`;
 }
 
 function untilBurn(target: number, now: number): string {

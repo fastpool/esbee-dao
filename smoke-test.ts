@@ -126,14 +126,18 @@ const scope: Record<string, unknown> = {
     commit: () => {}, reveal: () => {}, deposit: () => {},
     register: () => {}, complete: () => {}, cancel: () => {},
     txid: "", vout: "0",
+    txidShow: true, txidShort: "32d950…a2bb",
+    txidLink: "https://mempool.bitcoin.regtest.hiro.so/tx/32d950c8",
+    faucetTxShow: true, faucetTxShort: "a1b2c3…9f8e",
+    faucetTxLink: "https://mempool.bitcoin.regtest.hiro.so/tx/a1b2c3d4",
     stageShow: true, stageStep: "Step 2 of 5", stageTitle: "Reveal the address",
     stageNote: "The wait is over.", stageBarW: "20%",
     stageAmountShow: true, stageAmount: "10,000,000 sats committed · 5.00 STX paid",
-    s1: { mark: "✓", bg: "#0a0", fg: "#fff", dim: "0.55", state: "done" },
-    s2: { mark: "2", bg: "#c67139", fg: "#fff", dim: "1", state: "you are here" },
-    s3: { mark: "3", bg: "#eee", fg: "#333", dim: "0.5", state: "" },
-    s4: { mark: "4", bg: "#eee", fg: "#333", dim: "0.5", state: "" },
-    s5: { mark: "5", bg: "#eee", fg: "#333", dim: "0.5", state: "" },
+    s1: { mark: "✓", bg: "#0a0", fg: "#fff", dim: "0.55", state: "done", tone: "#0a0" },
+    s2: { mark: "2", bg: "#c67139", fg: "#fff", dim: "1", state: "you are here", tone: "#c67139" },
+    s3: { mark: "3", bg: "#eee", fg: "#333", dim: "0.5", state: "", tone: "#333" },
+    s4: { mark: "4", bg: "#eee", fg: "#333", dim: "0.5", state: "", tone: "#333" },
+    s5: { mark: "5", bg: "#eee", fg: "#333", dim: "0.5", state: "", tone: "#333" },
     commitBtn: "btn-secondary", commitDim: "0.55", commitHint: "Done.",
     revealBtn: "btn-primary", revealDim: "1", revealHint: "This is the one to press.",
     depositBtn: "btn-secondary", depositDim: "0.55", depositHint: "Step 2 comes first.",
@@ -286,6 +290,24 @@ check(
 check(
   configSource.includes("onConfiguredChain"),
   "and an address for another chain is refused before the faucet is asked",
+);
+// The burnchain under Stacks testnet is a regtest one, so its addresses are
+// `bcrt1…` and only an explorer that can see into it can read a deposit back.
+// A public explorer here is the failure that looks like a working page.
+check(
+  /chain: "regtest"/.test(configSource) &&
+    !/api: "https:\/\/mempool\.space\/testnet4/.test(configSource),
+  "testnet's bitcoin is regtest, with an API that can see that chain",
+);
+// A bitcoin txid on the Stacks explorer is a dead link that looks live, so the
+// two bases are separate fields and separate helpers.
+check(
+  configSource.includes("explorerBtcTx") && /explorer: "https:\/\/mempool\./.test(configSource),
+  "and a bitcoin txid links to a bitcoin explorer of its own",
+);
+check(
+  out.includes("mempool.bitcoin.regtest.hiro.so/tx/"),
+  "the L1 card links the bitcoin it can see — the faucet's payment and the deposit",
 );
 const appSourceFaucets = readFileSync("src/app.ts", "utf8");
 check(

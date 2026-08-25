@@ -17,6 +17,7 @@ import {
   blockMinutes,
   config,
   configured,
+  explorerBtcTx,
   explorerContract,
   explorerTx,
   hasDeployment,
@@ -126,6 +127,8 @@ interface State {
   /** The deposit's txid and output index, held like the two fields above. */
   btcTxid: string;
   btcVout: string;
+  /** The bitcoin the faucet last sent, so the card can link to it. */
+  btcFaucetTx: string;
   /** What the chain says about the address in the field. Read on demand. */
   l1Chain: L1Chain | null;
   /** The deposit address this page derived, once it has derived one. */
@@ -212,6 +215,7 @@ const state: State = {
   walletBtc: "",
   btcTxid: "",
   btcVout: "0",
+  btcFaucetTx: "",
   l1Chain: null,
   deposit: null,
   quotedFor: 0,
@@ -321,17 +325,38 @@ const gateLabels = (): string[] => [
 
 /// --- chain -> the design's shape -------------------------------------------------
 
+/** "1 hour", "3 hours" -- a count and its unit, said the way a person would. */
+const plural = (n: number, unit: string): string =>
+  `${n} ${unit}${n === 1 ? "" : "s"}`;
+
 // A burn block is not ten minutes everywhere -- see `blockMinutes` in
 // config.ts -- and a countdown drawn at the wrong pace is what makes a window
 // look further off than it is. Whole hours either way, which is all the
 // precision these countdowns need.
+//
+// Spelled out rather than abbreviated: "2 days 19 hours" is what someone
+// reads, and "2d 19h" is what someone parses.
 function duration(blocks: number): string {
   const hours = Math.round((Math.abs(blocks) * blockMinutes()) / 60);
   if (hours < 1) return "under an hour";
-  if (hours < 48) return `${hours}h`;
+  if (hours < 48) return plural(hours, "hour");
   const days = Math.floor(hours / 24);
-  return `${days}d ${hours % 24}h`;
+  const rest = hours % 24;
+  return rest === 0
+    ? plural(days, "day")
+    : `${plural(days, "day")} ${plural(rest, "hour")}`;
 }
+
+/**
+ * A wait of a few blocks, in minutes.
+ *
+ * `duration` rounds to whole hours and says "under an hour" below that, which
+ * is right for a bond's windows and useless for the one block the reveal waits
+ * on: a member deciding whether to sit and wait needs the number. At the
+ * network's own pace, like every other countdown here.
+ */
+const shortWait = (blocks: number): string =>
+  `about ${plural(Math.max(1, Math.round(Math.abs(blocks) * blockMinutes())), "minute")}`;
 
 function untilBurn(target: number, now: number): string {
   const blocks = target - now;
@@ -838,6 +863,12 @@ function launchPanel(): LaunchPanel {
   const opens = num(bond!["stake-opens-at"]);
   const notice = num(bond!["notice-ends-at"]);
   const reached = share >= MILESTONE;
+  // A launch floor is a thing older vaults have. `bind-next-bond` takes no
+  // `min-sats` and `get-stake-preview` stops reporting `meets-floor`, so a
+  // missing answer means there is no floor to miss -- read as met, never as
+  // failed, or the button would go dark against a vault that has no floor at
+  // all.
+  const meetsFloor = preview === null || preview["meets-floor"] !== false;
   // Everything `stake` itself checks, so the button is offered only when the
   // call would actually go through. The milestone is deliberately not among
   // them: the contract has no opinion about half an allocation, and gating the
@@ -849,11 +880,11 @@ function launchPanel(): LaunchPanel {
     burn < start &&
     Boolean(preview) &&
     num(preview!["sats"]) > 0 &&
-    preview!["meets-floor"] === true;
+    meetsFloor;
 
   const short = preview ? num(preview["short-ustx"]) : 0;
   const overAllocated = Boolean(preview?.["allocation-limited"]);
-  const belowFloor = floorSats > 0 && preview !== null && !preview["meets-floor"];
+  const belowFloor = floorSats > 0 && !meetsFloor;
 
   return {
     title: floorSats > 0 ? "Launch floor" : "Filling the allocation",
@@ -959,15 +990,25 @@ const fromSats = (sats: number, unit: Unit): string =>
 const satsField = (): number => toSats(field("join-sats"), state.unit);
 
 /**
- * Change what the field is written in without changing what it says.
+ * Change what the fields are written in without changing what they say.
  *
  * Converting rather than clearing: the amount a member has already decided on
  * is the one thing a unit switch must not cost them.
+ *
+ * One unit for the page, not one per card. Both amount fields are read back
+ * through `state.unit`, so a switch in either card has always applied to both
+ * -- this converts both to match, rather than leaving the other card's number
+ * to be reread as a different amount entirely.
  */
 function switchUnit(unit: Unit): void {
   if (unit === state.unit) return;
-  const sats = satsField();
-  setState({ unit, amount: sats > 0 ? fromSats(sats, unit) : "" });
+  const joinSats = satsField();
+  const l1Sats = btcSats();
+  setState({
+    unit,
+    amount: joinSats > 0 ? fromSats(joinSats, unit) : "",
+    btcAmount: l1Sats > 0 ? fromSats(l1Sats, unit) : "",
+  });
 }
 
 /** Put the whole balance in the field, and quote the STX it would need. */
@@ -1348,8 +1389,8 @@ async function doCommit(): Promise<void> {
     followL1();
     setState({
       notice:
-        "Committed. The reveal opens one bitcoin block later — about ten " +
-        "minutes — and step 2 says so if it is asked sooner.",
+        `Committed. The reveal opens one bitcoin block later — ${shortWait(1)} — ` +
+        `and step 2 says so if it is asked sooner.`,
     });
   }
 }
@@ -1390,12 +1431,14 @@ async function doReveal(): Promise<void> {
     });
   }
   const opensAt = num((commitment as Record<string, unknown>)["committed-at-height"]) + 1;
+  const blocks = opensAt - burn;
   if (burn < opensAt) {
     return setState({
       notice:
         `The reveal opens at burn height ${fmt(opensAt)} and the chain is at ` +
-        `${fmt(burn)} — one bitcoin block, so about ten minutes. Revealing now ` +
-        `would be refused on chain and cost you the fee.`,
+        `${fmt(burn)} — ${blocks === 1 ? "one bitcoin block" : `${fmt(blocks)} bitcoin blocks`}, ` +
+        `so ${shortWait(blocks)}. Revealing now would be refused on chain and ` +
+        `cost you the fee.`,
     });
   }
   await withWallet("the reveal", () => api.bridgeCalls.revealAddress(address.pox, salt));
@@ -1410,10 +1453,17 @@ async function doReveal(): Promise<void> {
  * one-off taproot output whose script tree holds that principal, the signers'
  * current key, and a reclaim path belonging to this member. All three come from
  * somewhere authoritative -- the bridge, the sBTC registry, and the wallet.
+ *
+ * The wallet is asked for one address in particular: the one this deposit is
+ * about. A reclaim path is a key, and a bech32 address carries a hash rather
+ * than a key, so it cannot be read off the address the member revealed -- but
+ * it has to be *that* address's key, or the reclaim leaf belongs to an account
+ * the bitcoin never came from.
  */
 async function depositTarget(sats: number): Promise<DepositTarget> {
   const [api, bitcoinSide] = await Promise.all([chainApi(), l1Api()]);
-  const account = await api.bitcoinAccount();
+  const from = (await btcAddress())?.text;
+  const account = await api.bitcoinAccount(from);
   if (!account?.publicKey) {
     throw new Error(
       "The wallet did not hand over a bitcoin public key, and the reclaim path " +
@@ -1736,6 +1786,10 @@ async function faucet(kind: FaucetKind): Promise<void> {
     const txid = body.txId ?? body.txid;
     setState({
       notice: txid ? `${label} on the way — ${txid}` : `${label} on the way`,
+      // The notice bar is text; a bitcoin txid is worth following, and only
+      // the card can carry a link. Stacks faucets are left to the bar, since
+      // their transactions show up in the pending row already.
+      ...(kind === "btc" && txid ? { btcFaucetTx: txid } : {}),
     });
     // A faucet transaction is an ordinary transaction: the balance moves when
     // it confirms, not when the request returns. Bitcoin takes rather longer
@@ -1896,11 +1950,20 @@ interface L1Panel {
   amount: string;
   amountLabel: string;
   placeholder: string;
+  satsFg: string;
+  satsLine: string;
+  btcFg: string;
+  btcLine: string;
+  showSats: () => void;
+  showBtc: () => void;
   quote: string;
   /** The address the bitcoin will come from, prefilled from the wallet. */
   address: string;
   addressPlaceholder: string;
   addressNote: string;
+  /** The wallet is on another bitcoin than this deployment: step 3 cannot run. */
+  walletWrongShow: boolean;
+  walletWrongNote: string;
   /** The wallet's own address, offered beside a field that already has one. */
   suggestShow: boolean;
   suggestNote: string;
@@ -1915,6 +1978,14 @@ interface L1Panel {
   /** The txid and output index of the deposit, held across a re-render. */
   txid: string;
   vout: string;
+  /** That deposit on a bitcoin explorer, once the field names one. */
+  txidShow: boolean;
+  txidShort: string;
+  txidLink: string;
+  /** And the faucet's own payment, which is the other bitcoin this card sees. */
+  faucetTxShow: boolean;
+  faucetTxShort: string;
+  faucetTxLink: string;
   /**
    * Where the member is, read from the bridge. Hidden until it has been read:
    * a route this page cannot see is better left unnarrated than guessed at.
@@ -1987,6 +2058,8 @@ interface L1Step {
   dim: string;
   /** The same again in a word, for a reader who is not reading colours. */
   state: string;
+  /** That word's colour, which is the circle's, so the two agree. */
+  tone: string;
 }
 
 /**
@@ -1998,6 +2071,17 @@ interface L1Step {
  */
 const COMMIT_TTL = 36;
 const ANNOUNCE_TTL = 1000;
+
+/**
+ * A bitcoin txid's page on the explorer, or "" for anything that is not one.
+ *
+ * Shape-checked here rather than in `config.ts`: a field being typed into
+ * holds half a txid most of the time, and a link to half a txid is a link to a
+ * 404. Nothing else about it is verified -- whether that transaction exists is
+ * the explorer's answer to give.
+ */
+const btcTxLink = (txid: string): string =>
+  /^(0x)?[0-9a-f]{64}$/i.test(txid.trim()) ? explorerBtcTx(txid) : "";
 
 /** What the chain says, but only for the address the field currently holds. */
 function l1Known(): L1Chain | null {
@@ -2060,8 +2144,8 @@ function l1Stage(c: L1Chain): L1Stage {
       note:
         `The bridge holds this address for you` +
         (c.burn >= lapses
-          ? ", though its week is up: anyone may now cancel it and hand the STX leg " +
-            "back. Reveal it again before you send."
+          ? `, though its ${duration(ANNOUNCE_TTL)} are up: anyone may now cancel ` +
+            `it and hand the STX leg back. Reveal it again before you send.`
           : ` until burn height ${fmt(lapses)}, about ${duration(lapses - c.burn)} away.`) +
         ` Send from that address and no other — every input of the deposit ` +
         `transaction is checked against it.`,
@@ -2094,8 +2178,8 @@ function l1Stage(c: L1Chain): L1Stage {
         "The wait is over. Revealing names the address in public, and the first " +
         "reveal takes it — which is what the commitment was for." +
         (c.burn >= made.at + COMMIT_TTL
-          ? " Six hours have gone by, so anyone may cancel this commitment instead; " +
-            "the STX leg comes back to you either way."
+          ? ` Its ${duration(COMMIT_TTL)} are up, so anyone may cancel this ` +
+            `commitment instead; the STX leg comes back to you either way.`
           : ""),
       amount,
     };
@@ -2127,6 +2211,7 @@ function l1Step(n: number, current: number, blind: boolean): L1Step {
       fg: "var(--color-bg)",
       dim: "0.85",
       state: "",
+      tone: "var(--color-accent)",
     };
   }
   if (n < current) {
@@ -2136,6 +2221,7 @@ function l1Step(n: number, current: number, blind: boolean): L1Step {
       fg: "var(--color-bg)",
       dim: "0.55",
       state: "done",
+      tone: "var(--color-accent-2-700)",
     };
   }
   if (n === current) {
@@ -2145,6 +2231,7 @@ function l1Step(n: number, current: number, blind: boolean): L1Step {
       fg: "var(--color-bg)",
       dim: "1",
       state: "you are here",
+      tone: "var(--color-accent)",
     };
   }
   return {
@@ -2153,6 +2240,7 @@ function l1Step(n: number, current: number, blind: boolean): L1Step {
     fg: "var(--color-neutral-700)",
     dim: "0.5",
     state: "",
+    tone: "var(--color-neutral-700)",
   };
 }
 
@@ -2181,8 +2269,17 @@ function l1Panel(): L1Panel {
   // are legitimate: the bridge takes any address the member controls, and only
   // they know which one they will send from. So this is an offer beside the
   // field, not a correction of it, and it disappears the moment the two agree.
+  // The wallet is on another bitcoin than this deployment. Everything up to
+  // the deposit still works -- the commit and the reveal are Stacks calls
+  // about an address typed here, not about the wallet's own -- but the
+  // deposit address is derived from the wallet's key, so step 3 cannot be
+  // reached from this wallet until the network is changed. Said now rather
+  // than at step 3, which is two transactions too late to be useful.
+  const walletHere = state.walletBtc === "" || onConfiguredChain(state.walletBtc);
+
   const typed = state.btcAddress.trim();
   const suggest =
+    walletHere &&
     Boolean(state.walletBtc) &&
     typed !== "" &&
     typed.toLowerCase() !== state.walletBtc.toLowerCase();
@@ -2211,8 +2308,18 @@ function l1Panel(): L1Panel {
   return {
     recipient: state.depositTo || "—",
     amount: state.btcAmount,
-    amountLabel: state.unit === "sats" ? "Amount in sats" : "Amount in sBTC",
+    // BTC rather than sBTC on this card: what is typed here is bitcoin the
+    // member sends on L1, and it is only sBTC after the signers have swept it.
+    amountLabel: state.unit === "sats" ? "Amount in sats" : "Amount in BTC",
     placeholder: state.unit === "sats" ? "10000000" : "0.1",
+    // The same quiet pair of words the sBTC card uses, and the same shared
+    // unit behind them.
+    satsFg: state.unit === "sats" ? "var(--color-text)" : "var(--color-neutral-700)",
+    satsLine: state.unit === "sats" ? "underline" : "none",
+    btcFg: state.unit === "sbtc" ? "var(--color-text)" : "var(--color-neutral-700)",
+    btcLine: state.unit === "sbtc" ? "underline" : "none",
+    showSats: () => switchUnit("sats"),
+    showBtc: () => switchUnit("sbtc"),
     quote:
       state.quotedFor > 0
         ? `${fmt(state.quotedFor)} sats needs ${(state.quotedUstx / 1e6).toFixed(2)} STX`
@@ -2226,6 +2333,12 @@ function l1Panel(): L1Panel {
         : `That is not a ${btc.chain} address. This page is about ${btc.chain} bitcoin, ` +
           `and an address on another chain can neither be paid by the faucet nor spent ` +
           `from here. ${walletNetworkAdvice()}`,
+    walletWrongShow: !walletHere,
+    walletWrongNote:
+      `Your wallet is on another bitcoin: it offers ${state.walletBtc}. ` +
+      `${walletNetworkAdvice()} Steps 1 and 2 work meanwhile — they are Stacks ` +
+      `calls about the address in the field — but step 3 derives the deposit ` +
+      `address from the wallet's own key and will refuse until then.`,
     suggestShow: suggest,
     suggestNote: `Your wallet's ${btc.chain} address:`,
     suggestAddress: state.walletBtc,
@@ -2241,6 +2354,12 @@ function l1Panel(): L1Panel {
     cancel: () => void doCancelL1(),
     txid: state.btcTxid,
     vout: state.btcVout,
+    txidShow: btcTxLink(state.btcTxid) !== "",
+    txidShort: shorten(state.btcTxid.trim().replace(/^0x/, "")),
+    txidLink: btcTxLink(state.btcTxid),
+    faucetTxShow: btcTxLink(state.btcFaucetTx) !== "",
+    faucetTxShort: shorten(state.btcFaucetTx.trim().replace(/^0x/, "")),
+    faucetTxLink: btcTxLink(state.btcFaucetTx),
 
     stageShow: Boolean(stage),
     stageStep: stage ? (stage.current > 5 ? "Finished" : `Step ${stage.current} of 5`) : "",
@@ -2292,8 +2411,8 @@ function l1Panel(): L1Panel {
         "revealed nor cancelled from here, so finish the reveal on this machine."
       : "A commitment can only be revealed by whoever holds the secret, and it never " +
         "leaves the browser that made it. If you committed elsewhere, reveal there. " +
-        "If it is gone for good, the commitment lapses after about six hours and the " +
-        "STX leg comes back — anyone may cancel it then, and it is paid to you.",
+        `If it is gone for good, the commitment lapses after ${duration(COMMIT_TTL)} ` +
+        `and the STX leg comes back — anyone may cancel it then, and it is paid to you.`,
 
     targetShow: Boolean(target),
     targetHidden: !target,
@@ -2734,8 +2853,16 @@ async function refresh(): Promise<void> {
       pool,
       member,
       depositTo: String(depositTo ?? ""),
-      walletBtc: btc && onConfiguredChain(btc) ? btc : "",
-      ...(btc && !state.btcAddress ? { btcAddress: btc } : {}),
+      // Kept whichever chain it is on. An address the page cannot use is not
+      // nothing -- it is the reason step 3 will refuse, and the member is
+      // better told that before they spend a commit and a reveal finding out.
+      walletBtc: btc ?? "",
+      // Prefilled only when the page could actually use it. Putting an address
+      // from another chain in the field just to have the note underneath call
+      // it wrong helps nobody -- the placeholder says more.
+      ...(btc && onConfiguredChain(btc) && !state.btcAddress
+        ? { btcAddress: btc }
+        : {}),
     });
     // Only where this member is actually on the L1 route: it costs the bitcoin
     // bundle, and most connections are for the vote floor or the sBTC card.
