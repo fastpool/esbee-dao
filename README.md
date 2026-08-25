@@ -193,8 +193,9 @@ bond whose start has gone by is not what comes next, so it drops to the first
 state rather than sitting there as "next bond" with every date behind it.
 
 Every row is a burn height read from chain plus a duration derived from it at
-`blockMinutes` for the network — ten on mainnet, **four** on testnet, where the
-testnet4 chain Stacks is anchored to has been running at about that. The
+`blockMinutes` for the network — ten on mainnet, **four** on testnet, whose
+burnchain is a regtest one mined on a timer and lands blocks 4.01 minutes apart,
+measured over 150 of them. The
 difference is not cosmetic: at ten, testnet's two-day stake window reads as
 five, which is a countdown that can talk an operator out of a bond it had time
 for. `?blockMinutes=` covers a burnchain that keeps its own pace. Nothing is
@@ -329,6 +330,29 @@ member already has — so both Stacks calls happen before anything is built.
     4  wait                  the signers sweep it
     5  complete-btc-deposit  the transaction and its parents, as proof
 
+**The card says where the member is**, because five buttons and five
+paragraphs do not. With a wallet connected and an address in the field it reads
+the bridge — `get-commitment` for the digest this browser's salt makes,
+`get-announcement` for the address, `get-credited-deposit` for the txid below —
+and turns the three answers into one line of plain English: which step is live,
+what to press, and what is being waited on. The steps behind it are ticked, the
+ones ahead fade back, and the button to press is the filled one. None of them is
+disabled: the contract is the judge of whether a step can run, and a member who
+needs to re-run one should not have to reload.
+
+It also shows what the route has left in their hands, each said in words —
+the **committed hash**, while it is standing in for the address; the
+**registered address**, once the reveal has landed, which is the address the
+bitcoin has to come *from*; the **sBTC deposit address**, which is where it
+goes; and whether the **secret** behind the hash is still in this browser,
+since a commitment cannot be revealed or cancelled without it. Long values keep
+both ends, carry the whole of themselves in a tooltip, and copy in one press.
+
+The read is not made for every connection. It costs the bitcoin bundle, so it
+happens when the member touches this card — or, on connecting, when a salt for
+the prefilled address is already in this browser, which only this browser's own
+commitment puts there.
+
 The card asks for the amount and the address up front, prefills the address from
 the connected wallet's bitcoin account, and checks the shape against the
 bridge's own `get-address-script` before committing anything — an address the
@@ -376,9 +400,10 @@ a deposit is a wasted wait. It pays the address the card is about rather than
 anything of the wallet's choosing, because the bitcoin has to be *spent from*
 the address the commitment names.
 
-**It has to be an address of this chain's** — Hiro's faucet pays testnet, and a
-`bc1…` handed to it is a request that can only fail. So the field is prompted
-with `tb1q…` on testnet and `bc1q…` on mainnet, the address prefilled from the
+**It has to be an address of this chain's** — Hiro's testnet faucet pays that
+chain's bitcoin and nothing else, answering anything else with `Invalid BTC
+regtest address`. So the field is prompted
+with `bcrt1q…` on testnet and `bc1q…` on mainnet, the address prefilled from the
 wallet is the one on the chain the page is about, and an address belonging to
 another chain is refused with a sentence rather than posted. `config.ts` owns
 that test (`onConfiguredChain`), next to the chain it is testing against;
@@ -396,12 +421,19 @@ them for a visit.
 
 | | testnet |
 | --- | --- |
-| `chain` | `testnet` — Stacks testnet is anchored to **bitcoin testnet4**, which encodes addresses exactly as testnet3 does (`tb1…`, m/n/2 in base58), so only the API has to name testnet4 |
-| `api` | `https://mempool.space/testnet4/api`, esplora-compatible, for reading a deposit back |
+| `chain` | `regtest` — Stacks testnet is anchored to a **regtest** burnchain, not testnet4. `/v2/info` gives it away: `parent_network_id` is `0xdab5bffa`, the regtest magic, where testnet3 and testnet4 are `0x0709110b`. So its addresses are `bcrt1…`, and a `tb1…` is the wrong chain here |
+| `api` | `https://mempool.space/testnet4/api`, esplora-compatible — **and a loose end**: a public explorer cannot index a private regtest, so reading a deposit back needs `?btcApi=` pointed at that environment's own explorer |
 | `emily` | `https://temp.sbtc-emily-dev.com` — **https**, because the page is served over TLS and a browser blocks a plain-text fetch out of it |
 
-If the environment's bitcoin is not the public testnet4, `?btcApi=` points at
-its own explorer instead; nothing else changes.
+`?btcApi=` points a visit at another explorer; nothing else changes. Where the
+API cannot see the chain at all, the card says so in those words rather than
+reporting a 404 — the bitcoin is sent and safe either way, and what is missing
+is the read that registers it.
+
+**In the wallet**, the network to be on is the one Leather calls **sBTC
+Testnet**: plain "Testnet" there hands out `tb1…` addresses, which belong to a
+different bitcoin than this deployment's. Every place the page refuses an
+address for the wrong chain says that.
 
 ### Emily's token does not travel in the bundle
 

@@ -190,8 +190,32 @@ const api = (): string => {
   return base;
 };
 
+/**
+ * A read from that API, with the reason it failed said in full.
+ *
+ * A 404 here is worth a sentence rather than a status code, because the likely
+ * cause is not a wrong txid: the API has to index the *same* bitcoin the page
+ * is addressing, and the two can disagree silently. Stacks testnet's burnchain
+ * is a private regtest, which a public explorer cannot see into at all -- so a
+ * transaction that certainly exists reads as missing, and nothing about
+ * "404" says which of those two it is.
+ */
 const text = async (path: string): Promise<string> => {
-  const response = await fetch(`${api()}${path}`);
+  let response: Response;
+  try {
+    response = await fetch(`${api()}${path}`);
+  } catch (error) {
+    throw new Error(
+      `${api()} could not be reached: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+  if (response.status === 404) {
+    throw new Error(
+      `${api()} has no record of ${path.split("/")[2] ?? path}. It indexes bitcoin ` +
+        `${bitcoin().chain === "regtest" ? "chains it can see, and a private regtest is not one" : `on another chain`}` +
+        ` — point the page at an explorer for this chain with ?btcApi= and try again.`,
+    );
+  }
   if (!response.ok) throw new Error(`${path}: ${response.status} ${await response.text()}`);
   return (await response.text()).trim();
 };

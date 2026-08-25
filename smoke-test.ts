@@ -125,8 +125,30 @@ const scope: Record<string, unknown> = {
     addressNote: "Send from this address and no other",
     commit: () => {}, reveal: () => {}, deposit: () => {},
     register: () => {}, complete: () => {}, cancel: () => {},
+    txid: "", vout: "0",
+    stageShow: true, stageStep: "Step 2 of 5", stageTitle: "Reveal the address",
+    stageNote: "The wait is over.", stageBarW: "20%",
+    stageAmountShow: true, stageAmount: "10,000,000 sats committed · 5.00 STX paid",
+    s1: { mark: "✓", bg: "#0a0", fg: "#fff", dim: "0.55", state: "done" },
+    s2: { mark: "2", bg: "#c67139", fg: "#fff", dim: "1", state: "you are here" },
+    s3: { mark: "3", bg: "#eee", fg: "#333", dim: "0.5", state: "" },
+    s4: { mark: "4", bg: "#eee", fg: "#333", dim: "0.5", state: "" },
+    s5: { mark: "5", bg: "#eee", fg: "#333", dim: "0.5", state: "" },
+    commitBtn: "btn-secondary", commitDim: "0.55", commitHint: "Done.",
+    revealBtn: "btn-primary", revealDim: "1", revealHint: "This is the one to press.",
+    depositBtn: "btn-secondary", depositDim: "0.55", depositHint: "Step 2 comes first.",
+    completeBtn: "btn-secondary", completeDim: "0.55", completeHint: "Step 2 comes first.",
+    digestShow: true, digestShort: "0x9f3ca12b…4d5e6f70", digestFull: "0x9f3ca12b",
+    copyDigest: () => {},
+    revealedShow: true, revealedShort: "tb1qn69zsypuk…2hg33z",
+    revealedFull: "tb1qn69zsypuk4frdlmnwhzfa7ugvqvak3n32hg33z",
+    revealedHeld: "held until burn height 100,000", copyRevealed: () => {},
+    saltShow: true, saltState: "kept in this browser",
+    saltTone: "var(--color-accent-2-800)",
+    saltNote: "It is here and nowhere else.",
     targetShow: true, targetHidden: true, showAddress: () => {},
     targetAddress: "tb1pe7zjdf0kshuym99yprwdda3gnw753qrzlphheytmr6fg7ha2wy5q7lfplm",
+    targetShort: "tb1pe7zjdf0ksh…7lfplm", copyTarget: () => {},
     targetAmount: " · 0.10000000 BTC",
     faucet: true, faucetBtc: () => {},
     offline: true,
@@ -626,10 +648,11 @@ if (entryFile) {
   // A ceiling on the page's own code, not a target: what it is really guarding
   // is the two assertions below it -- that neither the wallet SDK nor the chat's
   // network layer has crept into the initial load. It moves when the page
-  // genuinely grows (~61 kB with the L1 route and the early exit) and should be
-  // read as "something heavy leaked" rather than "the page got bigger".
+  // genuinely grows (~61 kB with the L1 route and the early exit, ~69 kB once
+  // the L1 card said where the member is and why in words) and should be read
+  // as "something heavy leaked" rather than "the page got bigger".
   check(
-    eagerBytes < 70_000,
+    eagerBytes < 74_000,
     `initial load is ${(eagerBytes / 1024).toFixed(1)} kB of ${(totalBytes / 1024).toFixed(0)} kB built`,
   );
   check(

@@ -22,7 +22,15 @@ import {
   isConnected,
   request,
 } from "@stacks/connect";
-import { apiBase, config, configured, net, onConfiguredChain } from "./config.js";
+import {
+  apiBase,
+  bitcoin,
+  config,
+  configured,
+  net,
+  onConfiguredChain,
+  walletNetworkAdvice,
+} from "./config.js";
 import { num, plain, type Plain } from "./plain.js";
 
 export { num, plain, type Plain };
@@ -167,18 +175,25 @@ export async function bitcoinAccount(): Promise<BitcoinAccount | null> {
   if (!onConfiguredChain(payment.address)) {
     throw new Error(
       `The wallet's bitcoin address (${payment.address}) is not on the ` +
-        `${config.network === "mainnet" ? "mainnet" : "testnet"} bitcoin this page ` +
-        "is configured for. Switch the wallet's network and reconnect.",
+        `${bitcoin().chain} bitcoin this page is configured for. ` +
+        walletNetworkAdvice(),
     );
   }
   return { address: payment.address, publicKey: payment.publicKey ?? "" };
 }
 
-/** Send bitcoin, from the connected wallet, to an address this page derived. */
+/**
+ * Send bitcoin, from the connected wallet, to an address this page derived.
+ *
+ * The network named is the *bitcoin* one, not the Stacks one: they are not the
+ * same word here. Stacks testnet is anchored to a regtest burnchain, and a
+ * wallet told "testnet" for a `bcrt1…` recipient has been told something
+ * untrue about which chain the transfer is on.
+ */
 export async function sendBitcoin(address: string, sats: number): Promise<string | null> {
   const result = (await request("sendTransfer", {
     recipients: [{ address, amount: String(sats) }],
-    network: config.network === "mainnet" ? "mainnet" : "testnet",
+    network: bitcoin().chain,
   })) as { txid?: string };
   return result?.txid ?? null;
 }

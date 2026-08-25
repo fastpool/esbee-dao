@@ -25,6 +25,7 @@ import {
   poolContract,
   setNetwork,
   SWITCHABLE,
+  walletNetworkAdvice,
 } from "./config.js";
 import { num } from "./plain.js";
 import { discuss, mountChat, syncChat } from "./chat.js";
@@ -122,6 +123,11 @@ interface State {
    * next to what they wrote, never over the top of it.
    */
   walletBtc: string;
+  /** The deposit's txid and output index, held like the two fields above. */
+  btcTxid: string;
+  btcVout: string;
+  /** What the chain says about the address in the field. Read on demand. */
+  l1Chain: L1Chain | null;
   /** The deposit address this page derived, once it has derived one. */
   deposit: DepositTarget | null;
   /** Last quoted STX leg, in uSTX, for whatever is typed in the sats field. */
@@ -159,6 +165,34 @@ interface Pending {
   status: string;
 }
 
+/**
+ * Where the member stands on the L1 route, as the bridge itself has it.
+ *
+ * The route spans several transactions and at least one bitcoin block, so
+ * "where am I" is a question only the chain can answer -- and until this was
+ * read, the card could only offer five buttons and hope. Everything here is
+ * keyed on one address: the one in the field, which is what every read below
+ * was made against.
+ */
+interface L1Chain {
+  /** The address these reads were made against, so a stale one is not shown. */
+  address: string;
+  /** `get-address-digest` for that address and this browser's salt, or "". */
+  digest: string;
+  /** Whether the salt is here at all. Without it a commitment cannot be used. */
+  salt: boolean;
+  /** `get-commitment`: made, not yet revealed. */
+  commitment: { sats: number; ustx: number; at: number } | null;
+  /** `get-announcement`: revealed, and the bitcoin has not been credited yet. */
+  announcement: { sats: number; ustx: number; at: number } | null;
+  /** `get-credited-deposit` for the txid in the field, if there is one. */
+  credited: { sats: number } | null;
+  /** That txid, so a credit is not shown against a different deposit. */
+  txid: string;
+  /** The burn height the rest of this was read against. */
+  burn: number;
+}
+
 /// --- state ------------------------------------------------------------------
 
 const state: State = {
@@ -176,6 +210,9 @@ const state: State = {
   btcAmount: "",
   btcAddress: "",
   walletBtc: "",
+  btcTxid: "",
+  btcVout: "0",
+  l1Chain: null,
   deposit: null,
   quotedFor: 0,
   quotedUstx: 0,
@@ -194,6 +231,28 @@ function setState(patch: Partial<State> | ((s: State) => Partial<State>)): void 
 const fmt = (n: number): string => Number(n).toLocaleString("en-US");
 const shorten = (a: string | null): string =>
   a ? `${a.slice(0, 6)}…${a.slice(-4)}` : "";
+
+/**
+ * A long value with its middle taken out, for a card that must not scroll
+ * sideways. Both ends are kept because both ends are what a member checks an
+ * address or a hash by; the whole of it is a `title` and a copy button away.
+ */
+const middle = (value: string, head = 14, tail = 10): string =>
+  value.length > head + tail + 1
+    ? `${value.slice(0, head)}…${value.slice(-tail)}`
+    : value;
+
+/** Hand a value to the clipboard, and say so. */
+async function copy(value: string, what: string): Promise<void> {
+  try {
+    await navigator.clipboard.writeText(value);
+    setState({ notice: `${what} copied.` });
+  } catch {
+    setState({
+      notice: `Could not copy — the whole of it is in the field's tooltip, to select by hand.`,
+    });
+  }
+}
 
 /// --- the rehearsal ------------------------------------------------------------
 
@@ -1126,6 +1185,112 @@ async function btcAddress(): Promise<{ text: string; pox: PoxAddress } | null> {
   return pox ? { text, pox } : null;
 }
 
+/// --- where the member is on the L1 route ----------------------------------------
+
+/** A decoded tuple, or null for the `none` a map-get returns. */
+const tuple = (value: unknown): Record<string, unknown> | null =>
+  value && typeof value === "object" ? (value as Record<string, unknown>) : null;
+
+/**
+ * Whether this card's chain state is worth reading at all.
+ *
+ * Two ways in, and neither of them is "a wallet connected". Reading costs the
+ * bitcoin bundle -- 210 kB, to decode one address -- and most members who
+ * connect a wallet are here for the sBTC card or the vote floor.
+ *
+ *   the member has touched this card, so they are working the route;
+ *   or a salt for the address in the field is in this browser, which only
+ *   happens where this browser has already committed to it. That one is free
+ *   to test, and it is the case where saying nothing would be worst: a
+ *   commitment made yesterday is exactly what a member comes back for.
+ */
+let l1Armed = false;
+let l1Reading = false;
+const wantsL1 = (): boolean =>
+  l1Armed || (state.btcAddress.trim() !== "" && known(state.btcAddress.trim()) !== null);
+
+/**
+ * Read the route's state for the address in the field: the commitment, the
+ * announcement, and whether the deposit named below has been credited.
+ *
+ * Fails soft on purpose. None of this is needed to work the route -- every
+ * step checks itself before it spends anything -- so a node that does not
+ * answer leaves the card as it was rather than replacing it with an error.
+ */
+async function loadL1(): Promise<void> {
+  const member = state.account;
+  if (!configured() || !member || l1Reading) return;
+  const text = state.btcAddress.trim();
+  if (!text) {
+    if (state.l1Chain) setState({ l1Chain: null });
+    return;
+  }
+  l1Reading = true;
+  try {
+    const pox = (await l1Api()).readAddress(text);
+    if (!pox) {
+      if (state.l1Chain) setState({ l1Chain: null });
+      return;
+    }
+    const api = await chainApi();
+    const salt = known(text);
+    const digest = salt ? String(await api.addressDigest(pox, salt)) : "";
+    const txid = state.btcTxid.trim();
+    const vout = Number(state.btcVout || "0");
+    const readable = /^(0x)?[0-9a-f]{64}$/i.test(txid);
+    const [commitment, announcement, credited, burn] = await Promise.all([
+      digest ? api.commitmentFor(member, digest) : null,
+      api.announcementFor(pox),
+      readable ? api.creditedDeposit(txid, Number.isFinite(vout) ? vout : 0) : null,
+      api.burnHeight(),
+    ]);
+    const made = tuple(commitment);
+    const revealed = tuple(announcement);
+    const paid = tuple(credited);
+    setState({
+      l1Chain: {
+        address: text,
+        digest,
+        salt: Boolean(salt),
+        commitment: made
+          ? {
+              sats: num(made["sats"]),
+              ustx: num(made["ustx"]),
+              at: num(made["committed-at-height"]),
+            }
+          : null,
+        announcement: revealed
+          ? {
+              sats: num(revealed["sats"]),
+              ustx: num(revealed["ustx"]),
+              at: num(revealed["announced-at-height"]),
+            }
+          : null,
+        credited: paid ? { sats: num(paid["sats"]) } : null,
+        txid: readable ? txid : "",
+        burn,
+      },
+    });
+  } catch {
+    // Nothing here is load-bearing: the card keeps whatever it last knew.
+  } finally {
+    l1Reading = false;
+  }
+}
+
+/**
+ * Read it back as a submitted step lands.
+ *
+ * A commit that is in the mempool has not happened yet, so reading straight
+ * after the wallet returns finds the state the member just left. Three looks
+ * over the next couple of minutes cover a Stacks block without any of the
+ * machinery the deposit watcher needs, and cost three read-only calls.
+ */
+function followL1(): void {
+  l1Armed = true;
+  for (const delay of [8_000, 30_000, 90_000]) setTimeout(() => void loadL1(), delay);
+}
+
 /**
  * Step 1: commit to the address the bitcoin will come from.
  *
@@ -1136,6 +1301,7 @@ async function btcAddress(): Promise<{ text: string; pox: PoxAddress } | null> {
  * later, when the STX leg has already been paid.
  */
 async function doCommit(): Promise<void> {
+  l1Armed = true;
   // Reads keyed on the member come before the wallet call now, so the wallet
   // has to be there before any of it rather than at the point of signing.
   if (!state.account) return setState({ walletOpen: true });
@@ -1179,6 +1345,7 @@ async function doCommit(): Promise<void> {
     api.bridgeCalls.commitAddress(digest, sats, ustx),
   );
   if (txid) {
+    followL1();
     setState({
       notice:
         "Committed. The reveal opens one bitcoin block later — about ten " +
@@ -1198,6 +1365,7 @@ async function doCommit(): Promise<void> {
  * the commitment is read first and the arithmetic is done here.
  */
 async function doReveal(): Promise<void> {
+  l1Armed = true;
   if (!state.account) return setState({ walletOpen: true });
   const address = await btcAddress();
   if (!address) return setState({ notice: "Which address did you commit to?" });
@@ -1231,6 +1399,7 @@ async function doReveal(): Promise<void> {
     });
   }
   await withWallet("the reveal", () => api.bridgeCalls.revealAddress(address.pox, salt));
+  followL1();
 }
 
 /**
@@ -1297,6 +1466,7 @@ async function register(target: DepositTarget, txid: string): Promise<number> {
  * after the send say what is true of the money rather than of the step.
  */
 async function doDepositBtc(): Promise<void> {
+  l1Armed = true;
   if (!state.account) return setState({ walletOpen: true });
   const sats = btcSats();
   if (sats <= 0) return setState({ notice: "How many sats are you sending?" });
@@ -1351,7 +1521,8 @@ async function doDepositBtc(): Promise<void> {
       notice:
         `Sent — ${txid} — but registering it failed: ${message(error)}. The bitcoin ` +
         `is at the deposit address on the card and nothing is lost; press Register ` +
-        `to try again.`,
+        `to try again, and if this page's bitcoin API cannot see this chain at all, ` +
+        `reload with ?btcApi= pointed at one that can before you do.`,
     });
   }
 }
@@ -1366,6 +1537,7 @@ async function doDepositBtc(): Promise<void> {
  * bitcoin, needs the address rather than a button that spends for them.
  */
 async function doShowDeposit(): Promise<void> {
+  l1Armed = true;
   if (!state.account) return setState({ walletOpen: true });
   try {
     setState({ notice: "Deriving the deposit address…" });
@@ -1380,6 +1552,7 @@ async function doShowDeposit(): Promise<void> {
 
 /** The same registration, for bitcoin sent from somewhere this page cannot drive. */
 async function doRegister(): Promise<void> {
+  l1Armed = true;
   const txid = field("btc-txid");
   const sats = btcSats();
   if (!txid) return setState({ notice: "Which txid?" });
@@ -1387,6 +1560,7 @@ async function doRegister(): Promise<void> {
     const target = state.deposit ?? (await depositTarget(sats));
     const vout = await register(target, txid);
     setValue("btc-vout", String(vout));
+    void loadL1();
     setState({ notice: "Registered with the sBTC signers." });
   } catch (error) {
     setState({ notice: `Could not register it: ${message(error)}` });
@@ -1401,6 +1575,7 @@ async function doRegister(): Promise<void> {
  * member is going to paste eight raw transactions by hand.
  */
 async function doComplete(): Promise<void> {
+  l1Armed = true;
   const txid = field("btc-txid");
   const vout = Number(field("btc-vout") || 0);
   if (!txid) return setState({ notice: "Which txid?" });
@@ -1413,6 +1588,7 @@ async function doComplete(): Promise<void> {
     await withWallet("the credit", () =>
       api.bridgeCalls.complete(txid, vout, raw, parents),
     );
+    followL1();
   } catch (error) {
     setState({ notice: `Could not complete it: ${message(error)}` });
   }
@@ -1420,30 +1596,44 @@ async function doComplete(): Promise<void> {
 
 /** Take the STX leg back from a commitment or an announcement that lapsed. */
 async function doCancelL1(): Promise<void> {
+  l1Armed = true;
   const address = await btcAddress();
   const api = await chainApi();
   if (address) {
     const salt = known(address.text);
     const announced = await api.announcementFor(address.pox);
     if (announced) {
-      return void withWallet("the cancellation", () =>
+      await withWallet("the cancellation", () =>
         api.bridgeCalls.cancelDeposit(address.pox),
       );
+      return followL1();
     }
     if (salt) {
       const digest = String(await api.addressDigest(address.pox, salt));
-      return void withWallet("the cancellation", () =>
+      await withWallet("the cancellation", () =>
         api.bridgeCalls.cancelCommitment(state.account!, digest),
       );
+      return followL1();
     }
   }
   setState({ notice: "Nothing here to cancel for that address." });
 }
 
-/** Write into an uncontrolled field the way a member would have. */
+/**
+ * Write into an uncontrolled field the way a member would have.
+ *
+ * And hold it in state, which is what `hold()` does for a field the member
+ * types into. Without that, a txid written here by step 3 was gone at the next
+ * re-render -- the template's `value` puts back what state has -- taking with
+ * it the one thing step 5 needs.
+ */
 function setValue(id: string, value: string): void {
   const input = document.getElementById(id) as HTMLInputElement | null;
   if (input) input.value = value;
+  if (id === "btc-txid") state.btcTxid = value;
+  else if (id === "btc-vout") state.btcVout = value;
+  else if (id === "btc-address") state.btcAddress = value;
+  else if (id === "btc-sats") state.btcAmount = value;
 }
 
 /** Try something a few times, for a bitcoin API that has not caught up yet. */
@@ -1502,7 +1692,9 @@ async function faucet(kind: FaucetKind): Promise<void> {
     return setState({
       notice:
         `${address} is not a ${bitcoin().chain} bitcoin address, and the faucet ` +
-        `only pays ${bitcoin().chain}. One like ${addressExample()} is what it wants.`,
+        `only pays ${bitcoin().chain} — it answers anything else with "Invalid BTC ` +
+        `${bitcoin().chain} address". One like ${addressExample()} is what it wants. ` +
+        walletNetworkAdvice(),
     });
   }
 
@@ -1720,11 +1912,62 @@ interface L1Panel {
   register: () => void;
   complete: () => void;
   cancel: () => void;
+  /** The txid and output index of the deposit, held across a re-render. */
+  txid: string;
+  vout: string;
+  /**
+   * Where the member is, read from the bridge. Hidden until it has been read:
+   * a route this page cannot see is better left unnarrated than guessed at.
+   */
+  stageShow: boolean;
+  stageStep: string;
+  stageTitle: string;
+  stageNote: string;
+  stageBarW: string;
+  stageAmountShow: boolean;
+  stageAmount: string;
+  /** The five steps, each knowing whether it is behind, live or ahead. */
+  s1: L1Step;
+  s2: L1Step;
+  s3: L1Step;
+  s4: L1Step;
+  s5: L1Step;
+  /** How each button reads: the one to press, and the ones that cannot work. */
+  commitBtn: string;
+  commitDim: string;
+  commitHint: string;
+  revealBtn: string;
+  revealDim: string;
+  revealHint: string;
+  depositBtn: string;
+  depositDim: string;
+  depositHint: string;
+  completeBtn: string;
+  completeDim: string;
+  completeHint: string;
+  /** The hash that stands in for the address until it is revealed. */
+  digestShow: boolean;
+  digestShort: string;
+  digestFull: string;
+  copyDigest: () => void;
+  /** The address the bridge now holds for this member. */
+  revealedShow: boolean;
+  revealedShort: string;
+  revealedFull: string;
+  revealedHeld: string;
+  copyRevealed: () => void;
+  /** Whether the secret that ties the commit to the reveal is still here. */
+  saltShow: boolean;
+  saltState: string;
+  saltTone: string;
+  saltNote: string;
   /** The deposit address, once this page has derived one. */
   targetShow: boolean;
   targetHidden: boolean;
   showAddress: () => void;
   targetAddress: string;
+  targetShort: string;
+  copyTarget: () => void;
   targetAmount: string;
   /** No bitcoin API and no Emily: this page cannot finish the route. */
   offline: boolean;
@@ -1732,6 +1975,185 @@ interface L1Panel {
   /** Testnet only: bitcoin to actually deposit, paid to the address above. */
   faucet: boolean;
   faucetBtc: () => void;
+}
+
+/** One of the five steps, as the card draws it. */
+interface L1Step {
+  /** A tick once the step is behind the member, its number until then. */
+  mark: string;
+  bg: string;
+  fg: string;
+  /** The paragraph's opacity: the live step is the one at full strength. */
+  dim: string;
+  /** The same again in a word, for a reader who is not reading colours. */
+  state: string;
+}
+
+/**
+ * The bridge's own two deadlines, in burn blocks, from `bond-bridge.clar`.
+ *
+ * Repeated here rather than read: they are constants in the contract, not
+ * configuration, and a card that says when a commitment lapses is worth more
+ * than a read that saves copying two numbers.
+ */
+const COMMIT_TTL = 36;
+const ANNOUNCE_TTL = 1000;
+
+/** What the chain says, but only for the address the field currently holds. */
+function l1Known(): L1Chain | null {
+  const typed = state.btcAddress.trim();
+  const read = state.l1Chain;
+  return read && typed !== "" && read.address === typed ? read : null;
+}
+
+/** Where the route stands, in the order the contract moves through it. */
+interface L1Stage {
+  /** The step that is live, 1 to 5 -- or 6, when there is nothing left. */
+  current: number;
+  /** The step whose button is the one to press. 0 when the answer is "wait". */
+  act: number;
+  title: string;
+  note: string;
+  /** What the commitment or the announcement is for, where there is one. */
+  amount: string;
+}
+
+function l1Stage(c: L1Chain): L1Stage {
+  const stx = (ustx: number) => `${(ustx / 1e6).toFixed(2)} STX`;
+
+  // Credited: the bridge has deleted the announcement and the pool holds the
+  // sats, so this is the one state the card can call finished.
+  if (c.credited) {
+    return {
+      current: 6,
+      act: 0,
+      title: "The bitcoin is in the pool",
+      note:
+        `${fmt(c.credited.sats)} sats were credited against this deposit — a little ` +
+        `less than you sent, because the sBTC signers take their bitcoin fee out of ` +
+        `it. It is a position now, under Your position above.`,
+      amount: "",
+    };
+  }
+
+  const announced = c.announcement;
+  if (announced) {
+    const amount = `${fmt(announced.sats)} sats announced · ${stx(announced.ustx)} paid`;
+    const lapses = announced.at + ANNOUNCE_TTL;
+    if (c.txid) {
+      return {
+        current: 4,
+        act: 5,
+        title: "Waiting for the sBTC signers",
+        note:
+          "They sweep the deposit in their own time — hours, usually — and take " +
+          "their bitcoin fee out of it. Nothing here needs you meanwhile; the page " +
+          "can be closed. Press 5 · Complete once they have swept it, and the pool " +
+          "credits what arrived.",
+        amount,
+      };
+    }
+    return {
+      current: 3,
+      act: 3,
+      title: "Send the bitcoin",
+      note:
+        `The bridge holds this address for you` +
+        (c.burn >= lapses
+          ? ", though its week is up: anyone may now cancel it and hand the STX leg " +
+            "back. Reveal it again before you send."
+          : ` until burn height ${fmt(lapses)}, about ${duration(lapses - c.burn)} away.`) +
+        ` Send from that address and no other — every input of the deposit ` +
+        `transaction is checked against it.`,
+      amount,
+    };
+  }
+
+  const made = c.commitment;
+  if (made) {
+    const amount = `${fmt(made.sats)} sats committed · ${stx(made.ustx)} paid`;
+    const opens = made.at + 1;
+    if (c.burn < opens) {
+      return {
+        current: 2,
+        act: 0,
+        title: "The reveal opens shortly",
+        note:
+          `Committed at burn height ${fmt(made.at)}. The reveal opens at ` +
+          `${fmt(opens)} and bitcoin is at ${fmt(c.burn)} — one bitcoin block, about ` +
+          `${Math.round(blockMinutes())} minutes. Asked sooner it is refused on chain ` +
+          `and costs you the fee, so there is nothing to press yet.`,
+        amount,
+      };
+    }
+    return {
+      current: 2,
+      act: 2,
+      title: "Reveal the address",
+      note:
+        "The wait is over. Revealing names the address in public, and the first " +
+        "reveal takes it — which is what the commitment was for." +
+        (c.burn >= made.at + COMMIT_TTL
+          ? " Six hours have gone by, so anyone may cancel this commitment instead; " +
+            "the STX leg comes back to you either way."
+          : ""),
+      amount,
+    };
+  }
+
+  return {
+    current: 1,
+    act: 1,
+    title: "Nothing committed for this address",
+    note: c.salt
+      ? "The bridge holds neither a commitment nor a reveal for it. Step 1 starts " +
+        "the route, and takes the STX leg with it."
+      : "The bridge holds no reveal for it, and this browser holds no secret for it " +
+        "either — so if you committed to this address somewhere else, finish it " +
+        "there. The secret never leaves the browser that made it.",
+    amount: "",
+  };
+}
+
+/** A step's circle and its paragraph, given where the member actually is. */
+function l1Step(n: number, current: number, blind: boolean): L1Step {
+  // Nothing has been read -- no wallet, or no address to read against. The
+  // steps are then five things to know rather than a position, and the card
+  // reads as it did before any of this: numbered, and none of them dimmed.
+  if (blind) {
+    return {
+      mark: String(n),
+      bg: "var(--color-accent)",
+      fg: "var(--color-bg)",
+      dim: "0.85",
+      state: "",
+    };
+  }
+  if (n < current) {
+    return {
+      mark: "✓",
+      bg: "var(--color-accent-2-600)",
+      fg: "var(--color-bg)",
+      dim: "0.55",
+      state: "done",
+    };
+  }
+  if (n === current) {
+    return {
+      mark: String(n),
+      bg: "var(--color-accent)",
+      fg: "var(--color-bg)",
+      dim: "1",
+      state: "you are here",
+    };
+  }
+  return {
+    mark: String(n),
+    bg: "var(--color-surface)",
+    fg: "var(--color-neutral-700)",
+    dim: "0.5",
+    state: "",
+  };
 }
 
 /**
@@ -1765,6 +2187,27 @@ function l1Panel(): L1Panel {
     typed !== "" &&
     typed.toLowerCase() !== state.walletBtc.toLowerCase();
 
+  // Where the member is, where the chain has been asked. `blind` is the
+  // ordinary case for a reader: no wallet, or no address to read against, and
+  // then the five steps are an explanation rather than a position.
+  const chain = l1Known();
+  const blind = !chain;
+  const stage = chain ? l1Stage(chain) : null;
+  const current = stage?.current ?? 1;
+  // The one to press. Every button stays live -- a step can want re-running,
+  // and the contract is the judge of that, not this card -- but only one of
+  // them is what to do next.
+  const act = blind ? 1 : (stage?.act ?? 0);
+  const press = (n: number): string => (n === act ? "btn-primary" : "btn-secondary");
+  const fade = (n: number): string => (blind || n === act ? "1" : "0.55");
+  const hint = (n: number): string => {
+    if (blind) return "";
+    if (n === act) return "This is the one to press.";
+    if (n < current) return "Done — press it again only if you mean to start over.";
+    if (n === current) return stage?.note ?? "";
+    return `Step ${current} comes first.`;
+  };
+
   return {
     recipient: state.depositTo || "—",
     amount: state.btcAmount,
@@ -1781,7 +2224,8 @@ function l1Panel(): L1Panel {
       : onConfiguredChain(state.btcAddress)
         ? "Send from this address and no other — the bridge checks every input against it."
         : `That is not a ${btc.chain} address. This page is about ${btc.chain} bitcoin, ` +
-          `and an address on another chain can neither be paid by the faucet nor spent from here.`,
+          `and an address on another chain can neither be paid by the faucet nor spent ` +
+          `from here. ${walletNetworkAdvice()}`,
     suggestShow: suggest,
     suggestNote: `Your wallet's ${btc.chain} address:`,
     suggestAddress: state.walletBtc,
@@ -1795,10 +2239,68 @@ function l1Panel(): L1Panel {
     register: () => void doRegister(),
     complete: () => void doComplete(),
     cancel: () => void doCancelL1(),
+    txid: state.btcTxid,
+    vout: state.btcVout,
+
+    stageShow: Boolean(stage),
+    stageStep: stage ? (stage.current > 5 ? "Finished" : `Step ${stage.current} of 5`) : "",
+    stageTitle: stage?.title ?? "",
+    stageNote: stage?.note ?? "",
+    stageBarW: `${Math.min(100, Math.round((((stage?.current ?? 1) - 1) / 5) * 100))}%`,
+    stageAmountShow: Boolean(stage?.amount),
+    stageAmount: stage?.amount ?? "",
+    s1: l1Step(1, current, blind),
+    s2: l1Step(2, current, blind),
+    s3: l1Step(3, current, blind),
+    s4: l1Step(4, current, blind),
+    s5: l1Step(5, current, blind),
+    commitBtn: press(1),
+    commitDim: fade(1),
+    commitHint: hint(1),
+    revealBtn: press(2),
+    revealDim: fade(2),
+    revealHint: hint(2),
+    depositBtn: press(3),
+    depositDim: fade(3),
+    depositHint: hint(3),
+    completeBtn: press(5),
+    completeDim: fade(5),
+    completeHint: hint(5),
+
+    // The hash stands in for the address for exactly one bitcoin block. While
+    // it does, it is the only thing on chain that is the member's -- so it is
+    // worth showing, and worth saying what it is for.
+    digestShow: Boolean(chain?.commitment && !chain.announcement && !chain.credited),
+    digestShort: middle(chain?.digest ?? "", 12, 8),
+    digestFull: chain?.digest ?? "",
+    copyDigest: () => void copy(chain?.digest ?? "", "The committed hash"),
+    revealedShow: Boolean(chain?.announcement),
+    revealedShort: middle(chain?.address ?? ""),
+    revealedFull: chain?.address ?? "",
+    revealedHeld: chain?.announcement
+      ? `held until burn height ${fmt(chain.announcement.at + ANNOUNCE_TTL)}`
+      : "",
+    copyRevealed: () => void copy(chain?.address ?? "", "The revealed address"),
+    // Only while it still matters: after the reveal the secret has done its
+    // work and losing it costs nothing.
+    saltShow: Boolean(chain && !chain.announcement && !chain.credited),
+    saltState: chain?.salt ? "kept in this browser" : "not in this browser",
+    saltTone: chain?.salt ? "var(--color-accent-2-800)" : "var(--color-accent-800)",
+    saltNote: chain?.salt
+      ? "It is here and nowhere else — not on a server, not in your wallet. Clear " +
+        "this browser's data before you reveal and the commitment can be neither " +
+        "revealed nor cancelled from here, so finish the reveal on this machine."
+      : "A commitment can only be revealed by whoever holds the secret, and it never " +
+        "leaves the browser that made it. If you committed elsewhere, reveal there. " +
+        "If it is gone for good, the commitment lapses after about six hours and the " +
+        "STX leg comes back — anyone may cancel it then, and it is paid to you.",
+
     targetShow: Boolean(target),
     targetHidden: !target,
     showAddress: () => void doShowDeposit(),
     targetAddress: target?.address ?? "",
+    targetShort: middle(target?.address ?? ""),
+    copyTarget: () => void copy(target?.address ?? "", "The deposit address"),
     // The address does not depend on the amount, so it is worth deriving before
     // one is typed -- and the heading says the amount only when there is one.
     targetAmount: target && target.sats > 0 ? ` · ${(target.sats / 1e8).toFixed(8)} BTC` : "",
@@ -2235,6 +2737,9 @@ async function refresh(): Promise<void> {
       walletBtc: btc && onConfiguredChain(btc) ? btc : "",
       ...(btc && !state.btcAddress ? { btcAddress: btc } : {}),
     });
+    // Only where this member is actually on the L1 route: it costs the bitcoin
+    // bundle, and most connections are for the vote floor or the sBTC card.
+    if (wantsL1()) void loadL1();
   } catch (error) {
     setState({ notice: `Could not read the DAO: ${message(error)}` });
   }
@@ -2351,9 +2856,19 @@ function wireL1(): void {
     if (!input || input.dataset.wired === "1") return;
     input.dataset.wired = "1";
     input.addEventListener("input", () => keep(input.value));
+    // `change` rather than `input`: reading the route back re-renders the card,
+    // and a re-render replaces the element being typed into. On blur the member
+    // has finished with the field, so there is no caret to lose.
+    input.addEventListener("change", () => {
+      keep(input.value);
+      l1Armed = true;
+      void loadL1();
+    });
   };
   hold("btc-sats", (value) => (state.btcAmount = value));
   hold("btc-address", (value) => (state.btcAddress = value));
+  hold("btc-txid", (value) => (state.btcTxid = value));
+  hold("btc-vout", (value) => (state.btcVout = value));
 }
 
 // Paint first, then reach for the chain: the page reads the same either way,

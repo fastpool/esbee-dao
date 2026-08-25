@@ -50,9 +50,9 @@ export interface NetworkInfo {
    * the page is drawn at.
    *
    * Not the same number everywhere, and the difference is not cosmetic:
-   * bitcoin's ten minutes on mainnet, but the testnet4 chain Stacks testnet is
-   * anchored to runs its difficulty-reset rule hard and has been landing
-   * blocks at about four, and a devnet regtest mines on a timer of seconds. A
+   * bitcoin's ten minutes on mainnet, but the burnchain under Stacks testnet is
+   * a regtest one mined on a timer and lands blocks about four minutes apart,
+   * and a devnet regtest mines on a timer of seconds. A
    * ten-minute assumption on testnet reports a two-day stake window as five,
    * which is a countdown that can talk an operator out of a bond it had time
    * for. `?blockMinutes=` overrides it where a chain does neither.
@@ -67,19 +67,28 @@ export const NETWORKS: Record<NetworkName, NetworkInfo> = {
     explorer: "https://explorer.hiro.so",
     sbtc: "SN3VMHXEN64ZZF71JQ5VESXDWTR301XTTXGF4J8F1.sbtc-token",
     pox: "ST000000000000000000002AMW42H.pox-5",
-    blockMinutes: 4, // measured, not nominal: testnet4's twenty-minute rule keeps it well under bitcoin's ten
-    // Stacks testnet is anchored to bitcoin testnet4, which encodes addresses
-    // exactly as testnet3 does -- `tb1…`, and m/n/2 in base58 -- so `testnet`
-    // is the right chain for an address either way, and only the API has to
-    // name testnet4 specifically.
+    blockMinutes: 4, // measured over 150 blocks: a regtest burnchain mined on a timer, 4.01 minutes apart
+    // The burnchain under Stacks testnet is **regtest**, not testnet4.
     //
-    // Emily is a dev instance. `https`, not `http`: this page is served over
-    // TLS and a browser blocks a plain-text fetch out of it, so an `http://`
-    // endpoint here would not be reachable at all. `?btcApi=` and `?emily=`
-    // point a visit somewhere else -- at the environment's own explorer, if its
-    // bitcoin is not the public testnet4.
+    // `/v2/info` says so: `parent_network_id` is 3669344250 -- 0xdab5bffa, the
+    // regtest network magic. testnet3 and testnet4 are 0x0709110b, mainnet
+    // 0xd9b4bef9. So its addresses are `bcrt1…`, not `tb1…`, and Hiro's own
+    // bitcoin faucet refuses a `tb1…` with "Invalid BTC regtest address".
+    // Getting this wrong is not cosmetic: the faucet says no, the wallet's
+    // address is refused, and a commitment would name an address on a chain
+    // whose bitcoin nothing here can spend.
+    //
+    // It also explains the pace above. A regtest chain does not answer to
+    // bitcoin's difficulty rules at all -- it is mined on a timer, which is why
+    // four minutes holds so steadily.
+    //
+    // The API is the loose end: `mempool.space` indexes public chains, and a
+    // private regtest is not one, so reading a deposit back does not work
+    // against it. `?btcApi=` points a visit at the environment's own explorer.
+    // Emily is a dev instance, `https` rather than `http`: this page is served
+    // over TLS and a browser blocks a plain-text fetch out of it.
     bitcoin: {
-      chain: "testnet",
+      chain: "regtest",
       api: "https://mempool.space/testnet4/api",
       emily: "https://temp.sbtc-emily-dev.com",
     },
@@ -209,8 +218,8 @@ export const net = (): NetworkInfo => NETWORKS[config.network];
  * How long a burn block takes on the configured chain.
  *
  * A function rather than a constant so `?blockMinutes=` can override it the
- * way the bitcoin endpoints are overridden: a private burnchain keeps neither
- * bitcoin's pace nor testnet4's, and a countdown drawn at the wrong one is
+ * way the bitcoin endpoints are overridden: another burnchain keeps neither
+ * bitcoin's pace nor this one's, and a countdown drawn at the wrong one is
  * worse than no countdown at all.
  */
 export const blockMinutes = (): number => {
@@ -253,6 +262,31 @@ export const onConfiguredChain = (address: string): boolean => {
 /** What an address on that chain looks like, for a field's placeholder. */
 export const addressExample = (): string =>
   ({ mainnet: "bc1q…", testnet: "tb1q…", regtest: "bcrt1q…" })[bitcoin().chain];
+
+/**
+ * What to do about a wallet that is on a different bitcoin than this page.
+ *
+ * A member cannot act on "that address is for another chain": the address came
+ * from their wallet, and the thing to change is a setting inside it. So this
+ * names the setting. The regtest burnchain under Stacks testnet is the one
+ * Leather calls **sBTC Testnet** -- picking plain "Testnet" there gives `tb1…`
+ * addresses, which is the wrong chain and the mistake worth heading off.
+ */
+export const walletNetworkAdvice = (): string => {
+  const { chain } = bitcoin();
+  const prefix = addressExample().replace("…", "");
+  if (chain === "mainnet") {
+    return `Set your wallet to bitcoin mainnet — its addresses start with ${prefix} — and reconnect.`;
+  }
+  if (chain === "regtest") {
+    return (
+      `This deployment's bitcoin is regtest, whose addresses start with ${prefix}. ` +
+      `In Leather, open the network menu and choose "sBTC Testnet" — not plain ` +
+      `Testnet, which gives tb1 addresses — then reconnect.`
+    );
+  }
+  return `Switch your wallet to bitcoin ${chain}, whose addresses start with ${prefix}, and reconnect.`;
+};
 
 export const bitcoin = (): BitcoinInfo & { configured: boolean } => {
   // `EMILY_PROXY` is defined at the foot of this file, beside the other build
