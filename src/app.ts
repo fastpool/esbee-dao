@@ -29,7 +29,7 @@ import {
   walletNetworkAdvice,
 } from "./config.js";
 import { num } from "./plain.js";
-import { discuss, mountChat, syncChat } from "./chat.js";
+import { beeIdentity, discuss, mountChat, syncChat } from "./chat.js";
 import type {
   BridgeEvent,
   MemberPosition,
@@ -1441,6 +1441,20 @@ const lockedSats = (): number | null => {
 const l1Underway = (): boolean => lockedSats() !== null;
 
 /**
+ * The STX that went with the committed sats, as the bridge recorded it.
+ *
+ * Read back rather than re-quoted, and the difference is not cosmetic: a quote
+ * prices sats against whatever bond is bound *now*, and the pool may have
+ * rolled since the commit. What the member paid is what the announcement says
+ * they paid.
+ */
+const lockedUstx = (): number | null => {
+  const c = state.l1Chain;
+  if (!c || c.credited) return null;
+  return c.announcement?.ustx ?? c.commitment?.ustx ?? null;
+};
+
+/**
  * The amount, in the contract's own unit.
  *
  * The same field as the sBTC route's: there is one amount on this card now,
@@ -1701,6 +1715,13 @@ async function doCommit(): Promise<void> {
     api.bridgeCalls.commitAddress(digest, sats, ustx),
   );
   if (txid) {
+    // A new commitment starts a new route: whatever deposit was remembered
+    // against this address belonged to the last one -- including the address
+    // it was told to pay, which was derived for the *old* amount and would
+    // otherwise keep announcing that amount under the new commitment.
+    forgetSent(address.text);
+    setState({ btcTxid: "", btcVout: "0", deposit: null, emily: null });
+    setValue("btc-txid", "");
     followL1();
     setState({
       notice:
@@ -2011,17 +2032,34 @@ async function doCancelL1(): Promise<void> {
       await withWallet("the cancellation", () =>
         api.bridgeCalls.cancelDeposit(address.pox),
       );
-      return followL1();
+      return endRoute(address.text);
     }
     if (salt) {
       const digest = String(await api.addressDigest(address.pox, salt));
       await withWallet("the cancellation", () =>
         api.bridgeCalls.cancelCommitment(state.account!, digest),
       );
-      return followL1();
+      return endRoute(address.text);
     }
   }
   setState({ notice: "Nothing here to cancel for that address." });
+}
+
+/**
+ * Put the route down, leaving nothing of it attached to the next one.
+ *
+ * The deposit this browser remembers belongs to the commitment it was made
+ * under. Left in place across a cancel it becomes the *new* route's reason to
+ * wait -- a card saying it is waiting on a transaction that has nothing to do
+ * with the commitment now standing. The bitcoin itself is untouched by any of
+ * this: it is with the sBTC signers either way, and the deposits card still
+ * lists it.
+ */
+function endRoute(address: string): void {
+  forgetSent(address);
+  setState({ btcTxid: "", btcVout: "0", deposit: null, emily: null, review: null });
+  setValue("btc-txid", "");
+  followL1();
 }
 
 /**
@@ -2267,10 +2305,16 @@ function joinPanel(): JoinPanel {
       : !bond?.bound
         ? "Deposits open when the operator binds a bond. Nothing is locked meanwhile."
         : "This bond has started; the next window opens when the pool binds again.",
+    // A committed route arrives with both legs already settled, so the line
+    // says them rather than waiting to be typed into. Without this, a member
+    // returning to a deposit made yesterday was told to "enter an amount"
+    // beside an amount field they are not allowed to type in.
     quote:
-      state.quotedFor > 0
-        ? `${fmt(state.quotedFor)} sats needs ${stx(state.quotedUstx)}`
-        : "enter an amount",
+      lockedSats() !== null
+        ? `${written(lockedSats()!)} needs ${stx(lockedUstx() ?? 0)}`
+        : state.quotedFor > 0
+          ? `${fmt(state.quotedFor)} sats needs ${stx(state.quotedUstx)}`
+          : "enter an amount",
     balance: m ? btc(m.sbtc) : "—",
     // Past the commit the amount is the bridge's, not the field's. Said in
     // words as well as locked, and the way to change it named: there is one,
@@ -2900,9 +2944,11 @@ function l1Panel(): L1Panel {
   return {
     recipient: state.depositTo || "—",
     quote:
-      state.quotedFor > 0
-        ? `${fmt(state.quotedFor)} sats needs ${(state.quotedUstx / 1e6).toFixed(2)} STX`
-        : "quoted when you commit",
+      lockedSats() !== null
+        ? `${written(lockedSats()!)} needs ${((lockedUstx() ?? 0) / 1e6).toFixed(2)} STX`
+        : state.quotedFor > 0
+          ? `${fmt(state.quotedFor)} sats needs ${(state.quotedUstx / 1e6).toFixed(2)} STX`
+          : "quoted when you commit",
     address: state.btcAddress,
     addressPlaceholder: addressExample(),
     addressLocked: l1Underway(),
@@ -3341,6 +3387,7 @@ function proposalList(): ProposalView[] {
 
 function viewModel(): Scope {
   const live = state.floor;
+  const bee = beeIdentity();
   const { weight, hiveWeight } = weights();
   const proposals = proposalList();
   const sel = proposals.find((p) => p.id === state.sel) ?? null;
@@ -3371,12 +3418,37 @@ function viewModel(): Scope {
     disconnected: !state.connected,
     walletOpen: state.walletOpen,
     walletLabel: state.connected ? shorten(state.account) : "Connect wallet",
+    profileAddress: state.account ?? "",
+    // The chat's identity is a nostr key made in this browser, not the
+    // wallet's. A member who has one should be able to find it from here
+    // rather than only from inside the discussion panel.
+    beeShow: Boolean(bee),
+    beeName: bee?.name ?? "",
+    beeColor: bee?.color ?? "var(--color-neutral-500)",
+    beeNpub: bee?.npubShort ?? "",
+    beeNpubFull: bee?.npub ?? "",
+    beeLinked: !bee
+      ? ""
+      : bee.address === ""
+        ? "not linked to an address yet — link it in the discussion to read the members' room"
+        : bee.address === state.account
+          ? bee.member === true
+            ? "linked to this address, and verified as a member"
+            : bee.member === false
+              ? "linked to this address, which holds no position yet"
+              : "linked to this address"
+          : `linked to ${shorten(bee.address)}, which is not the address connected here`,
     memberSatsLabel: fmt(live ? weight * weight : state.memberSats),
     memberWeight: fmt(weight),
     memberShare: `${((weight / (hiveWeight || 1)) * 100).toFixed(1)}%`,
 
-    openWallet: () => setState({ walletOpen: true }),
+    // Connected, this opens who you are. Disconnected there is nothing to ask:
+    // the wallet's own picker knows which wallets are installed and this page
+    // does not, so it goes straight there.
+    openWallet: () =>
+      state.connected ? setState({ walletOpen: true }) : void doConnect(),
     closeWallet: () => setState({ walletOpen: false }),
+    switchAccount: () => void doSwitchAccount(),
     connect: () => void doConnect(),
     disconnect: () => doDisconnect(),
     closeDetail: () => setState({ sel: null }),
@@ -3500,9 +3572,37 @@ async function doConnect(): Promise<void> {
   }
 }
 
+/**
+ * Hand the wallet back and ask again, which is the only way to change account.
+ *
+ * `connect()` alone may hand back the same account without asking: a wallet
+ * that considers itself connected has no reason to prompt. Dropping the
+ * connection first makes the question unavoidable.
+ */
+async function doSwitchAccount(): Promise<void> {
+  setState({ walletOpen: false });
+  if (!configured()) return;
+  try {
+    const api = await chainApi();
+    api.disconnect();
+    setState({ connected: false, account: null, votes: {}, walletBtc: "" });
+    await doConnect();
+  } catch (error) {
+    setState({ notice: `Could not switch accounts: ${message(error)}` });
+  }
+}
+
 function doDisconnect(): void {
   if (configured()) void chainApi().then((api) => api.disconnect());
-  setState({ connected: false, account: null, votes: {}, walletBtc: "" });
+  setState({
+    connected: false,
+    account: null,
+    votes: {},
+    walletBtc: "",
+    // Nothing left for it to be about: a profile of an account that is no
+    // longer connected is a dialog full of dashes.
+    walletOpen: false,
+  });
 }
 
 async function refresh(): Promise<void> {
@@ -3706,7 +3806,8 @@ mountChat(() => ({
   connected: state.connected,
   configured: configured(),
   proposals: proposalList().map((p) => ({ id: p.id, title: p.title })),
-  openWallet: () => setState({ walletOpen: true }),
+  openWallet: () =>
+    state.connected ? setState({ walletOpen: true }) : void doConnect(),
   signMessage: async (text) => (await chainApi()).signMessage(text),
   showProposal: (id) => {
     setState({ sel: id });

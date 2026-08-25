@@ -1328,23 +1328,51 @@ a:hover { color: var(--color-accent-700); }
   <div style="position:relative;max-width:1240px;margin:0 auto;padding:16px clamp(20px,4vw,40px) clamp(24px,4vw,40px);border-top:1px solid color-mix(in srgb, var(--color-neutral-200) 14%, transparent);font-size:12.5px;opacity:.5">A hive that holds the bond.</div>
 </footer>
 
+<!-- Who you are here, behind the header button. It replaces a wallet
+     chooser that listed three wallets and called the same `connect` for each
+     of them: the wallet's own picker knows what is installed and this page
+     does not, so there was nothing for the page's version to add. -->
 <sc-if value="{{ walletOpen }}" hint-placeholder-val="{{ false }}">
   <div class="dialog-backdrop" style="z-index:60">
     <div class="dialog" style="gap:14px">
-      <div class="dialog-title">Connect a wallet</div>
-      <div class="dialog-body" style="margin-bottom:2px">Reads work without one. A wallet is only needed to cast a vote — and only committed shares carry weight.</div>
-      <div style="display:flex;flex-direction:column;gap:8px">
-        <button sc-camel-on-click="{{ connect }}" style="display:flex;align-items:center;gap:12px;background:var(--color-bg);border:1px solid var(--color-divider);border-radius:999px;padding:12px 18px;cursor:pointer;font:inherit;font-size:14px;text-align:left" style-hover="border-color:var(--color-accent)">
-          <span style="width:28px;height:28px;border-radius:8px;background:var(--color-accent-300);display:grid;place-items:center;font-family:var(--font-heading);font-size:13px">L</span>Leather<span style="margin-left:auto;font-size:12px;opacity:.5">detected</span>
-        </button>
-        <button sc-camel-on-click="{{ connect }}" style="display:flex;align-items:center;gap:12px;background:var(--color-bg);border:1px solid var(--color-divider);border-radius:999px;padding:12px 18px;cursor:pointer;font:inherit;font-size:14px;text-align:left" style-hover="border-color:var(--color-accent)">
-          <span style="width:28px;height:28px;border-radius:8px;background:var(--color-accent-2-300);display:grid;place-items:center;font-family:var(--font-heading);font-size:13px">X</span>Xverse
-        </button>
-        <button sc-camel-on-click="{{ connect }}" style="display:flex;align-items:center;gap:12px;background:var(--color-bg);border:1px solid var(--color-divider);border-radius:999px;padding:12px 18px;cursor:pointer;font:inherit;font-size:14px;text-align:left" style-hover="border-color:var(--color-accent)">
-          <span style="width:28px;height:28px;border-radius:8px;background:var(--color-neutral-300);display:grid;place-items:center;font-family:var(--font-heading);font-size:13px">A</span>Asigna
-        </button>
+      <div class="dialog-title">Your account</div>
+      <div style="display:flex;flex-direction:column;gap:6px;padding:12px 16px;border-radius:var(--radius-md);background:var(--color-surface)">
+        <div style="font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--color-accent)">Stacks address</div>
+        <span style="font-family:ui-monospace,monospace;font-size:12.5px;overflow-wrap:anywhere">{{ profileAddress }}</span>
       </div>
-      <div class="dialog-actions"><button class="btn btn-ghost" sc-camel-on-click="{{ closeWallet }}" style="font-size:13px">Cancel</button></div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,140px),1fr));gap:10px">
+        <div style="padding:12px 16px;background:var(--color-surface);border-radius:var(--radius-md)">
+          <div style="font-family:var(--font-heading);font-size:19px">{{ join.committed }}</div>
+          <div class="text-muted" style="font-size:12px">committed shares</div>
+        </div>
+        <div style="padding:12px 16px;background:var(--color-surface);border-radius:var(--radius-md)">
+          <div style="font-family:var(--font-heading);font-size:19px">{{ join.queuedSats }}</div>
+          <div class="text-muted" style="font-size:12px">queued deposit</div>
+        </div>
+        <div style="padding:12px 16px;background:var(--color-surface);border-radius:var(--radius-md)">
+          <div style="font-family:var(--font-heading);font-size:19px">{{ memberWeight }}</div>
+          <div class="text-muted" style="font-size:12px">voting power · {{ memberShare }} of the hive</div>
+        </div>
+      </div>
+      <!-- The chat identity, which is a nostr key rather than this address.
+           Worth showing here because it is the name other members see. -->
+      <sc-if value="{{ beeShow }}">
+        <div style="display:flex;flex-direction:column;gap:6px;padding:12px 16px;border-radius:var(--radius-md);background:var(--color-surface)">
+          <div style="font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--color-accent)">Your bee, in the discussion</div>
+          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+            <span style="width:10px;height:10px;border-radius:50%;background:{{ beeColor }};flex:none"></span>
+            <span style="font-family:var(--font-heading);font-size:15px">{{ beeName }}</span>
+            <code title="{{ beeNpubFull }}" style="font-family:ui-monospace,monospace;font-size:11.5px;opacity:.7;overflow-wrap:anywhere">{{ beeNpub }}</code>
+          </div>
+          <p class="text-muted" style="margin:0;font-size:12.5px;line-height:1.5">{{ beeLinked }}</p>
+        </div>
+      </sc-if>
+      <div class="dialog-body" style="margin-bottom:2px">Reads work without a wallet. This one is needed to deposit, to vote, and to prove a chat identity is yours.</div>
+      <div class="dialog-actions" style="display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end">
+        <button class="btn btn-ghost" sc-camel-on-click="{{ closeWallet }}" style="font-size:13px">Close</button>
+        <button class="btn btn-secondary" sc-camel-on-click="{{ disconnect }}" style="font-size:13px">Disconnect</button>
+        <button class="btn btn-primary" sc-camel-on-click="{{ switchAccount }}" style="font-size:13px">Switch account</button>
+      </div>
     </div>
   </div>
 </sc-if>

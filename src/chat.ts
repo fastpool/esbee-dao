@@ -289,6 +289,39 @@ function toggle(): void {
 }
 
 /** Open the panel on one proposal, from its card on the page. */
+/**
+ * The bee this reader posts as, for the profile the rest of the page shows.
+ *
+ * The chat's own identity is a nostr key, not the wallet's: it is made in this
+ * browser and only *linked* to an address once the member signs for it. That
+ * makes it a thing a member has to be able to find outside the chat panel --
+ * a name they did not choose to see somewhere they were not looking is how a
+ * pseudonym becomes a surprise.
+ *
+ * `null` until the network layer is loaded, which is after the page paints.
+ */
+export function beeIdentity(): {
+  name: string;
+  npub: string;
+  npubShort: string;
+  color: string;
+  address: string;
+  member: boolean | null;
+} | null {
+  const me = state.me;
+  if (!me) return null;
+  const npub = backend?.npub(me.pubkey) ?? "";
+  const known = myKnown();
+  return {
+    name: nameOf(me.pubkey),
+    npub,
+    npubShort: npub ? shortKey(npub) : "",
+    color: colorOf(me.pubkey),
+    address: known?.address ?? "",
+    member: known ? known.member : null,
+  };
+}
+
 export function discuss(id: number): void {
   markSeen();
   setState({ open: true, topic: id, sheet: "none", notice: "" });

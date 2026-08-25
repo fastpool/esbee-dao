@@ -85,6 +85,11 @@ const scope: Record<string, unknown> = {
   statEpochNote: "bond 3 bound, not yet staked",
   connected: true, disconnected: false, walletOpen: true,
   walletLabel: "SP2J8XK…9K4T",
+  profileAddress: "ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM",
+  switchAccount: () => {},
+  beeShow: true, beeName: "amber-drone", beeColor: "#c67139",
+  beeNpub: "npub1amber…9f8e7d", beeNpubFull: "npub1amber",
+  beeLinked: "linked to this address, and verified as a member",
   memberSatsLabel: "10,000,000", memberWeight: "3,162", memberShare: "13.1%",
   openWallet: () => {}, closeWallet: () => {}, connect: () => {},
   disconnect: () => {}, closeDetail: () => {},
@@ -278,6 +283,17 @@ for (const phrase of [
 
 check(mount!.querySelectorAll("svg").length > 0, "svg icons render in their namespace");
 
+// The header button opens who you are, not a list of wallets this page cannot
+// actually detect. The chat's identity belongs there too: it is a nostr key
+// made in this browser, and the name other members see.
+for (const phrase of ["Your account", "voting power", "Switch account", "Your bee, in the discussion"]) {
+  check(text.includes(phrase), `the profile shows "${phrase}"`);
+}
+check(
+  !text.includes("Connect a wallet") && !text.includes("Xverse") && !text.includes("Asigna"),
+  "and the page no longer keeps a wallet list of its own",
+);
+
 // The two assets are the real marks, not a letter in a circle: sBTC's own
 // logo as a file, and bitcoin's as the mark bitcoin.org put in the public
 // domain, drawn inline so it costs no request and stays sharp at any size.
@@ -353,6 +369,37 @@ check(
 // transaction -- so the card asks for an address and an amount up front, and
 // its third step is a deposit this page can actually make.
 check(text.includes("Your bitcoin address"), 'the card asks "Your bitcoin address" before the choice');
+// A cancelled or replaced route must not leave its deposit attached to the
+// next one, or the card waits on a transaction that has nothing to do with the
+// commitment now standing.
+{
+  const source = readFileSync("src/app.ts", "utf8");
+  const cancel = source.slice(source.indexOf("async function doCancelL1"));
+  check(
+    (cancel.slice(0, cancel.indexOf("function endRoute")).match(/endRoute\(/g) ?? [])
+      .length === 2,
+    "cancelling puts the route down rather than only re-reading it",
+  );
+  const commit = source.slice(source.indexOf("async function doCommit"));
+  check(
+    commit.slice(0, commit.indexOf("async function", 10)).includes("forgetSent("),
+    "and a new commitment inherits nothing from the last one",
+  );
+}
+
+// Both legs of a committed route come off the bridge, not off a fresh quote:
+// the pool may have rolled since the commit, and what the member paid is what
+// the announcement says they paid. Re-quoting would price it against a bond
+// they are not in.
+{
+  const source = readFileSync("src/app.ts", "utf8");
+  check(
+    source.includes("const lockedUstx = ()") &&
+      /quote:\s*\n\s*lockedSats\(\) !== null/.test(source),
+    "a committed route states its STX leg rather than asking for an amount",
+  );
+}
+
 // The deposit a member already told the page about has to be in hand *before*
 // the reads that decide which step they are on, not restored alongside them.
 // Restored alongside, the reads see an empty txid on the first load after a
