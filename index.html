@@ -568,6 +568,17 @@ a:hover { color: var(--color-accent-700); }
             <input class="input" id="btc-address" placeholder="{{ l1.addressPlaceholder }}" value="{{ l1.address }}" autocomplete="off" spellcheck="false">
           </div>
           <p class="text-muted" style="margin:-4px 0 0;font-size:12.5px;line-height:1.5">{{ l1.addressNote }}</p>
+          <!-- The connected wallet's own address, where the field already holds
+               a different one. An offer, not a correction: any address the
+               member controls will do, and only they know which they will send
+               from. -->
+          <sc-if value="{{ l1.suggestShow }}">
+            <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:-6px 0 0">
+              <span class="text-muted" style="font-size:12.5px">{{ l1.suggestNote }}</span>
+              <code style="font-family:ui-monospace,monospace;font-size:12px;overflow-wrap:anywhere;min-width:0">{{ l1.suggestAddress }}</code>
+              <button class="btn btn-secondary" sc-camel-on-click="{{ l1.useWallet }}" style="font-size:13px;padding:7px 14px">Use it</button>
+            </div>
+          </sc-if>
           <sc-if value="{{ l1.faucet }}">
             <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
               <span class="text-muted" style="font-size:12.5px">Testnet faucet</span>

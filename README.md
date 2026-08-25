@@ -170,6 +170,7 @@ today.
 
     ?network=mainnet                     // override the remembered choice
     ?network=testnet&deployer=ST3OTHER…  // point at a throwaway deployment
+    ?blockMinutes=2.5                    // a burnchain that keeps its own pace
 
 `pool` defaults to `vault-2` on testnet and `bond-staker` on mainnet — the pool
 takes whatever name its pox-5 allowlist grant spells, so it is configuration
@@ -183,12 +184,21 @@ three states because the contract does:
 
 | | |
 | --- | --- |
-| nothing bound | what is running, why the pool cannot join it, and when the next chance comes. This is testnet today |
+| nothing bound | what is running, why the pool cannot join it, and when the next chance comes — and, where a bond was bound but started without the pool, that it was missed and `bind-bond` may replace it |
 | bound, not staked | when the notice ends, when the stake window opens, when deposits close and the bond starts, when the term ends |
 | live | what was staked, and when the principal unlocks |
 
+The middle state is the contract's `can-still-stake`, not merely `bound`: a
+bond whose start has gone by is not what comes next, so it drops to the first
+state rather than sitting there as "next bond" with every date behind it.
+
 Every row is a burn height read from chain plus a duration derived from it at
-~10 minutes a block. Nothing is inferred from a calendar.
+`blockMinutes` for the network — ten on mainnet, **four** on testnet, where the
+testnet4 chain Stacks is anchored to has been running at about that. The
+difference is not cosmetic: at ten, testnet's two-day stake window reads as
+five, which is a countdown that can talk an operator out of a bond it had time
+for. `?blockMinutes=` covers a burnchain that keeps its own pace. Nothing is
+inferred from a calendar.
 
 The unbound state reads pox-5 directly rather than the pool, because the pool
 has nothing to say yet. `bond-period-to-burn-height` for two indices gives the

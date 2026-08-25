@@ -45,6 +45,19 @@ export interface NetworkInfo {
   sbtc: string;
   /** pox-5, whose boot address differs between mainnet and the rest. */
   pox: string;
+  /**
+   * How long a burn block takes here, in minutes -- what every countdown on
+   * the page is drawn at.
+   *
+   * Not the same number everywhere, and the difference is not cosmetic:
+   * bitcoin's ten minutes on mainnet, but the testnet4 chain Stacks testnet is
+   * anchored to runs its difficulty-reset rule hard and has been landing
+   * blocks at about four, and a devnet regtest mines on a timer of seconds. A
+   * ten-minute assumption on testnet reports a two-day stake window as five,
+   * which is a countdown that can talk an operator out of a bond it had time
+   * for. `?blockMinutes=` overrides it where a chain does neither.
+   */
+  blockMinutes: number;
   bitcoin: BitcoinInfo;
 }
 
@@ -54,6 +67,7 @@ export const NETWORKS: Record<NetworkName, NetworkInfo> = {
     explorer: "https://explorer.hiro.so",
     sbtc: "SN3VMHXEN64ZZF71JQ5VESXDWTR301XTTXGF4J8F1.sbtc-token",
     pox: "ST000000000000000000002AMW42H.pox-5",
+    blockMinutes: 4, // measured, not nominal: testnet4's twenty-minute rule keeps it well under bitcoin's ten
     // Stacks testnet is anchored to bitcoin testnet4, which encodes addresses
     // exactly as testnet3 does -- `tb1…`, and m/n/2 in base58 -- so `testnet`
     // is the right chain for an address either way, and only the API has to
@@ -75,6 +89,7 @@ export const NETWORKS: Record<NetworkName, NetworkInfo> = {
     explorer: "https://explorer.hiro.so",
     sbtc: "SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-token",
     pox: "SP000000000000000000002Q6VF78.pox-5",
+    blockMinutes: 10, // bitcoin
     bitcoin: {
       chain: "mainnet",
       api: "https://mempool.space/api",
@@ -86,6 +101,7 @@ export const NETWORKS: Record<NetworkName, NetworkInfo> = {
     explorer: "http://localhost:8000",
     sbtc: "SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-token",
     pox: "ST000000000000000000002AMW42H.pox-5",
+    blockMinutes: 0.5, // a regtest burnchain on a timer -- Clarinet's default is thirty seconds
     bitcoin: {
       chain: "regtest",
       api: "http://localhost:3010/api/proxy",
@@ -188,6 +204,19 @@ export const config = {
 export const configured = (): boolean => Boolean(config.deployer);
 
 export const net = (): NetworkInfo => NETWORKS[config.network];
+
+/**
+ * How long a burn block takes on the configured chain.
+ *
+ * A function rather than a constant so `?blockMinutes=` can override it the
+ * way the bitcoin endpoints are overridden: a private burnchain keeps neither
+ * bitcoin's pace nor testnet4's, and a countdown drawn at the wrong one is
+ * worse than no countdown at all.
+ */
+export const blockMinutes = (): number => {
+  const asked = Number(params.get("blockMinutes"));
+  return Number.isFinite(asked) && asked > 0 ? asked : net().blockMinutes;
+};
 
 /**
  * The bitcoin side, with the per-visit overrides applied.

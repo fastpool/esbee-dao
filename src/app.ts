@@ -14,6 +14,7 @@ import {
   addressExample,
   apiBase,
   bitcoin,
+  blockMinutes,
   config,
   configured,
   explorerContract,
@@ -111,6 +112,16 @@ interface State {
   /** The L1 route's own fields, held across a re-render like the join card's. */
   btcAmount: string;
   btcAddress: string;
+  /**
+   * The connected wallet's own bitcoin address, where it has one on the chain
+   * this page is about. "" when no wallet is connected, or when the only
+   * addresses it handed over belong to another bitcoin.
+   *
+   * Kept beside the field rather than written into it: it prefills an empty
+   * field, but a member who has typed an address of their own gets it offered
+   * next to what they wrote, never over the top of it.
+   */
+  walletBtc: string;
   /** The deposit address this page derived, once it has derived one. */
   deposit: DepositTarget | null;
   /** Last quoted STX leg, in uSTX, for whatever is typed in the sats field. */
@@ -164,6 +175,7 @@ const state: State = {
   depositTo: "",
   btcAmount: "",
   btcAddress: "",
+  walletBtc: "",
   deposit: null,
   quotedFor: 0,
   quotedUstx: 0,
@@ -250,9 +262,12 @@ const gateLabels = (): string[] => [
 
 /// --- chain -> the design's shape -------------------------------------------------
 
-// ~10 minutes a burn block, which is all the precision these countdowns need.
+// A burn block is not ten minutes everywhere -- see `blockMinutes` in
+// config.ts -- and a countdown drawn at the wrong pace is what makes a window
+// look further off than it is. Whole hours either way, which is all the
+// precision these countdowns need.
 function duration(blocks: number): string {
-  const hours = Math.round((Math.abs(blocks) * 10) / 60);
+  const hours = Math.round((Math.abs(blocks) * blockMinutes()) / 60);
   if (hours < 1) return "under an hour";
   if (hours < 48) return `${hours}h`;
   const days = Math.floor(hours / 24);
@@ -482,7 +497,12 @@ function bondPanel(): BondPanel {
     };
   }
 
-  if (bond && bond.bound) {
+  // `stakeable` is the contract's own `can-still-stake`: bound, and the start
+  // still ahead. A bond that has started without the pool in it is not what
+  // comes next -- it can no longer be joined and `bind-bond` may replace it --
+  // so it falls through to the schedule below rather than sitting here as
+  // "next bond" with dates that have all gone by.
+  if (bond && bond.bound && bond.stakeable) {
     const start = num(bond["start-height"]);
     const opens = num(bond["stake-opens-at"]);
     const notice = num(bond["notice-ends-at"]);
@@ -507,16 +527,26 @@ function bondPanel(): BondPanel {
     };
   }
 
-  // Nothing bound. What a reader wants to know is what is running, why they
-  // cannot join it, and when the next chance comes -- all of which is pox-5's
-  // to answer, not the pool's.
+  // Nothing the pool can be joined into: either nothing was ever bound, or a
+  // bound bond started without it. What a reader wants to know is what is
+  // running, why they cannot join it, and when the next chance comes -- all of
+  // which is pox-5's to answer, not the pool's.
+  const missed = bond?.bound ? num(bond["bond-index"]) : null;
+  const missedStart = bond?.bound ? num(bond["start-height"]) : 0;
+
   const schedule = pool.schedule;
   if (!schedule) {
     return {
       show: true,
-      kicker: "No bond",
-      headline: "Nothing bound yet",
-      lead: `Deposits are closed until the operator binds a bond. Chain tip is burn ${fmt(burn)}.`,
+      kicker: missed === null ? "No bond" : "Awaiting a new bind",
+      headline:
+        missed === null ? "Nothing bound yet" : `Bond ${missed} started without the pool`,
+      lead:
+        missed === null
+          ? `Deposits are closed until the operator binds a bond. Chain tip is burn ${fmt(burn)}.`
+          : `Bond ${missed} started at burn ${fmt(missedStart)} without being staked, so it ` +
+            `can no longer be joined. Deposits stay closed until the operator binds ` +
+            `another. Chain tip is burn ${fmt(burn)}.`,
       rows: [],
     };
   }
@@ -529,24 +559,45 @@ function bondPanel(): BondPanel {
   // That is why a closed bond stays closed however much room is left in it.
   const closed = Boolean(current?.active);
 
+  const allowlistNote =
+    next.allowance === null ? ", once it has been set up with the pool allowlisted" : "";
+
   return {
     show: true,
-    kicker: closed ? "Closed to new members" : "No bond",
-    headline: closed
-      ? `Bond ${current!.index} is running`
-      : `Bond ${next.index} opens at ${fmt(next.start)}`,
-    lead: closed
+    kicker:
+      missed !== null ? "Awaiting a new bind" : closed ? "Closed to new members" : "No bond",
+    headline:
+      missed !== null
+        ? `Bond ${missed} started without the pool`
+        : closed
+          ? `Bond ${current!.index} is running`
+          : `Bond ${next.index} opens at ${fmt(next.start)}`,
+    lead: missed !== null
+      ? `Bond ${missed} was bound but started at burn ${fmt(missedStart)} without the pool ` +
+        `staking into it, so it can no longer be joined -- bind-bond may replace it. ` +
+        `The pool's next chance is bond ${next.index} at burn ${fmt(next.start)}, ` +
+        `${relative(next.start, burn)}${allowlistNote}.`
+      : closed
       ? `Bond ${current!.index} opened at burn ${fmt(current!.start)} and runs to ` +
         `${fmt(current!.unlock)}, ${relative(current!.unlock, burn)}. Its members were ` +
         `approved before it opened — pox-5 writes a bond's allowlist once, when the ` +
         `bond is set up, so no staker can be added to one that is already running. ` +
         `The pool's next chance is bond ${next.index} at burn ${fmt(next.start)}, ` +
-        `${relative(next.start, burn)}` +
-        `${next.allowance === null ? ", once it has been set up with the pool allowlisted" : ""}.`
+        `${relative(next.start, burn)}${allowlistNote}.`
       : `Deposits are closed until the operator binds a bond. Bond ${next.index} ` +
         `opens at burn ${fmt(next.start)}, ${relative(next.start, burn)}.`,
     rows: [
       row("Chain tip", `burn ${fmt(burn)}`, "now", true),
+      ...(missed !== null
+        ? [
+            row(
+              `Bond ${missed} missed`,
+              `started at burn ${fmt(missedStart)}`,
+              relative(missedStart, burn),
+              false,
+            ),
+          ]
+        : []),
       ...(current
         ? [
             row(
@@ -729,9 +780,11 @@ function launchPanel(): LaunchPanel {
   const notice = num(bond!["notice-ends-at"]);
   const reached = share >= MILESTONE;
   // Everything `stake` itself checks, so the button is offered only when the
-  // call would actually go through.
+  // call would actually go through. The milestone is deliberately not among
+  // them: the contract has no opinion about half an allocation, and gating the
+  // button on one hid the call from a small pool that could stake perfectly
+  // well -- which is how a bond gets missed.
   const stakeReady =
-    reached &&
     burn >= opens &&
     burn >= notice &&
     burn < start &&
@@ -778,22 +831,25 @@ function launchPanel(): LaunchPanel {
 
     // The milestone is this page's, not the contract's: `stake` has no opinion
     // about half an allocation and never refuses over it. What it marks is the
-    // point where starting beats waiting for a fuller pool -- and past it the
-    // call is offered, because anyone may make it.
+    // point where starting beats waiting for a fuller pool -- advice about the
+    // call, never a gate on it.
     milestoneShow: !pool.live,
     milestoneReached: reached,
     milestoneLabel: reached
       ? `Past half the allocation — the pool is worth starting`
-      : `50% · ${btc(target * MILESTONE)} launches it`,
-    stakeShow: reached && !pool.live && burn < start,
+      : `50% · ${btc(target * MILESTONE)} is the mark, not a floor`,
+    stakeShow: !pool.live && burn < start,
     stakeReady,
     stakeLabel: "Stake the pool — open epoch 0",
     stakeWait: stakeReady
       ? ""
-      : burn < notice
-        ? `The members' notice runs to burn ${fmt(notice)}, ${relative(notice, burn)}.`
-        : burn < opens
-          ? `The stake window opens at burn ${fmt(opens)}, ${relative(opens, burn)}.`
+      : burn < opens
+        ? `The stake window opens at burn ${fmt(opens)}, ${relative(opens, burn)}` +
+          (notice > opens
+            ? `, and the members' notice runs to burn ${fmt(notice)}, ${relative(notice, burn)}.`
+            : ".")
+        : burn < notice
+          ? `The members' notice runs to burn ${fmt(notice)}, ${relative(notice, burn)}.`
           : "Nothing eligible to stake yet.",
     stake: () => void doStake(),
   };
@@ -1653,6 +1709,11 @@ interface L1Panel {
   address: string;
   addressPlaceholder: string;
   addressNote: string;
+  /** The wallet's own address, offered beside a field that already has one. */
+  suggestShow: boolean;
+  suggestNote: string;
+  suggestAddress: string;
+  useWallet: () => void;
   commit: () => void;
   reveal: () => void;
   deposit: () => void;
@@ -1693,6 +1754,17 @@ function l1Panel(): L1Panel {
   const btc = bitcoin();
   const target = state.deposit;
 
+  // The wallet has an address for this bitcoin and the field holds a different
+  // one -- typed by the member, or left over from before they connected. Both
+  // are legitimate: the bridge takes any address the member controls, and only
+  // they know which one they will send from. So this is an offer beside the
+  // field, not a correction of it, and it disappears the moment the two agree.
+  const typed = state.btcAddress.trim();
+  const suggest =
+    Boolean(state.walletBtc) &&
+    typed !== "" &&
+    typed.toLowerCase() !== state.walletBtc.toLowerCase();
+
   return {
     recipient: state.depositTo || "—",
     amount: state.btcAmount,
@@ -1710,6 +1782,13 @@ function l1Panel(): L1Panel {
         ? "Send from this address and no other — the bridge checks every input against it."
         : `That is not a ${btc.chain} address. This page is about ${btc.chain} bitcoin, ` +
           `and an address on another chain can neither be paid by the faucet nor spent from here.`,
+    suggestShow: suggest,
+    suggestNote: `Your wallet's ${btc.chain} address:`,
+    suggestAddress: state.walletBtc,
+    useWallet: () => {
+      setValue("btc-address", state.walletBtc);
+      setState({ btcAddress: state.walletBtc });
+    },
     commit: () => void doCommit(),
     reveal: () => void doReveal(),
     deposit: () => void doDepositBtc(),
@@ -1984,9 +2063,11 @@ function viewModel(): Scope {
     // being true the moment one is.
     statEpochNote: state.pool?.live
       ? `bond ${num(state.pool.live["bond-index"])} live, shares committed`
-      : state.pool?.bond?.bound
+      : state.pool?.bond?.stakeable
         ? `bond ${num(state.pool.bond["bond-index"])} bound, not yet staked`
-        : "first bond not yet bound",
+        : state.pool?.bond?.bound
+          ? `bond ${num(state.pool.bond["bond-index"])} missed, awaiting a new bind`
+          : "first bond not yet bound",
     statHoney: totals ? `${(num(totals["unclaimed-rewards"]) / 1e8).toFixed(4)} BTC` : "0",
 
     connected: state.connected,
@@ -2124,7 +2205,7 @@ async function doConnect(): Promise<void> {
 
 function doDisconnect(): void {
   if (configured()) void chainApi().then((api) => api.disconnect());
-  setState({ connected: false, account: null, votes: {} });
+  setState({ connected: false, account: null, votes: {}, walletBtc: "" });
 }
 
 async function refresh(): Promise<void> {
@@ -2140,12 +2221,18 @@ async function refresh(): Promise<void> {
     // The bitcoin address the L1 card starts with, taken from the connection
     // rather than asked for: a member who wants to deposit from a different
     // address of theirs types over it.
+    //
+    // Kept in state as well as prefilled, and only where it is an address for
+    // this page's bitcoin: a field that already has something in it is not
+    // overwritten, so the card offers the wallet's address beside it instead
+    // -- which is the case a prefill alone never covered.
     const btc = api.storedBitcoinAddress();
     setState({
       floor,
       pool,
       member,
       depositTo: String(depositTo ?? ""),
+      walletBtc: btc && onConfiguredChain(btc) ? btc : "",
       ...(btc && !state.btcAddress ? { btcAddress: btc } : {}),
     });
   } catch (error) {

@@ -22,6 +22,17 @@ export interface NetworkInfo {
   sbtc: string;
   /** pox-5, whose boot address differs between mainnet and the rest. */
   pox: string;
+  /**
+   * How long a burn block takes here, in minutes -- what every countdown on
+   * the page is drawn at.
+   *
+   * Not the same number everywhere, and the difference is not cosmetic:
+   * bitcoin's ten minutes on mainnet, but the testnet4 chain Stacks testnet is
+   * anchored to runs its difficulty-reset rule hard and has been landing
+   * blocks at about four, and a devnet regtest mines on a timer of seconds.
+   * `?blockMinutes=` overrides it where a chain does neither.
+   */
+  blockMinutes: number;
 }
 
 export const NETWORKS: Record<NetworkName, NetworkInfo> = {
@@ -30,18 +41,24 @@ export const NETWORKS: Record<NetworkName, NetworkInfo> = {
     explorer: "https://explorer.hiro.so",
     sbtc: "SN3VMHXEN64ZZF71JQ5VESXDWTR301XTTXGF4J8F1.sbtc-token",
     pox: "ST000000000000000000002AMW42H.pox-5",
+    // Measured, not nominal: testnet4's twenty-minute rule keeps it well under
+    // bitcoin's ten.
+    blockMinutes: 4,
   },
   mainnet: {
     api: "https://api.hiro.so",
     explorer: "https://explorer.hiro.so",
     sbtc: "SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-token",
     pox: "SP000000000000000000002Q6VF78.pox-5",
+    blockMinutes: 10, // bitcoin
   },
   devnet: {
     api: "http://localhost:3999",
     explorer: "http://localhost:8000",
     sbtc: "SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-token",
     pox: "ST000000000000000000002AMW42H.pox-5",
+    // A regtest burnchain mines on a timer; Clarinet's default is thirty seconds.
+    blockMinutes: 0.5,
   },
 };
 
@@ -135,6 +152,18 @@ export const config = {
 export const configured = (): boolean => Boolean(config.deployer && config.pool);
 
 export const net = (): NetworkInfo => NETWORKS[config.network];
+
+/**
+ * How long a burn block takes on the configured chain.
+ *
+ * A function rather than a constant so `?blockMinutes=` can override it: a
+ * private burnchain keeps neither bitcoin's pace nor testnet4's, and a
+ * countdown drawn at the wrong one is worse than no countdown at all.
+ */
+export const blockMinutes = (): number => {
+  const asked = Number(params.get("blockMinutes"));
+  return Number.isFinite(asked) && asked > 0 ? asked : net().blockMinutes;
+};
 
 /**
  * Where reads go, which is not always the node itself.

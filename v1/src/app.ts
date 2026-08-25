@@ -30,6 +30,7 @@
 import { mountInto, type Scope } from "./render.js";
 import {
   apiBase,
+  blockMinutes,
   config,
   configured,
   explorerContract,
@@ -229,9 +230,12 @@ const gateLabels = (): string[] => [
 
 /// --- chain -> the design's shape -------------------------------------------------
 
-// ~10 minutes a burn block, which is all the precision these countdowns need.
+// A burn block is not ten minutes everywhere -- see `blockMinutes` in
+// config.ts -- and a countdown drawn at the wrong pace is what makes a window
+// look further off than it is. Whole hours either way, which is all the
+// precision these countdowns need.
 function duration(blocks: number): string {
-  const hours = Math.round((Math.abs(blocks) * 10) / 60);
+  const hours = Math.round((Math.abs(blocks) * blockMinutes()) / 60);
   if (hours < 1) return "under an hour";
   if (hours < 48) return `${hours}h`;
   const days = Math.floor(hours / 24);
