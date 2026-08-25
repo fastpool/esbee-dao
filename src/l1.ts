@@ -137,6 +137,19 @@ export interface DepositAddress {
   address: string;
   depositScript: string;
   reclaimScript: string;
+  /**
+   * The five values the address is built from, carried back out with it.
+   *
+   * Not decoration: an address nobody can rebuild is an address that has to be
+   * taken on trust, and these are exactly what an independent tool asks for.
+   * The signers' key and the max fee live in the deposit leaf, the reclaim key
+   * and the lock time in the reclaim leaf.
+   */
+  recipient: string;
+  signersPublicKey: string;
+  reclaimPublicKey: string;
+  maxSignerFee: number;
+  reclaimLockTime: number;
 }
 
 /**
@@ -166,6 +179,11 @@ export function depositAddress(opts: {
     address: built.address,
     depositScript: built.depositScript,
     reclaimScript: built.reclaimScript,
+    recipient: opts.recipient,
+    signersPublicKey: opts.signersPublicKey,
+    reclaimPublicKey: opts.reclaimPublicKey,
+    maxSignerFee: MAX_SIGNER_FEE,
+    reclaimLockTime: RECLAIM_LOCK_TIME,
   };
 }
 
@@ -223,6 +241,7 @@ const text = async (path: string): Promise<string> => {
 /** The raw transaction, which is what both Emily and the bridge are given. */
 export const rawTx = (txid: string): Promise<string> =>
   text(`/tx/${txid.replace(/^0x/, "")}/hex`);
+
 
 /**
  * Which output of `txid` pays `address`, for the vout every later step needs.

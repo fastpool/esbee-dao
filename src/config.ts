@@ -303,6 +303,19 @@ export const walletNetworkAdvice = (): string => {
   return `Switch your wallet to bitcoin ${chain}, whose addresses start with ${prefix}, and reconnect.`;
 };
 
+/**
+ * What to call this chain when asking a wallet to spend on it.
+ *
+ * Normally the chain itself. It is overridable because the name is the wallet's
+ * to recognise, not ours: `sendTransfer` carries it straight through to the
+ * wallet's own UTXO and fee services, and a name that service does not know is
+ * not ignored -- it is defaulted, and the default is mainnet. A wallet that
+ * spells this deployment's chain differently can be told so with
+ * `?walletNetwork=`, without changing how addresses here are encoded.
+ */
+export const walletNetwork = (): string =>
+  params.get("walletNetwork") ?? bitcoin().chain;
+
 export const bitcoin = (): BitcoinInfo & { configured: boolean } => {
   // `EMILY_PROXY` is defined at the foot of this file, beside the other build
   // switch. Read here rather than there because this is the only caller.

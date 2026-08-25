@@ -264,7 +264,13 @@ a:hover { color: var(--color-accent-700); }
 <!-- The design, verbatim. `sc-for`, `sc-if` and `{{ }}` are resolved by app.js;
      keeping them means this markup still diffs cleanly against the canvas. -->
 <template id="tpl">
-<div style="background:var(--color-bg);color:var(--color-text);font-family:var(--font-body);min-height:100vh;overflow-x:hidden">
+<!-- `overflow-x: clip`, not `hidden`. Both stop a stray wide child from
+     scrolling the page sideways, but `hidden` makes this div a scroll
+     container, and a scroll container is what a `position: sticky` descendant
+     sticks to -- which is why the header below scrolled away with the page
+     despite being sticky since the design was drawn. `clip` clips without
+     creating one. -->
+<div style="background:var(--color-bg);color:var(--color-text);font-family:var(--font-body);min-height:100vh;overflow-x:clip">
 
 <header style="position:sticky;top:0;z-index:40;background:color-mix(in srgb, var(--color-bg) 88%, transparent);backdrop-filter:blur(12px);border-bottom:1px solid color-mix(in srgb, var(--color-text) 8%, transparent)">
   <div style="max-width:1240px;margin:0 auto;padding:12px clamp(20px,4vw,40px);display:flex;align-items:center;gap:clamp(12px,3vw,32px);flex-wrap:wrap">
@@ -280,11 +286,10 @@ a:hover { color: var(--color-accent-700); }
       <span style="font-family:var(--font-heading);font-size:21px;letter-spacing:-0.01em">Esbee<span style="color:var(--color-accent)">.</span></span>
     </a>
     <nav style="display:flex;align-items:center;gap:clamp(10px,2vw,24px);flex-wrap:wrap;font-size:14px">
-      <a href="#pool" style="text-decoration:none;color:var(--color-text);white-space:nowrap" style-hover="color:var(--color-accent)">The pool</a>
+      <a href="#pool" style="text-decoration:none;color:var(--color-text);white-space:nowrap" style-hover="color:var(--color-accent)">The Pool</a>
       <a href="#govern" style="text-decoration:none;color:var(--color-text);white-space:nowrap" style-hover="color:var(--color-accent)">Governance</a>
       <a href="#vote" style="text-decoration:none;color:var(--color-text);white-space:nowrap" style-hover="color:var(--color-accent)">Vote</a>
       <a href="#trust" style="text-decoration:none;color:var(--color-text);white-space:nowrap" style-hover="color:var(--color-accent)">Trust</a>
-      <a href="media-kit.html" style="text-decoration:none;color:var(--color-text);white-space:nowrap" style-hover="color:var(--color-accent)">Media kit</a>
     </nav>
     <!-- Which vault the page is talking to. Two of them exist under this DAO
          and they hold different money, so naming it is not decoration: every
@@ -501,92 +506,62 @@ a:hover { color: var(--color-accent-700); }
       </div>
     </div>
 
-    <h3 id="join" style="font-size:clamp(22px,3vw,32px);margin:clamp(36px,5vw,60px) 0 6px;scroll-margin-top:90px">Two ways in</h3>
-    <p class="text-muted" style="margin:0 0 24px;font-size:15px;max-width:56ch">Deposit sBTC you already hold, or arrive with L1 bitcoin. The second route is five steps and the order is the whole point.</p>
-    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,280px),1fr));gap:clamp(12px,2vw,20px)">
-      <div style="background:var(--color-bg);border-radius:28px;padding:clamp(22px,3vw,30px)">
-        <h4 style="margin:0 0 8px;font-size:22px">With sBTC</h4>
-        <p style="margin:0 0 14px;font-size:14px;line-height:1.6;opacity:.8">Enter an amount. The STX leg is quoted from the live bond, and one call moves both.</p>
-        <div style="display:flex;flex-direction:column;gap:8px">
+    <h3 id="join" style="font-size:clamp(22px,3vw,32px);margin:clamp(36px,5vw,60px) 0 6px;scroll-margin-top:90px">Put bitcoin in the pool</h3>
+    <p class="text-muted" style="margin:0 0 24px;font-size:15px;max-width:62ch">Deposit sBTC you already hold, or send bitcoin from your own wallet and let the bridge turn it into sBTC. Both end up in the same place. Every deposit needs some STX alongside it, and the page works out how much as you type. Until the pool stakes, your deposit stays yours — withdraw it any time. After that it earns with the pool until the bond ends.</p>
+    <div style="background:var(--color-bg);border-radius:28px;padding:clamp(22px,3vw,30px)">
+      <div style="display:flex;flex-direction:column;gap:12px">
           <div class="field">
             <div style="display:flex;justify-content:space-between;align-items:center;gap:10px">
               <label for="join-sats" style="margin:0">{{ join.amountLabel }}</label>
               <div style="display:flex;align-items:baseline;gap:7px;flex:none;font-size:12px">
                 <button sc-camel-on-click="{{ join.showSats }}" style="background:none;border:0;padding:0;font:inherit;font-size:12px;cursor:pointer;color:{{ join.satsFg }};text-decoration:{{ join.satsLine }};text-underline-offset:3px">sats</button>
                 <span style="color:var(--color-neutral-500)">·</span>
-                <button sc-camel-on-click="{{ join.showSbtc }}" style="background:none;border:0;padding:0;font:inherit;font-size:12px;cursor:pointer;color:{{ join.sbtcFg }};text-decoration:{{ join.sbtcLine }};text-underline-offset:3px">sBTC</button>
+                <button sc-camel-on-click="{{ join.showSbtc }}" style="background:none;border:0;padding:0;font:inherit;font-size:12px;cursor:pointer;color:{{ join.sbtcFg }};text-decoration:{{ join.sbtcLine }};text-underline-offset:3px">BTC</button>
               </div>
             </div>
             <input class="input" id="join-sats" inputmode="decimal" placeholder="{{ join.placeholder }}" value="{{ join.amount }}" autocomplete="off">
           </div>
-          <div style="display:flex;justify-content:space-between;gap:10px;font-size:13px;padding:9px 2px;">
+          <sc-if value="{{ join.amountLocked }}">
+            <p class="text-muted" style="margin:-6px 0 0;font-size:12.5px;line-height:1.5">{{ join.amountLockNote }}</p>
+          </sc-if>
+          <div style="display:flex;justify-content:space-between;gap:10px;font-size:13px;padding:9px 2px">
             <span class="text-muted">STX leg</span><span id="join-quote" style="font-family:var(--font-heading);text-align:right">{{ join.quote }}</span>
           </div>
+          <!-- What the member is holding, in both of the things they could pay
+               with. The choice below is mostly a question about these two
+               numbers, so they come first and read the same way. -->
           <div style="display:flex;justify-content:space-between;gap:10px;align-items:center;font-size:13px;padding:9px 2px;border-top:1px solid var(--color-divider)">
-            <span class="text-muted">your sBTC</span>
+            <span class="text-muted">Your sBTC</span>
             <sc-if value="{{ join.connected }}" hint-placeholder-val="{{ true }}">
-              <button sc-camel-on-click="{{ join.useMax }}" style="background:none;border:0;padding:0;font:inherit;font-family:var(--font-heading);color:inherit;cursor:pointer;text-align:right" style-hover="color:var(--color-accent-700)">{{ join.balance }}<span class="text-muted" style="font-size:11.5px;margin-left:6px;font-family:var(--font-body)">{{ join.maxHint }}</span></button>
+              <button sc-camel-on-click="{{ join.useMax }}" title="{{ join.maxHint }}" style="background:none;border:0;padding:0;margin:0;font:inherit;cursor:{{ join.pickCursor }};display:flex;align-items:center;justify-content:flex-end;gap:7px;text-align:right;color:inherit" style-hover="color:var(--color-accent-700)"><img src="icons/sbtc.png" alt="" aria-hidden="true" width="17" height="17" style="width:17px;height:17px;border-radius:4px;flex:none;display:block"><span style="font-family:var(--font-heading)">{{ join.balance }}</span></button>
             </sc-if>
             <sc-if value="{{ join.disconnected }}" hint-placeholder-val="{{ false }}">
               <button class="btn btn-secondary" sc-camel-on-click="{{ join.connect }}" style="font-size:12.5px;padding:5px 14px;flex:none">Connect</button>
             </sc-if>
           </div>
+          <div style="display:flex;justify-content:space-between;gap:10px;align-items:center;font-size:13px;padding:9px 2px;border-top:1px solid var(--color-divider)">
+            <span class="text-muted">Your BTC</span>
+            <button sc-camel-on-click="{{ join.useBtcMax }}" title="{{ join.btcMaxHint }}" style="background:none;border:0;padding:0;margin:0;font:inherit;cursor:{{ join.pickCursor }};display:flex;align-items:center;justify-content:flex-end;gap:7px;text-align:right;color:inherit" style-hover="color:var(--color-accent-700)"><svg viewBox="0 0 64 64" width="17" height="17" aria-hidden="true" style="flex:none;display:block"><circle cx="32" cy="32" r="32" fill="#F7931A"/><path fill="#fff" d="M46.1 28.2c.6-4.2-2.6-6.4-7-7.9l1.4-5.7-3.5-.9-1.4 5.6c-.9-.2-1.8-.4-2.8-.7l1.4-5.6-3.5-.9-1.4 5.7c-.8-.2-1.5-.3-2.2-.5v0l-4.8-1.2-.9 3.7s2.6.6 2.5.6c1.4.4 1.7 1.3 1.6 2.1l-1.6 6.5c.1 0 .2.1.4.1l-.4-.1-2.3 9.1c-.2.4-.6 1.1-1.6.8 0 .1-2.5-.6-2.5-.6l-1.7 4 4.5 1.1c.8.2 1.7.4 2.5.6l-1.4 5.8 3.5.9 1.4-5.7c1 .3 1.9.5 2.8.7l-1.4 5.7 3.5.9 1.4-5.8c6 1.1 10.5.7 12.4-4.7 1.5-4.4-.1-6.9-3.3-8.6 2.3-.5 4-2 4.5-5.1zm-8.1 11.3c-1.1 4.4-8.5 2-10.9 1.4l1.9-7.6c2.4.6 10.1 1.8 9 6.2zm1.1-11.4c-1 4-7.2 2-9.2 1.5l1.7-6.9c2 .5 8.5 1.4 7.5 5.4z"/></svg><span style="font-family:var(--font-heading)">{{ join.btcBalance }}</span></button>
+          </div>
           <sc-if value="{{ join.wrongNetwork }}">
             <p style="margin:2px 0 0;font-size:13px;line-height:1.5;color:var(--color-accent-800)">{{ join.networkWarning }}</p>
           </sc-if>
-          <sc-if value="{{ join.faucets }}">
-            <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
-              <span class="text-muted" style="font-size:12.5px">Testnet faucet</span>
-              <button class="btn btn-secondary" sc-camel-on-click="{{ join.faucetSbtc }}" style="font-size:13px;padding:7px 14px">Get sBTC</button>
-              <button class="btn btn-secondary" sc-camel-on-click="{{ join.faucetStx }}" style="font-size:13px;padding:7px 14px">Get STX</button>
-            </div>
-          </sc-if>
-          <sc-if value="{{ join.open }}">
-            <button class="btn btn-primary btn-block" sc-camel-on-click="{{ join.deposit }}">Deposit</button>
-          </sc-if>
-          <sc-if value="{{ join.closed }}">
-            <p class="text-muted" style="margin:6px 0 0;font-size:13px;line-height:1.5">{{ join.closedWhy }}</p>
-          </sc-if>
-          <sc-if value="{{ join.pendingShow }}">
-            <div style="display:flex;flex-direction:column;gap:5px;padding:12px 14px;border-radius:var(--radius-md);background:var(--color-surface)">
-              <span style="font-size:13px;line-height:1.5">{{ join.pendingText }}</span>
-              <a href="{{ join.pendingLink }}" target="_blank" rel="noopener" style="font-size:12px;font-family:ui-monospace,monospace;color:var(--color-accent-800);text-decoration:none" style-hover="text-decoration:underline">{{ join.pendingTxid }} ↗</a>
-            </div>
-          </sc-if>
-        </div>
-      </div>
-      <div style="background:var(--color-bg);border-radius:28px;padding:clamp(22px,3vw,30px)">
-        <h4 style="margin:0 0 8px;font-size:22px">With L1 bitcoin</h4>
-        <p class="text-muted" style="margin:0 0 14px;font-size:14px;line-height:1.6">You commit to the address the bitcoin will come from, reveal it a block later, and then send. Nothing has to be built before the first two steps — the address is one you already have.</p>
-        <div style="display:flex;flex-direction:column;gap:12px">
-          <div class="field">
-            <!-- The same unit switch the sBTC card has, in this card's own
-                 unit: what is sent here is bitcoin, not sBTC. One unit for the
-                 page, so a switch in either card converts both fields. -->
-            <div style="display:flex;justify-content:space-between;align-items:center;gap:10px">
-              <label for="btc-sats" style="margin:0">{{ l1.amountLabel }}</label>
-              <div style="display:flex;align-items:baseline;gap:7px;flex:none;font-size:12px">
-                <button sc-camel-on-click="{{ l1.showSats }}" style="background:none;border:0;padding:0;font:inherit;font-size:12px;cursor:pointer;color:{{ l1.satsFg }};text-decoration:{{ l1.satsLine }};text-underline-offset:3px">sats</button>
-                <span style="color:var(--color-neutral-500)">·</span>
-                <button sc-camel-on-click="{{ l1.showBtc }}" style="background:none;border:0;padding:0;font:inherit;font-size:12px;cursor:pointer;color:{{ l1.btcFg }};text-decoration:{{ l1.btcLine }};text-underline-offset:3px">BTC</button>
-              </div>
-            </div>
-            <input class="input" id="btc-sats" inputmode="decimal" placeholder="{{ l1.placeholder }}" value="{{ l1.amount }}" autocomplete="off">
-          </div>
+          <!-- The address sits with the balance it belongs to: the bitcoin
+               above is what this address holds, and editing one changes the
+               other. -->
           <div class="field">
             <label for="btc-address">Your bitcoin address</label>
             <input class="input" id="btc-address" placeholder="{{ l1.addressPlaceholder }}" value="{{ l1.address }}" autocomplete="off" spellcheck="false">
           </div>
           <p class="text-muted" style="margin:-4px 0 0;font-size:12.5px;line-height:1.5">{{ l1.addressNote }}</p>
-          <!-- The connected wallet's own address, where the field already holds
-               a different one. An offer, not a correction: any address the
-               member controls will do, and only they know which they will send
-               from. -->
           <!-- The wallet cannot reach this bitcoin at all. Said before the two
                Stacks calls, since finding out at step 3 costs both of them. -->
           <sc-if value="{{ l1.walletWrongShow }}">
             <p style="margin:-6px 0 0;font-size:13px;line-height:1.55;color:var(--color-accent-800);overflow-wrap:anywhere">{{ l1.walletWrongNote }}</p>
           </sc-if>
+          <!-- The connected wallet's own address, where the field holds another.
+               An offer, not a correction: any address the member controls will
+               do, and only they know which they will send from. -->
           <sc-if value="{{ l1.suggestShow }}">
             <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:-6px 0 0">
               <span class="text-muted" style="font-size:12.5px">{{ l1.suggestNote }}</span>
@@ -594,165 +569,303 @@ a:hover { color: var(--color-accent-700); }
               <button class="btn btn-secondary" sc-camel-on-click="{{ l1.useWallet }}" style="font-size:13px;padding:7px 14px">Use it</button>
             </div>
           </sc-if>
-          <sc-if value="{{ l1.faucet }}">
-            <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+          <!-- One faucet row for all three legs. They were two rows in two
+               cards, which asked a reader on testnet to find the STX in one
+               place and the bitcoin in another. -->
+          <sc-if value="{{ join.faucets }}">
+            <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;padding-top:2px">
               <span class="text-muted" style="font-size:12.5px">Testnet faucet</span>
+              <button class="btn btn-secondary" sc-camel-on-click="{{ join.faucetSbtc }}" style="font-size:13px;padding:7px 14px">Get sBTC</button>
+              <button class="btn btn-secondary" sc-camel-on-click="{{ join.faucetStx }}" style="font-size:13px;padding:7px 14px">Get STX</button>
               <button class="btn btn-secondary" sc-camel-on-click="{{ l1.faucetBtc }}" style="font-size:13px;padding:7px 14px">Get BTC</button>
-              <span class="text-muted" style="font-size:12px">paid to the address above</span>
+              <span class="text-muted" style="font-size:12px">the bitcoin goes to the address above</span>
             </div>
           </sc-if>
           <!-- The faucet's own payment, on the bitcoin explorer. The notice bar
                is text, and a txid nobody can follow is a receipt for nothing. -->
           <sc-if value="{{ l1.faucetTxShow }}">
-            <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:baseline;margin:-6px 0 0">
+            <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:baseline;margin:-4px 0 0">
               <span class="text-muted" style="font-size:12.5px">Faucet payment</span>
               <a href="{{ l1.faucetTxLink }}" target="_blank" rel="noopener" style="font-size:12px;font-family:ui-monospace,monospace;color:var(--color-accent-800);text-decoration:none" style-hover="text-decoration:underline">{{ l1.faucetTxShort }} ↗</a>
             </div>
           </sc-if>
 
-          <!-- Where the member actually is, read from the bridge against the
-               address in the field. Absent until there is something to read:
-               for a reader without a wallet the five steps below are an
-               explanation, and narrating a position nobody holds is worse than
-               saying nothing. -->
-          <sc-if value="{{ l1.stageShow }}">
-            <div style="display:flex;flex-direction:column;gap:8px;padding:14px 16px;border-radius:var(--radius-md);background:var(--color-surface)">
-              <div style="display:flex;justify-content:space-between;gap:10px;align-items:baseline;flex-wrap:wrap">
-                <span style="font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--color-accent)">{{ l1.stageStep }}</span>
-                <sc-if value="{{ l1.stageAmountShow }}">
-                  <span class="text-muted" style="font-size:12px;font-family:var(--font-heading)">{{ l1.stageAmount }}</span>
-                </sc-if>
-              </div>
-              <div style="height:4px;border-radius:999px;background:var(--color-divider)">
-                <div style="height:100%;width:{{ l1.stageBarW }};background:var(--color-accent);border-radius:999px"></div>
-              </div>
-              <strong style="font-family:var(--font-heading);font-weight:400;font-size:16px;line-height:1.3">{{ l1.stageTitle }}</strong>
-              <p style="margin:0;font-size:13px;line-height:1.55">{{ l1.stageNote }}</p>
-            </div>
+        <!-- The choice, once. Both balances and the STX leg are above it, so a
+             member picks the route they can actually pay rather than finding
+             out inside one of them. -->
+        <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-top:6px">
+          <span class="text-muted" style="font-size:13px">Paying with</span>
+          <div style="display:inline-flex;gap:4px;padding:4px;border-radius:999px;background:var(--color-surface);flex-wrap:wrap">
+            <button sc-camel-on-click="{{ join.pickSbtc }}" title="{{ join.underwayNote }}" style="border:0;cursor:{{ join.pickCursor }};font:inherit;font-family:var(--font-heading);font-size:13.5px;padding:8px 18px;border-radius:999px;background:{{ join.sbtcPickBg }};color:{{ join.sbtcPickFg }}">sBTC</button>
+            <button sc-camel-on-click="{{ join.pickL1 }}" title="{{ join.underwayNote }}" style="border:0;cursor:{{ join.pickCursor }};font:inherit;font-family:var(--font-heading);font-size:13.5px;padding:8px 18px;border-radius:999px;background:{{ join.l1PickBg }};color:{{ join.l1PickFg }}">BTC (L1)</button>
+          </div>
+          <sc-if value="{{ join.underway }}">
+            <span class="text-muted" style="font-size:12.5px;line-height:1.5">settled with the commitment</span>
           </sc-if>
-
-          <!-- The five steps. Each one carries its own mark and weight, so the
-               step that is live reads as the live one and the ones behind it
-               are ticked off rather than merely still there. -->
-          <div style="display:flex;gap:12px;align-items:flex-start;opacity:{{ l1.s1.dim }}">
-            <span style="flex:none;width:26px;height:26px;border-radius:50%;background:{{ l1.s1.bg }};color:{{ l1.s1.fg }};display:grid;place-items:center;font-family:var(--font-heading);font-size:13px">{{ l1.s1.mark }}</span>
-            <p style="margin:0;font-size:14px;line-height:1.55"><strong style="font-family:var(--font-heading);font-weight:400">Commit</strong> a hash of that address and the amount. This takes the STX leg, and gives the address away to nobody. <span style="font-family:var(--font-heading);font-size:12px;color:{{ l1.s1.tone }}">{{ l1.s1.state }}</span></p>
-          </div>
-          <div style="display:flex;gap:12px;align-items:flex-start;opacity:{{ l1.s2.dim }}">
-            <span style="flex:none;width:26px;height:26px;border-radius:50%;background:{{ l1.s2.bg }};color:{{ l1.s2.fg }};display:grid;place-items:center;font-family:var(--font-heading);font-size:13px">{{ l1.s2.mark }}</span>
-            <p style="margin:0;font-size:14px;line-height:1.55"><strong style="font-family:var(--font-heading);font-weight:400">Reveal</strong> it one bitcoin block later, which claims the address before anyone watching the mempool can. <span style="font-family:var(--font-heading);font-size:12px;color:{{ l1.s2.tone }}">{{ l1.s2.state }}</span></p>
-          </div>
-          <div style="display:flex;gap:12px;align-items:flex-start;opacity:{{ l1.s3.dim }}">
-            <span style="flex:none;width:26px;height:26px;border-radius:50%;background:{{ l1.s3.bg }};color:{{ l1.s3.fg }};display:grid;place-items:center;font-family:var(--font-heading);font-size:13px">{{ l1.s3.mark }}</span>
-            <p style="margin:0;font-size:14px;line-height:1.55"><strong style="font-family:var(--font-heading);font-weight:400">Deposit</strong> — only now, and only from the address you revealed. The page derives the sBTC deposit address that credits the treasury, sends to it, and registers the deposit with the signers. <span style="font-family:var(--font-heading);font-size:12px;color:{{ l1.s3.tone }}">{{ l1.s3.state }}</span></p>
-          </div>
-          <div style="display:flex;gap:12px;align-items:flex-start;opacity:{{ l1.s4.dim }}">
-            <span style="flex:none;width:26px;height:26px;border-radius:50%;background:{{ l1.s4.bg }};color:{{ l1.s4.fg }};display:grid;place-items:center;font-family:var(--font-heading);font-size:13px">{{ l1.s4.mark }}</span>
-            <p style="margin:0;font-size:14px;line-height:1.55"><strong style="font-family:var(--font-heading);font-weight:400">Wait</strong> for the sBTC signers to sweep it. They take their fee out of the amount, and the pool credits what arrives. <span style="font-family:var(--font-heading);font-size:12px;color:{{ l1.s4.tone }}">{{ l1.s4.state }}</span></p>
-          </div>
-          <div style="display:flex;gap:12px;align-items:flex-start;opacity:{{ l1.s5.dim }}">
-            <span style="flex:none;width:26px;height:26px;border-radius:50%;background:{{ l1.s5.bg }};color:{{ l1.s5.fg }};display:grid;place-items:center;font-family:var(--font-heading);font-size:13px">{{ l1.s5.mark }}</span>
-            <p style="margin:0;font-size:14px;line-height:1.55"><strong style="font-family:var(--font-heading);font-weight:400">Complete</strong> once it has landed. Permissionless — a keeper can do this for you. <span style="font-family:var(--font-heading);font-size:12px;color:{{ l1.s5.tone }}">{{ l1.s5.state }}</span></p>
-          </div>
-
-          <div style="display:flex;justify-content:space-between;gap:10px;font-size:12.5px;padding:11px 16px;background:var(--color-surface);border-radius:999px">
-            <span class="text-muted">credits</span><span style="font-family:ui-monospace,monospace;overflow-wrap:anywhere;text-align:right">{{ l1.recipient }}</span>
-          </div>
-
-          <!-- Steps 1, 2, 3 and 5 are calls this page makes. Step 4 happens in
-               the signers' own time: it sits in the row so the order still
-               reads, and cannot be pressed.
-               The other four stay pressable whatever the card believes -- the
-               contract is the judge of whether a step can run, and a member who
-               needs to re-run one should not have to reload to do it. What the
-               card knows shows as weight instead: the step to press is the
-               filled one, and the rest fade back. -->
-          <div class="row" style="display:flex;gap:8px;flex-wrap:wrap">
-            <button class="btn {{ l1.commitBtn }}" sc-camel-on-click="{{ l1.commit }}" title="{{ l1.commitHint }}" style="font-size:13px;opacity:{{ l1.commitDim }}">1 · Commit</button>
-            <button class="btn {{ l1.revealBtn }}" sc-camel-on-click="{{ l1.reveal }}" title="{{ l1.revealHint }}" style="font-size:13px;opacity:{{ l1.revealDim }}">2 · Reveal</button>
-            <button class="btn {{ l1.depositBtn }}" sc-camel-on-click="{{ l1.deposit }}" title="{{ l1.depositHint }}" style="font-size:13px;opacity:{{ l1.depositDim }}">3 · Deposit</button>
-            <button class="btn btn-secondary" disabled title="The sBTC signers sweep it in their own time; nothing to press." style="font-size:13px">4 · Wait</button>
-            <button class="btn {{ l1.completeBtn }}" sc-camel-on-click="{{ l1.complete }}" title="{{ l1.completeHint }}" style="font-size:13px;opacity:{{ l1.completeDim }}">5 · Complete</button>
-          </div>
-
-          <!-- What the route has left in the member's hands, each said in
-               words. A hash and two addresses are not self-explanatory, and a
-               member who cannot tell which is which cannot tell whether
-               anything has gone wrong. Long values keep their two ends, carry
-               the whole of themselves in a tooltip, and copy in one press. -->
-          <sc-if value="{{ l1.digestShow }}">
-            <div style="display:flex;flex-direction:column;gap:6px;padding:12px 16px;border-radius:var(--radius-md);background:var(--color-surface)">
-              <div style="font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--color-accent)">The hash you committed</div>
-              <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;min-width:0">
-                <code title="{{ l1.digestFull }}" style="font-family:ui-monospace,monospace;font-size:12.5px;overflow-wrap:anywhere;min-width:0">{{ l1.digestShort }}</code>
-                <button class="btn btn-secondary" sc-camel-on-click="{{ l1.copyDigest }}" style="font-size:12px;padding:5px 11px;flex:none">Copy</button>
-              </div>
-              <p class="text-muted" style="margin:2px 0 0;font-size:12.5px;line-height:1.5">Your bitcoin address and a secret, mixed into one number. This is what stands on chain in place of the address, so nobody reading it can tell which address you mean — or claim it before you do. Revealing turns it back into the address.</p>
-            </div>
-          </sc-if>
-          <sc-if value="{{ l1.revealedShow }}">
-            <div style="display:flex;flex-direction:column;gap:6px;padding:12px 16px;border-radius:var(--radius-md);background:var(--color-surface)">
-              <div style="font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--color-accent)">Your registered bitcoin address · {{ l1.revealedHeld }}</div>
-              <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;min-width:0">
-                <code title="{{ l1.revealedFull }}" style="font-family:ui-monospace,monospace;font-size:12.5px;overflow-wrap:anywhere;min-width:0">{{ l1.revealedShort }}</code>
-                <button class="btn btn-secondary" sc-camel-on-click="{{ l1.copyRevealed }}" style="font-size:12px;padding:5px 11px;flex:none">Copy</button>
-              </div>
-              <p class="text-muted" style="margin:2px 0 0;font-size:12.5px;line-height:1.5">The bridge has written this address down as yours. The bitcoin has to come <em>from</em> it: every input of the transaction you send is checked against it, so sats sent from another address of yours are not credited to you.</p>
-            </div>
-          </sc-if>
-          <sc-if value="{{ l1.saltShow }}">
-            <div style="display:flex;flex-direction:column;gap:6px;padding:12px 16px;border-radius:var(--radius-md);border:1px solid var(--color-divider)">
-              <div style="font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--color-neutral-700)">The secret behind the hash · <span style="color:{{ l1.saltTone }}">{{ l1.saltState }}</span></div>
-              <p class="text-muted" style="margin:0;font-size:12.5px;line-height:1.5">{{ l1.saltNote }}</p>
-            </div>
-          </sc-if>
-
-          <sc-if value="{{ l1.targetHidden }}">
-            <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
-              <button class="btn btn-secondary" sc-camel-on-click="{{ l1.showAddress }}" style="font-size:13px">Show the deposit address</button>
-              <span class="text-muted" style="font-size:12.5px;line-height:1.5">to pay it from somewhere else</span>
-            </div>
-          </sc-if>
-          <sc-if value="{{ l1.targetShow }}">
-            <div style="display:flex;flex-direction:column;gap:6px;padding:12px 16px;border-radius:var(--radius-md);background:var(--color-surface)">
-              <div style="font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--color-accent)">Where the bitcoin goes · sBTC deposit address{{ l1.targetAmount }}</div>
-              <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;min-width:0">
-                <code title="{{ l1.targetAddress }}" style="font-family:ui-monospace,monospace;font-size:12.5px;overflow-wrap:anywhere;min-width:0">{{ l1.targetShort }}</code>
-                <button class="btn btn-secondary" sc-camel-on-click="{{ l1.copyTarget }}" style="font-size:12px;padding:5px 11px;flex:none">Copy</button>
-              </div>
-              <p class="text-muted" style="margin:2px 0 0;font-size:12.5px;line-height:1.5">Yours alone: it commits to the treasury as the account to credit, the signers' current key, and a reclaim path only you can spend — after ~950 blocks, if they never sweep it. Pay it from the address you revealed, then press Register.</p>
-            </div>
-          </sc-if>
-
-          <sc-if value="{{ l1.offline }}">
-            <p style="margin:0;font-size:13px;line-height:1.55;color:var(--color-accent-800)">{{ l1.offlineWhy }}</p>
-          </sc-if>
-
-          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,180px),1fr));gap:12px">
-            <!-- Filled in by step 3, and bound so a re-render puts them back:
-                 the txid of the deposit is the one thing step 5 cannot do
-                 without, and it was being lost the next time the card drew. -->
-            <div class="field">
-              <label for="btc-txid">Deposit txid</label>
-              <input class="input" id="btc-txid" placeholder="64 hex characters" value="{{ l1.txid }}" autocomplete="off" spellcheck="false">
-            </div>
-            <div class="field">
-              <label for="btc-vout">Output index</label>
-              <input class="input" id="btc-vout" inputmode="numeric" value="{{ l1.vout }}" autocomplete="off">
-            </div>
-          </div>
-          <sc-if value="{{ l1.txidShow }}">
-            <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:baseline;margin:-4px 0 0">
-              <span class="text-muted" style="font-size:12.5px">This deposit on bitcoin</span>
-              <a href="{{ l1.txidLink }}" target="_blank" rel="noopener" style="font-size:12px;font-family:ui-monospace,monospace;color:var(--color-accent-800);text-decoration:none" style-hover="text-decoration:underline">{{ l1.txidShort }} ↗</a>
-            </div>
-          </sc-if>
-          <div class="row" style="display:flex;gap:8px;flex-wrap:wrap">
-            <button class="btn btn-secondary" sc-camel-on-click="{{ l1.register }}" style="font-size:13px">Register a deposit I sent</button>
-            <button class="btn btn-secondary" sc-camel-on-click="{{ l1.cancel }}" style="font-size:13px">Cancel and take the STX back</button>
-          </div>
-          <p class="text-muted" style="margin:2px 0 0;font-size:13px;line-height:1.55">The salt that ties your commit to your reveal is generated here and kept in this browser, against the address. Do not send until the reveal has confirmed.</p>
         </div>
+        <sc-if value="{{ join.unchosen }}">
+          <p class="text-muted" style="margin:-2px 0 0;font-size:13px;line-height:1.55">sBTC you already hold moves in one call. L1 bitcoin is five steps and the order is the whole point — the page walks you through them.</p>
+        </sc-if>
+
+        <sc-if value="{{ join.sbtcRoute }}">
+          <p class="text-muted" style="margin:0;font-size:14px;line-height:1.6">One call moves both legs: the sBTC you already hold to the treasury, and the STX beside it to the pool. Nothing else to do.</p>
+            <sc-if value="{{ join.open }}">
+              <button class="btn btn-primary btn-block" sc-camel-on-click="{{ join.deposit }}">Deposit</button>
+            </sc-if>
+            <sc-if value="{{ join.closed }}">
+              <p class="text-muted" style="margin:6px 0 0;font-size:13px;line-height:1.5">{{ join.closedWhy }}</p>
+            </sc-if>
+            <sc-if value="{{ join.pendingShow }}">
+              <div style="display:flex;flex-direction:column;gap:5px;padding:12px 14px;border-radius:var(--radius-md);background:var(--color-surface)">
+                <span style="font-size:13px;line-height:1.5">{{ join.pendingText }}</span>
+                <a href="{{ join.pendingLink }}" target="_blank" rel="noopener" style="font-size:12px;font-family:ui-monospace,monospace;color:var(--color-accent-800);text-decoration:none" style-hover="text-decoration:underline">{{ join.pendingTxid }} ↗</a>
+              </div>
+            </sc-if>
+        </sc-if>
+
+        <sc-if value="{{ join.l1Route }}">
+          <p class="text-muted" style="margin:0;font-size:14px;line-height:1.6">You commit to the address the bitcoin will come from, reveal it a block later, and then send. Nothing has to be built before the first two steps — the address is one you already have.</p>
+          <!-- Where the member actually is, read from the bridge against the
+               address in the field. Absent until there is something to read: to
+               a reader without a wallet the five steps are an explanation, and
+               narrating a position nobody holds is worse than saying nothing. -->
+            <sc-if value="{{ l1.stageShow }}">
+              <div style="display:flex;flex-direction:column;gap:8px;padding:14px 16px;border-radius:var(--radius-md);background:var(--color-surface)">
+                <div style="display:flex;justify-content:space-between;gap:10px;align-items:baseline;flex-wrap:wrap">
+                  <span style="font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--color-accent)">{{ l1.stageStep }}</span>
+                  <sc-if value="{{ l1.stageAmountShow }}">
+                    <span class="text-muted" style="font-size:12px;font-family:var(--font-heading)">{{ l1.stageAmount }}</span>
+                  </sc-if>
+                </div>
+                <div style="height:4px;border-radius:999px;background:var(--color-divider)">
+                  <div style="height:100%;width:{{ l1.stageBarW }};background:var(--color-accent);border-radius:999px"></div>
+                </div>
+                <strong style="font-family:var(--font-heading);font-weight:400;font-size:16px;line-height:1.3">{{ l1.stageTitle }}</strong>
+                <p style="margin:0;font-size:13px;line-height:1.55">{{ l1.stageNote }}</p>
+              </div>
+                          </sc-if>
+
+            <!-- One step at a time. Each carries its own mark and weight, and the
+                 live one opens to hold everything that belongs to it -- its
+                 addresses, its fields, its button. What this replaces was a row
+                 of five buttons above a stack of panels shown all at once: the
+                 same position stated twice, and no way to tell which of six
+                 controls the moment called for. -->
+            <div style="display:flex;flex-direction:column;gap:10px;opacity:{{ l1.s1.dim }}">
+              <div sc-camel-on-click="{{ l1.s1.open }}" style="display:flex;gap:12px;align-items:flex-start;cursor:{{ l1.s1.cursor }}">
+                <span style="flex:none;width:26px;height:26px;border-radius:50%;background:{{ l1.s1.bg }};color:{{ l1.s1.fg }};display:grid;place-items:center;font-family:var(--font-heading);font-size:13px">{{ l1.s1.mark }}</span>
+                <p style="flex:1;min-width:0;margin:0;font-size:14px;line-height:1.55"><strong style="font-family:var(--font-heading);font-weight:400">Commit</strong> a hash of that address and the amount. This takes the STX leg, and gives the address away to nobody. <span style="font-family:var(--font-heading);font-size:12px;color:{{ l1.s1.tone }}">{{ l1.s1.state }}</span></p>
+              </div>
+              <sc-if value="{{ l1.s1.now }}">
+              <sc-if value="{{ l1.s1.live }}">
+                  <div class="row" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+                    <button class="btn {{ l1.commitBtn }}" sc-camel-on-click="{{ l1.commit }}" title="{{ l1.commitHint }}" style="font-size:13px;opacity:{{ l1.commitDim }}">Commit this address</button>
+                    <span class="text-muted" style="font-size:12.5px">the STX leg goes with it</span>
+                  </div>
+              </sc-if>
+              </sc-if>
+            </div>
+                          <div style="display:flex;flex-direction:column;gap:10px;opacity:{{ l1.s2.dim }}">
+              <div sc-camel-on-click="{{ l1.s2.open }}" style="display:flex;gap:12px;align-items:flex-start;cursor:{{ l1.s2.cursor }}">
+                <span style="flex:none;width:26px;height:26px;border-radius:50%;background:{{ l1.s2.bg }};color:{{ l1.s2.fg }};display:grid;place-items:center;font-family:var(--font-heading);font-size:13px">{{ l1.s2.mark }}</span>
+                <p style="flex:1;min-width:0;margin:0;font-size:14px;line-height:1.55"><strong style="font-family:var(--font-heading);font-weight:400">Reveal</strong> it one bitcoin block later, which claims the address before anyone watching the mempool can. <span style="font-family:var(--font-heading);font-size:12px;color:{{ l1.s2.tone }}">{{ l1.s2.state }}</span></p>
+              </div>
+              <sc-if value="{{ l1.s2.now }}">
+              <sc-if value="{{ l1.digestShow }}">
+                  <div style="display:flex;flex-direction:column;gap:6px;padding:12px 16px;border-radius:var(--radius-md);background:var(--color-surface)">
+                    <div style="font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--color-accent)">The hash you committed</div>
+                    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;min-width:0">
+                      <code title="{{ l1.digestFull }}" style="font-family:ui-monospace,monospace;font-size:12.5px;overflow-wrap:anywhere;min-width:0">{{ l1.digestShort }}</code>
+                      <button class="btn btn-secondary" sc-camel-on-click="{{ l1.copyDigest }}" style="font-size:12px;padding:5px 12px;flex:none">Copy</button>
+                    </div>
+                    <p class="text-muted" style="margin:2px 0 0;font-size:12.5px;line-height:1.5">Your bitcoin address and a secret, mixed into one number. This is what stands on chain in place of the address, so nobody reading it can tell which address you mean — or claim it before you do. Revealing turns it back into the address.</p>
+                  </div>
+              </sc-if>
+              <sc-if value="{{ l1.saltShow }}">
+                  <div style="display:flex;flex-direction:column;gap:6px;padding:12px 16px;border-radius:var(--radius-md);background:var(--color-surface)">
+                    <div style="font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:{{ l1.saltTone }}">The secret · {{ l1.saltState }}</div>
+                    <p class="text-muted" style="margin:0;font-size:12.5px;line-height:1.5">{{ l1.saltNote }}</p>
+                  </div>
+              </sc-if>
+              <sc-if value="{{ l1.s2.live }}">
+                  <div class="row" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+                    <button class="btn {{ l1.revealBtn }}" sc-camel-on-click="{{ l1.reveal }}" title="{{ l1.revealHint }}" style="font-size:13px;opacity:{{ l1.revealDim }}">Reveal the address</button>
+                    <span class="text-muted" style="font-size:12.5px">{{ l1.revealHint }}</span>
+                  </div>
+              </sc-if>
+              </sc-if>
+            </div>
+                          <div style="display:flex;flex-direction:column;gap:10px;opacity:{{ l1.s3.dim }}">
+              <div sc-camel-on-click="{{ l1.s3.open }}" style="display:flex;gap:12px;align-items:flex-start;cursor:{{ l1.s3.cursor }}">
+                <span style="flex:none;width:26px;height:26px;border-radius:50%;background:{{ l1.s3.bg }};color:{{ l1.s3.fg }};display:grid;place-items:center;font-family:var(--font-heading);font-size:13px">{{ l1.s3.mark }}</span>
+                <p style="flex:1;min-width:0;margin:0;font-size:14px;line-height:1.55"><strong style="font-family:var(--font-heading);font-weight:400">Deposit</strong> — only now, and only from the address you revealed. The bitcoin goes to a one-off address that credits the treasury. <span style="font-family:var(--font-heading);font-size:12px;color:{{ l1.s3.tone }}">{{ l1.s3.state }}</span></p>
+              </div>
+              <sc-if value="{{ l1.s3.now }}">
+              <sc-if value="{{ l1.revealedShow }}">
+                  <div style="display:flex;flex-direction:column;gap:6px;padding:12px 16px;border-radius:var(--radius-md);background:var(--color-surface)">
+                    <div style="font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--color-accent)">Send from · {{ l1.revealedHeld }}</div>
+                    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;min-width:0">
+                      <code title="{{ l1.revealedFull }}" style="font-family:ui-monospace,monospace;font-size:12.5px;overflow-wrap:anywhere;min-width:0">{{ l1.revealedShort }}</code>
+                      <button class="btn btn-secondary" sc-camel-on-click="{{ l1.copyRevealed }}" style="font-size:12px;padding:5px 12px;flex:none">Copy</button>
+                    </div>
+                    <p class="text-muted" style="margin:2px 0 0;font-size:12.5px;line-height:1.5">Every input of the transaction is checked against this address, so sats sent from another address of yours are not credited to you.</p>
+                  </div>
+              </sc-if>
+              <sc-if value="{{ l1.targetShow }}">
+                  <div style="display:flex;flex-direction:column;gap:6px;padding:12px 16px;border-radius:var(--radius-md);background:var(--color-surface)">
+                    <div style="font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--color-accent)">Send to{{ l1.targetAmount }}</div>
+                    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;min-width:0">
+                      <code title="{{ l1.targetAddress }}" style="font-family:ui-monospace,monospace;font-size:12.5px;overflow-wrap:anywhere;min-width:0">{{ l1.targetShort }}</code>
+                      <button class="btn btn-secondary" sc-camel-on-click="{{ l1.copyTarget }}" style="font-size:12px;padding:5px 12px;flex:none">Copy</button>
+                    </div>
+                    <p class="text-muted" style="margin:2px 0 0;font-size:12.5px;line-height:1.5">Yours alone: it commits to the treasury as the account to credit, the signers' current key, and a reclaim path only you can spend — after ~950 blocks, if they never sweep it.</p>
+                  </div>
+              </sc-if>
+                <!-- "Is it safe to send real money to this?" answered with the
+                     thing itself rather than with reassurance: the two scripts
+                     the address is built from, and what each one lets happen. -->
+              <sc-if value="{{ l1.proofShow }}">
+                  <details style="margin-top:2px">
+                    <summary style="cursor:pointer;font-size:12.5px;color:var(--color-accent-800)">What is this address, and is it safe to pay?</summary>
+                    <div style="display:flex;flex-direction:column;gap:10px;padding-top:10px">
+                      <p class="text-muted" style="margin:0;font-size:12.5px;line-height:1.55">It is not an account. It is a one-off bitcoin address with exactly two ways to spend it, both written into the address itself: the sBTC signers may sweep it and mint sBTC to the pool's treasury, or you may take it back with your own key. There is no third way, and no key here can be changed after the fact — a different address would be a different string, and you are looking at this one.</p>
+                      <p class="text-muted" style="margin:0;font-size:12.5px;line-height:1.55">{{ l1.proofReclaimNote }}</p>
+                      <!-- The five inputs, so the address can be rebuilt away from
+                           this page. An address only you can check is one you have
+                           to take on trust. -->
+                      <div style="display:flex;flex-direction:column;gap:2px;padding-top:2px">
+                        <span class="text-muted" style="font-size:11px;letter-spacing:.1em;text-transform:uppercase;padding-bottom:4px">Built from — put these into <a href="https://sbtc.stacks.co/" target="_blank" rel="noopener" style="color:var(--color-accent-800)">sbtc.stacks.co</a> and you should get the same address back</span>
+                        <sc-for list="{{ l1.proofParams }}" as="pp">
+                          <div style="display:flex;justify-content:space-between;gap:10px;font-size:12.5px;padding:7px 2px;border-top:1px solid var(--color-divider)">
+                            <span class="text-muted" style="flex:none">{{ pp.name }}</span>
+                            <span style="font-family:ui-monospace,monospace;font-size:11.5px;overflow-wrap:anywhere;text-align:right;min-width:0">{{ pp.value }}</span>
+                          </div>
+                        </sc-for>
+                      </div>
+                      <div style="display:flex;flex-direction:column;gap:6px">
+                        <span class="text-muted" style="font-size:11px;letter-spacing:.1em;text-transform:uppercase">Deposit path — the signers' half. The recipient and the max fee are inside it</span>
+                        <div style="display:flex;gap:8px;align-items:flex-start;flex-wrap:wrap;min-width:0">
+                          <code style="font-family:ui-monospace,monospace;font-size:11.5px;overflow-wrap:anywhere;min-width:0;flex:1">{{ l1.proofDeposit }}</code>
+                          <button class="btn btn-secondary" sc-camel-on-click="{{ l1.copyDeposit }}" style="font-size:12px;padding:5px 12px;flex:none">Copy</button>
+                        </div>
+                      </div>
+                      <div style="display:flex;flex-direction:column;gap:6px">
+                        <span class="text-muted" style="font-size:11px;letter-spacing:.1em;text-transform:uppercase">Reclaim path — yours. Your key, and the lock time</span>
+                        <div style="display:flex;gap:8px;align-items:flex-start;flex-wrap:wrap;min-width:0">
+                          <code style="font-family:ui-monospace,monospace;font-size:11.5px;overflow-wrap:anywhere;min-width:0;flex:1">{{ l1.proofReclaim }}</code>
+                          <button class="btn btn-secondary" sc-camel-on-click="{{ l1.copyReclaim }}" style="font-size:12px;padding:5px 12px;flex:none">Copy</button>
+                        </div>
+                      </div>
+                    </div>
+                  </details>
+              </sc-if>
+                <!-- Paying from a wallet this page cannot drive. The two rules
+                     below are the bridge's, not advice: it reads every input of
+                     the transaction and refuses the ones it does not recognise. -->
+                <details style="margin-top:2px">
+                  <summary style="cursor:pointer;font-size:12.5px;color:var(--color-accent-800)">Paying from another bitcoin wallet</summary>
+                  <div style="display:flex;flex-direction:column;gap:8px;padding-top:10px">
+                    <p class="text-muted" style="margin:0;font-size:12.5px;line-height:1.55">Nothing about the bitcoin side is special: it is an ordinary transaction to the address above, and any wallet, node or exchange can make it. This page offers to send it only because your Stacks wallet can, not because it has to.</p>
+                    <p class="text-muted" style="margin:0;font-size:12.5px;line-height:1.55">Two rules, and they are the bridge's. <strong style="font-family:var(--font-heading);font-weight:400">Every input must come from the address you revealed</strong> — the contract reads them all and rejects a transaction that mixes in coins from anywhere else, so use a wallet that lets you choose which coins to spend. And <strong style="font-family:var(--font-heading);font-weight:400">use at most eight inputs</strong>, which is as many as the contract will check.</p>
+                    <p class="text-muted" style="margin:0;font-size:12.5px;line-height:1.55">Send, then paste the transaction id under “I sent it from somewhere else” and register it. Change back to your own address is fine; it is the inputs that are checked, not the outputs.</p>
+                  </div>
+                </details>
+              <sc-if value="{{ l1.s3.live }}">
+                  <div class="row" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+                    <button class="btn {{ l1.depositBtn }}" sc-camel-on-click="{{ l1.deposit }}" title="{{ l1.depositHint }}" style="font-size:13px;opacity:{{ l1.depositDim }}">Send it from my wallet</button>
+              <sc-if value="{{ l1.targetHidden }}">
+                      <button class="btn btn-secondary" sc-camel-on-click="{{ l1.showAddress }}" style="font-size:13px">Show the address to pay</button>
+              </sc-if>
+                  </div>
+              </sc-if>
+                <!-- Bitcoin sent from anywhere else. The page cannot see it go, so
+                     the txid is the one thing it has to be told. -->
+              <sc-if value="{{ l1.s3.live }}">
+                  <details id="btc-sent" style="margin-top:2px">
+                    <summary style="cursor:pointer;font-size:12.5px;color:var(--color-accent-800)">I sent it from somewhere else</summary>
+                    <div style="display:flex;flex-direction:column;gap:10px;padding-top:10px">
+                      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,180px),1fr));gap:12px">
+                        <div class="field">
+                          <label for="btc-txid">Deposit txid</label>
+                          <input class="input" id="btc-txid" placeholder="64 hex characters" value="{{ l1.txid }}" autocomplete="off" spellcheck="false">
+                        </div>
+                        <div class="field">
+                          <label for="btc-vout">Output index</label>
+                          <input class="input" id="btc-vout" inputmode="numeric" value="{{ l1.vout }}" autocomplete="off">
+                        </div>
+                      </div>
+                      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+                        <button class="btn btn-secondary" sc-camel-on-click="{{ l1.register }}" style="font-size:13px">Register it with the signers</button>
+                        <span class="text-muted" style="font-size:12.5px">a deposit nobody registers is never swept</span>
+                      </div>
+                    </div>
+                  </details>
+              </sc-if>
+              </sc-if>
+            </div>
+                          <div style="display:flex;flex-direction:column;gap:10px;opacity:{{ l1.s4.dim }}">
+              <div sc-camel-on-click="{{ l1.s4.open }}" style="display:flex;gap:12px;align-items:flex-start;cursor:{{ l1.s4.cursor }}">
+                <span style="flex:none;width:26px;height:26px;border-radius:50%;background:{{ l1.s4.bg }};color:{{ l1.s4.fg }};display:grid;place-items:center;font-family:var(--font-heading);font-size:13px">{{ l1.s4.mark }}</span>
+                <p style="flex:1;min-width:0;margin:0;font-size:14px;line-height:1.55"><strong style="font-family:var(--font-heading);font-weight:400">Wait</strong> for the sBTC signers to sweep it. They take their fee out of the amount, and the pool credits what arrives. <span style="font-family:var(--font-heading);font-size:12px;color:{{ l1.s4.tone }}">{{ l1.s4.state }}</span></p>
+              </div>
+              <sc-if value="{{ l1.s4.now }}">
+                <!-- The wait, said by the only thing that can see into it. Inside
+                     step 4 because that is the step it is about: the member is
+                     here, and this is what "here" currently means. -->
+              <sc-if value="{{ l1.emilyShow }}">
+                  <div style="display:flex;flex-direction:column;gap:6px;padding:12px 16px;border-radius:var(--radius-md);background:var(--color-surface)">
+                    <div style="display:flex;gap:10px;align-items:baseline;flex-wrap:wrap;justify-content:space-between">
+                      <span style="font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:{{ l1.emilyTone }}">{{ l1.emilyStatus }}</span>
+                      <button class="btn btn-secondary" sc-camel-on-click="{{ l1.checkStatus }}" style="font-size:12px;padding:5px 12px;flex:none">Check again</button>
+                    </div>
+                    <p class="text-muted" style="margin:0;font-size:12.5px;line-height:1.5">{{ l1.emilyNote }}</p>
+                  </div>
+              </sc-if>
+              <sc-if value="{{ l1.txidShow }}">
+                  <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:baseline">
+                    <span class="text-muted" style="font-size:12.5px">This deposit on bitcoin</span>
+                    <a href="{{ l1.txidLink }}" target="_blank" rel="noopener" style="font-size:12px;font-family:ui-monospace,monospace;color:var(--color-accent-800);text-decoration:none" style-hover="text-decoration:underline">{{ l1.txidShort }} ↗</a>
+                  </div>
+              </sc-if>
+                <p class="text-muted" style="margin:0;font-size:12.5px;line-height:1.5">Nothing to press. The page can be closed — step 5 is permissionless and works whenever you come back.</p>
+              </sc-if>
+            </div>
+                          <div style="display:flex;flex-direction:column;gap:10px;opacity:{{ l1.s5.dim }}">
+              <div sc-camel-on-click="{{ l1.s5.open }}" style="display:flex;gap:12px;align-items:flex-start;cursor:{{ l1.s5.cursor }}">
+                <span style="flex:none;width:26px;height:26px;border-radius:50%;background:{{ l1.s5.bg }};color:{{ l1.s5.fg }};display:grid;place-items:center;font-family:var(--font-heading);font-size:13px">{{ l1.s5.mark }}</span>
+                <p style="flex:1;min-width:0;margin:0;font-size:14px;line-height:1.55"><strong style="font-family:var(--font-heading);font-weight:400">Complete</strong> once it has landed. Permissionless — a keeper can do this for you. <span style="font-family:var(--font-heading);font-size:12px;color:{{ l1.s5.tone }}">{{ l1.s5.state }}</span></p>
+              </div>
+              <sc-if value="{{ l1.s5.now }}">
+              <sc-if value="{{ l1.s5.live }}">
+                  <div class="row" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+                    <button class="btn {{ l1.completeBtn }}" sc-camel-on-click="{{ l1.complete }}" title="{{ l1.completeHint }}" style="font-size:13px;opacity:{{ l1.completeDim }}">Credit it to the pool</button>
+                    <span class="text-muted" style="font-size:12.5px">checked against the sBTC registry first</span>
+                  </div>
+              </sc-if>
+              </sc-if>
+            </div>
+
+            <div style="display:flex;justify-content:space-between;gap:10px;font-size:12.5px;padding:11px 16px;background:var(--color-surface);border-radius:999px">
+              <span class="text-muted">credits</span><span style="font-family:ui-monospace,monospace;overflow-wrap:anywhere;text-align:right">{{ l1.recipient }}</span>
+            </div>
+
+            <sc-if value="{{ l1.doneShow }}">
+              <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+                <button class="btn btn-primary" sc-camel-on-click="{{ l1.startAgain }}" style="font-size:13px">Deposit again</button>
+                <span class="text-muted" style="font-size:12.5px">starts a fresh commitment from the same address</span>
+              </div>
+            </sc-if>
+
+            <!-- The way out, not a sixth step. It runs backwards through the
+                 route rather than onward from it, and it is only ever the right
+                 button where something has gone wrong -- so it is here, quiet,
+                 under a rule, rather than sitting beside the step the member is
+                 actually meant to press. -->
+            <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:baseline;padding-top:4px;border-top:1px solid var(--color-divider);margin-top:2px">
+              <button sc-camel-on-click="{{ l1.cancel }}" style="background:none;border:0;padding:0;font:inherit;font-size:12.5px;cursor:pointer;color:var(--color-accent-800);text-decoration:underline;text-underline-offset:3px">Give up and take the STX back</button>
+              <span class="text-muted" style="font-size:12px;line-height:1.5">{{ l1.cancelWhen }}</span>
+            </div>
+        </sc-if>
       </div>
     </div>
     <sc-if value="{{ join.connected }}">
@@ -784,6 +897,7 @@ a:hover { color: var(--color-accent-700); }
           <sc-if value="{{ join.hasQueued }}">
             <button class="btn btn-secondary" sc-camel-on-click="{{ join.withdraw }}" style="font-size:13px">Withdraw queued</button>
           </sc-if>
+
           <sc-if value="{{ join.hasReleased }}">
             <button class="btn btn-secondary" sc-camel-on-click="{{ join.claimPrincipal }}" style="font-size:13px">Claim principal</button>
           </sc-if>
@@ -795,6 +909,46 @@ a:hover { color: var(--color-accent-700); }
         <sc-if value="{{ retiredShow }}">
           <p style="margin:10px 0 0;font-size:13px;line-height:1.55">Still holding a position in <span style="font-family:ui-monospace,monospace">{{ retiredName }}</span>? Nothing moves between the two contracts on its own — <a href="v1/index.html" style="color:var(--color-accent-800)">take it out there</a>, then deposit it here.</p>
         </sc-if>
+      </div>
+    </sc-if>
+
+    <!-- Where a member's deposits go to be looked back at, rather than inside
+         the route that made them. A history is about what is finished; the
+         route is about what is not, and a member reading one is not working
+         the other. -->
+    <sc-if value="{{ join.connected }}">
+      <div style="background:var(--color-bg);border-radius:28px;padding:clamp(22px,3vw,30px);margin-top:clamp(12px,2vw,20px)">
+        <h4 style="margin:0 0 4px;font-size:22px">Your deposits</h4>
+        <p class="text-muted" style="margin:0 0 14px;font-size:14px;line-height:1.6">Every commitment, reveal and credit this address has made through the bridge.</p>
+        <div style="display:flex;flex-direction:column;gap:12px">
+
+                <!-- What this member has done here before. Behind a press, because
+                     it is a scan of the contract's event log rather than an index
+                     of their own, and most visits do not want one. -->
+                <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;padding-top:2px">
+                  <button class="btn btn-secondary" sc-camel-on-click="{{ l1.loadHistory }}" style="font-size:13px">{{ l1.historyLabel }}</button>
+                  <sc-if value="{{ l1.historyEmpty }}">
+                    <span class="text-muted" style="font-size:12.5px">Nothing from this address in the bridge's recent events.</span>
+                  </sc-if>
+                </div>
+                <sc-if value="{{ l1.historyShow }}">
+                  <div style="display:flex;flex-direction:column;gap:8px">
+                    <sc-for list="{{ l1.history }}" as="h">
+                      <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:baseline;justify-content:space-between;padding:10px 16px;border-radius:var(--radius-md);background:var(--color-surface)">
+                        <span style="font-size:13px">{{ h.what }}</span>
+                        <span style="display:flex;gap:10px;align-items:baseline;flex-wrap:wrap;justify-content:flex-end">
+                          <span style="font-family:var(--font-heading);font-size:13px">{{ h.amount }}</span>
+                          <sc-if value="{{ h.txidShow }}">
+                            <a href="{{ h.txidLink }}" target="_blank" rel="noopener" style="font-size:12px;font-family:ui-monospace,monospace;color:var(--color-accent-800);text-decoration:none" style-hover="text-decoration:underline">{{ h.txid }} ↗</a>
+                          </sc-if>
+                          <a href="{{ h.stacksLink }}" target="_blank" rel="noopener" style="font-size:12px;color:var(--color-accent-800);text-decoration:none" style-hover="text-decoration:underline">on Stacks ↗</a>
+                        </span>
+                      </div>
+                    </sc-for>
+                    <p class="text-muted" style="margin:0;font-size:12.5px;line-height:1.5">{{ l1.historyNote }}</p>
+                  </div>
+                </sc-if>
+        </div>
       </div>
     </sc-if>
 

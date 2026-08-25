@@ -106,6 +106,9 @@ const scope: Record<string, unknown> = {
     satsFg: "var(--color-text)", satsLine: "underline",
     sbtcFg: "var(--color-neutral-700)", sbtcLine: "none",
     showSats: () => {}, showSbtc: () => {}, useMax: () => {}, maxHint: "use all",
+    useBtcMax: () => {}, btcMaxHint: "use all",
+    underway: true, underwayNote: "This deposit is already committed to on chain",
+    pickCursor: "default",
     pendingShow: true, pendingText: "In the mempool.",
     pendingTxid: "0x1234…abcd", pendingLink: "https://explorer.hiro.so/txid/0x1234",
     queuedSats: "0.1000 BTC", queuedUstx: "5.00 STX", committed: "0.0000 BTC",
@@ -122,9 +125,36 @@ const scope: Record<string, unknown> = {
     quote: "10,000,000 sats needs 5.00 STX",
     address: "tb1qn69zsypuk4frdlmnwhzfa7ugvqvak3n32hg33z",
     addressPlaceholder: "tb1q…",
-    addressNote: "Send from this address and no other",
+    addressNote: "Send from this address and no other", addressLocked: false,
     commit: () => {}, reveal: () => {}, deposit: () => {},
     register: () => {}, complete: () => {}, cancel: () => {},
+    cancelWhen: "yours to abandon at any time",
+    emilyShow: true, emilyStatus: "The signers: pending", emilyTone: "#c67139",
+    emilyNote: "Received, and not swept yet.", checkStatus: () => {},
+    proofShow: true,
+    proofDeposit: "2e0000000000013880061a1ec83ce8…", proofReclaim: "02b603b27520870649…",
+    copyDeposit: () => {}, copyReclaim: () => {},
+    proofReclaimNote: "If the signers never sweep it, the second path opens after 6 days 14 hours",
+    proofParams: [
+      { name: "Recipient (credited)", value: "ST1.bond-treasury-2" },
+      { name: "Signers' public key", value: "ce58199f1d81fe4e…" },
+      { name: "Reclaim public key (yours)", value: "870649cc3bfd3820…" },
+      { name: "Max signer fee", value: "80,000 sats" },
+      { name: "Reclaim lock time", value: "950 blocks" },
+    ],
+    doneShow: false, startAgain: () => {},
+    historyShow: true, historyEmpty: false, historyLabel: "Show my past deposits",
+    historyNote: "the contract's last 50 events", loadHistory: () => {},
+    history: [
+      {
+        what: "Credited to the pool",
+        amount: "0.5 BTC",
+        txid: "31c8e7…f9cbb",
+        txidShow: true,
+        txidLink: "https://mempool.bitcoin.regtest.hiro.so/tx/31c8e7",
+        stacksLink: "https://explorer.hiro.so/txid/0x1?chain=testnet",
+      },
+    ],
     txid: "", vout: "0",
     txidShow: true, txidShort: "32d950…a2bb",
     txidLink: "https://mempool.bitcoin.regtest.hiro.so/tx/32d950c8",
@@ -133,11 +163,11 @@ const scope: Record<string, unknown> = {
     stageShow: true, stageStep: "Step 2 of 5", stageTitle: "Reveal the address",
     stageNote: "The wait is over.", stageBarW: "20%",
     stageAmountShow: true, stageAmount: "10,000,000 sats committed · 5.00 STX paid",
-    s1: { mark: "✓", bg: "#0a0", fg: "#fff", dim: "0.55", state: "done", tone: "#0a0" },
-    s2: { mark: "2", bg: "#c67139", fg: "#fff", dim: "1", state: "you are here", tone: "#c67139" },
-    s3: { mark: "3", bg: "#eee", fg: "#333", dim: "0.5", state: "", tone: "#333" },
-    s4: { mark: "4", bg: "#eee", fg: "#333", dim: "0.5", state: "", tone: "#333" },
-    s5: { mark: "5", bg: "#eee", fg: "#333", dim: "0.5", state: "", tone: "#333" },
+    s1: { mark: "✓", bg: "#0a0", fg: "#fff", dim: "0.55", state: "done", tone: "#0a0", now: false, live: false, open: () => {}, cursor: "pointer" },
+    s2: { mark: "2", bg: "#c67139", fg: "#fff", dim: "1", state: "you are here", tone: "#c67139", now: false, live: false, open: () => {}, cursor: "pointer" },
+    s3: { mark: "3", bg: "#eee", fg: "#333", dim: "0.5", state: "", tone: "#333", now: true, live: true, open: () => {}, cursor: "pointer" },
+    s4: { mark: "4", bg: "#eee", fg: "#333", dim: "0.5", state: "", tone: "#333", now: false, live: false, open: () => {}, cursor: "pointer" },
+    s5: { mark: "5", bg: "#eee", fg: "#333", dim: "0.5", state: "", tone: "#333", now: false, live: false, open: () => {}, cursor: "pointer" },
     commitBtn: "btn-secondary", commitDim: "0.55", commitHint: "Done.",
     revealBtn: "btn-primary", revealDim: "1", revealHint: "This is the one to press.",
     depositBtn: "btn-secondary", depositDim: "0.55", depositHint: "Step 2 comes first.",
@@ -248,6 +278,29 @@ for (const phrase of [
 
 check(mount!.querySelectorAll("svg").length > 0, "svg icons render in their namespace");
 
+// The two assets are the real marks, not a letter in a circle: sBTC's own
+// logo as a file, and bitcoin's as the mark bitcoin.org put in the public
+// domain, drawn inline so it costs no request and stays sharp at any size.
+check(
+  out.includes('src="icons/sbtc.png"') && built("icons/sbtc.png"),
+  "the sBTC balance carries the sBTC logo",
+);
+check(out.includes("#F7931A"), "and the bitcoin balance carries bitcoin's own");
+
+// The card talks about the reclaim lock before `l1.ts` is loaded, so it keeps
+// its own copy of the number. Two copies of a constant is one too many unless
+// something fails when they disagree.
+check(
+  /const RECLAIM_LOCK_TIME = (\d+);/.exec(readFileSync("src/app.ts", "utf8"))?.[1] ===
+    /export const RECLAIM_LOCK_TIME = (\d+);/.exec(readFileSync("src/l1.ts", "utf8"))?.[1],
+  "the reclaim lock the card names is the one the address is built with",
+);
+check(
+  /const MAX_SIGNER_FEE = ([\d_]+);/.exec(readFileSync("src/app.ts", "utf8"))?.[1] ===
+    /export const MAX_SIGNER_FEE = ([\d_]+);/.exec(readFileSync("src/l1.ts", "utf8"))?.[1],
+  "and so is the max signer fee",
+);
+
 // Two vaults exist under one DAO, so a page that does not name the one it is
 // reading is ambiguous about whose balances it is showing.
 check(
@@ -259,23 +312,158 @@ check(
   "and points a member with a position in the retired one at its page",
 );
 
-// The join controls the member actually presses.
-for (const id of ["join-sats", "join-quote", "btc-sats", "btc-address", "btc-txid", "btc-vout"]) {
+// The deposit card asks its shared questions once -- one amount, one STX leg,
+// one address -- and only then asks which way the member is paying. So the
+// route-specific halves are behind a choice, and the phrases below are checked
+// against a render that has made it.
+const routed = document.createElement("div");
+for (const node of renderChildren(
+  template!.content,
+  { ...scope, join: { ...(scope.join as object), l1Route: true, unchosen: false } },
+  document as unknown as Document,
+)) {
+  routed.appendChild(node);
+}
+const routedText = routed.textContent!.replace(/\s+/g, " ");
+
+// The join controls the member actually presses. `btc-sats` is deliberately
+// absent: there is one amount field now, because the STX leg is the same
+// number whichever way the sats arrive.
+for (const id of ["join-sats", "join-quote", "btc-address"]) {
   check(Boolean(mount!.querySelector(`#${id}`)), `the join form has #${id}`);
 }
+check(!mount!.querySelector("#btc-sats"), "and asks the amount once, not once per route");
+for (const id of ["btc-txid", "btc-vout"]) {
+  check(Boolean(routed.querySelector(`#${id}`)), `the L1 route has #${id}`);
+}
+// Mid-route the switch and the balances stop being controls: the amount is
+// mixed into a hash on chain, and changing half of what was committed to is
+// not a smaller version of what the member meant.
+check(
+  routedText.includes("settled with the commitment"),
+  "a committed route says so where the choice used to be",
+);
+check(
+  routedText.includes("Paying with") &&
+    routedText.includes("sBTC") &&
+    routedText.includes("BTC (L1)"),
+  "the member chooses the route, having seen what each would cost",
+);
 // Bridge v2 commits to the address the bitcoin comes from, not to the
 // transaction -- so the card asks for an address and an amount up front, and
 // its third step is a deposit this page can actually make.
-for (const phrase of [
-  "Your bitcoin address",
-  "1 · Commit",
-  "2 · Reveal",
-  "3 · Deposit",
-  "5 · Complete",
-  "sBTC deposit address",
-]) {
-  check(text.includes(phrase), `the L1 card says "${phrase}"`);
+check(text.includes("Your bitcoin address"), 'the card asks "Your bitcoin address" before the choice');
+// The deposit a member already told the page about has to be in hand *before*
+// the reads that decide which step they are on, not restored alongside them.
+// Restored alongside, the reads see an empty txid on the first load after a
+// reload, a deposit waiting to be swept comes back as step 3, and the member is
+// asked to register a transaction the page already knew about.
+{
+  const source = readFileSync("src/app.ts", "utf8");
+  const body = source.slice(source.indexOf("async function loadL1"));
+  const remembered = body.indexOf("rememberedSent(text)");
+  const reads = body.indexOf("await Promise.all(");
+  check(
+    remembered > 0 && reads > remembered,
+    "the remembered deposit is read before the reads that place the member",
+  );
 }
+
+// The header is sticky, and stays that way only while nothing above it makes a
+// scroll container: `overflow-x: hidden` on an ancestor is enough to make a
+// sticky descendant stick to that ancestor instead of the viewport, which
+// looks exactly like the sticky never being there.
+check(
+  /min-height:100vh;overflow-x:clip/.test(readFileSync("index.html", "utf8")),
+  "nothing above the sticky header turns itself into a scroll container",
+);
+
+// A step's header carries the press that folds it; its body must not be inside
+// that header, or every Copy button and every disclosure inside an open step
+// bubbles up and closes the step the member was reading.
+const markup = readFileSync("index.html", "utf8");
+for (const n of [1, 2, 3, 4, 5]) {
+  const from = markup.indexOf(`l1.s${n}.open`);
+  const to = markup.indexOf(`l1.s${n}.now`);
+  check(
+    from > 0 && to > from && markup.slice(from, to).includes("</div>"),
+    `step ${n}'s body sits outside the header that folds it`,
+  );
+}
+
+// The five steps are always listed, so the route reads as a route whatever
+// state the member is in.
+for (const phrase of ["Commit", "Reveal", "Deposit", "Wait", "Complete"]) {
+  check(routedText.includes(phrase), `the L1 route lists "${phrase}"`);
+}
+// ...but only the live step is unfolded, and what it holds is its own. The
+// fixture puts the member on step 3, so these belong to it and nothing from
+// the other four should be beside them.
+for (const phrase of [
+  "Send from ·",
+  "Send it from my wallet",
+  "Register it with the signers",
+  // A member deciding whether to send real money to a generated string is
+  // owed the address's own two spending paths, and the rules for paying it
+  // from a wallet this page cannot drive.
+  "What is this address, and is it safe to pay?",
+  "Paying from another bitcoin wallet",
+  "Every input must come from the address you revealed",
+  // ...and the five values an independent tool needs to arrive at the same
+  // address. Without them "is it safe" can only be answered by this page.
+  "Max signer fee",
+  "Reclaim lock time",
+  "sbtc.stacks.co",
+]) {
+  check(routedText.includes(phrase), `step 3 carries "${phrase}"`);
+}
+check(
+  !routedText.includes("Credit it to the pool") && !routedText.includes("Commit this address"),
+  "and the steps the member is not on keep their buttons folded away",
+);
+// The history is a card of its own beside the position, not a tail on the
+// route: what it holds is finished, and a member reading it is not working the
+// deposit that is still open.
+check(
+  text.includes("Your deposits") &&
+    text.includes("Credited to the pool") &&
+    text.includes("0.5 BTC"),
+  "a member can see what they have done here before, with both transactions linked",
+);
+check(
+  !routedText.slice(0, routedText.indexOf("Your deposits")).includes("Show my past deposits"),
+  "and it is not inside the route that made them",
+);
+// Step 4's own body, which needs the member to be standing on step 4.
+const waiting = document.createElement("div");
+for (const node of renderChildren(
+  template!.content,
+  {
+    ...scope,
+    join: { ...(scope.join as object), l1Route: true, unchosen: false },
+    l1: {
+      ...(scope.l1 as object),
+      s3: { ...((scope.l1 as Record<string, any>).s3 as object), now: false, live: false },
+      s4: { ...((scope.l1 as Record<string, any>).s4 as object), now: true, live: true },
+    },
+  },
+  document as unknown as Document,
+)) {
+  waiting.appendChild(node);
+}
+const waitingText = waiting.textContent!.replace(/\s+/g, " ");
+check(
+  waitingText.includes("The signers: pending") && waitingText.includes("Check again"),
+  "step 4 says what the signers are doing with the deposit it is waiting on",
+);
+check(
+  !routedText.includes("The signers: pending"),
+  "and says it there rather than under a step the member is not on",
+);
+check(
+  routedText.includes("Give up and take the STX back"),
+  "the way out is offered apart from the steps, not as one of them",
+);
 check(!text.includes("3 · Broadcast"), "and no longer calls the third step a broadcast");
 // Three legs, three faucets: a reader on testnet who holds none of them can
 // still work either route through to the end.
@@ -671,10 +859,12 @@ if (entryFile) {
   // is the two assertions below it -- that neither the wallet SDK nor the chat's
   // network layer has crept into the initial load. It moves when the page
   // genuinely grows (~61 kB with the L1 route and the early exit, ~69 kB once
-  // the L1 card said where the member is and why in words) and should be read
-  // as "something heavy leaked" rather than "the page got bigger".
+  // the L1 card said where the member is and why in words, ~74 kB once the two
+  // deposit cards became one flow, ~76 kB once the L1 route became a stepper
+  // that can be read backwards) and should be read as "something heavy leaked"
+  // rather than "the page got bigger".
   check(
-    eagerBytes < 74_000,
+    eagerBytes < 84_000,
     `initial load is ${(eagerBytes / 1024).toFixed(1)} kB of ${(totalBytes / 1024).toFixed(0)} kB built`,
   );
   check(
@@ -715,6 +905,19 @@ check(/pool: "vault-2"/.test(rootConfig), "the live page is pointed at vault-2")
 check(/retired: "vault-1"/.test(rootConfig), "and knows which vault it replaced");
 check(/pool: "vault-1"/.test(v1Config), "v1/ is pointed at vault-1");
 check(/successor: "vault-2"/.test(v1Config), "and knows where the live one is");
+
+// Nothing this page signs may ask for permission to move anything at all.
+// Every call either names what the member sends, or says that they send
+// nothing -- so `allow`, which asks for both, has no business in here.
+const signing = readFileSync("src/chain.ts", "utf8");
+check(
+  !/postConditionMode[^\n]*allow/.test(signing) && !/"allow"/.test(signing),
+  "no call is signed in allow mode",
+);
+check(
+  signing.includes('mode ?? (conditions === undefined ? ("originator" as const)'),
+  "and a call with no conditions says the member sends nothing, rather than anything",
+);
 
 // The whole point of the copy. A deposit call reachable from the retired page
 // would be money walking into a contract everyone is leaving.

@@ -29,6 +29,7 @@ import {
   configured,
   net,
   onConfiguredChain,
+  walletNetwork,
   walletNetworkAdvice,
 } from "./config.js";
 import { num, plain, type Plain } from "./plain.js";
@@ -224,26 +225,26 @@ export async function bitcoinAccount(want?: string): Promise<BitcoinAccount | nu
  * wallet told "testnet" for a `bcrt1…` recipient has been told something
  * untrue about which chain the transfer is on.
  *
- * On a private chain it is not named at all, and that is the important half.
- * `mainnet` and `testnet` mean the same thing to every wallet; `regtest` does
- * not. A wallet running its own sBTC environment knows that chain under its
- * own name, and a hint it does not recognise does not fall back to the network
- * the member selected -- it sends the wallet looking for coins on a key path
- * that has none, which surfaces as `InsufficientFunds` from coin selection
- * with the funds sitting in plain sight on the address the page suggested.
+ * It is always named, and leaving it out is not the safe option it looks like.
+ * The wallet does not fall back to the network the member has selected: it
+ * passes this straight to its own UTXO and fee services as a query parameter,
+ * and with nothing to pass it defaults to **mainnet**. A trace of the failing
+ * call shows exactly that -- `utxos/addresses/bc1q…?network=mainnet` and
+ * `market/bitcoin/fees?network=mainnet` -- while the wallet's own screen shows
+ * the regtest balance. Coin selection then runs over a mainnet account with
+ * nothing in it and reports `InsufficientFunds`, with the coins in plain sight
+ * on the screen behind it.
  *
- * Nothing is lost by leaving it out. The recipient address already says which
- * chain this is -- `bcrt1…` is spendable on exactly one -- and which network
- * the wallet is on is the member's own choice, which the card tells them to
- * set to sBTC Testnet. A hint that disagrees with that choice can only
- * misdirect it.
+ * `walletNetwork()` rather than the chain directly, because the name belongs to
+ * whoever has to recognise it. See `?walletNetwork=` in config.ts.
  */
 export async function sendBitcoin(address: string, sats: number): Promise<string | null> {
-  const chain = bitcoin().chain;
-  const named = chain === "mainnet" || chain === "testnet";
   const result = (await request("sendTransfer", {
-    recipients: [{ address, amount: String(sats) }],
-    ...(named ? { network: chain } : {}),
+    // A number, not a string. The type takes either, but the wallet has to add
+    // a fee to this and a string is the kind of thing that gets concatenated
+    // rather than added -- which would ask for an amount nobody could fund.
+    recipients: [{ address, amount: sats }],
+    network: walletNetwork(),
   })) as { txid?: string };
   return result?.txid ?? null;
 }
@@ -337,6 +338,7 @@ export async function call(
   functionName: string,
   functionArgs: ClarityValue[] = [],
   conditions?: PostCondition[],
+  mode?: "deny" | "originator",
 ): Promise<string | null> {
   const me = signer();
   // The contract is addressed by `config.deployer`, the post conditions name
@@ -351,19 +353,32 @@ export async function call(
     // than one is otherwise free to sign with a different one, and a post
     // condition about an address that is not sending cannot fire.
     address: me,
-    // Deny is the right mode wherever the member is *sending*: the wallet then
-    // refuses any transfer the conditions below do not name. Calls that only
-    // move assets the other way -- a claim, a withdrawal -- have nothing for
-    // the member to over-send, and pass `allow` rather than enumerate the
-    // contract's own outgoing transfers.
+    // Two modes, and `allow` is not one of them. Nothing this page signs needs
+    // a transaction that may move anything at all: every call here either
+    // sends something the member can name to the microSTX, or sends nothing of
+    // theirs whatever the contract does with its own.
     //
-    // An empty array is not the same as none, and the test is `undefined`
-    // rather than truthiness so it cannot be "tidied" into one. `[]` is deny
-    // with nothing permitted: the strongest statement available, and the right
-    // one for a call that should move no assets whatever.
-    ...(conditions === undefined
-      ? { postConditionMode: "allow" as const }
-      : { postConditions: conditions, postConditionMode: "deny" as const }),
+    //   deny        the member is sending. The conditions name what, and the
+    //               wallet refuses any transfer they do not cover.
+    //   originator  the member is not. The conditions constrain the *signing
+    //               account* and leave other principals alone, so "nothing of
+    //               mine moves" is sayable without having to enumerate the
+    //               contract's own transfers to the microSTX -- which is what
+    //               `allow` used to paper over, at the cost of the member
+    //               having no protection at all.
+    //
+    // `originator` is newer than the other two and not every wallet will have
+    // caught up. That is the right way round: a wallet that cannot express
+    // "nothing of mine moves" should feel the gap, rather than every page
+    // quietly asking for permission to move everything.
+    //
+    // Passing no conditions therefore means originator, not allow. An empty
+    // array is not the same as none: `[]` under `deny` is the strongest
+    // statement available -- no transfer by anyone -- and it is written out
+    // where that is what is meant.
+    postConditions: conditions ?? [],
+    postConditionMode:
+      mode ?? (conditions === undefined ? ("originator" as const) : ("deny" as const)),
   })) as { txid?: string; txId?: string };
   return result?.txid ?? result?.txId ?? null;
 }
@@ -410,10 +425,11 @@ export const poolCalls = {
    * one `get-config` reports, never a value typed here. `Cl.principal` builds a
    * contract principal from `SP….signer-manager` on its own.
    *
-   * No post conditions, and not for want of care: nothing leaves the member's
-   * wallet. pox-5 hands the sats to the pool, which passes them to the treasury
-   * and credits them as released principal -- `claim-principal` is what
-   * finally moves them, and it carries its own conditions.
+   * Nothing leaves the member's wallet, so this rides on originator mode with
+   * nothing permitted rather than naming conditions: pox-5 hands the sats to
+   * the pool, which passes them to the treasury and credits them as released
+   * principal -- `claim-principal` is what finally moves them, and it carries
+   * its own conditions.
    */
   unstakeEarly: (manager: string, sats: number) =>
     call(pool(), "unstake-sbtc-early", [Cl.principal(manager), Cl.uint(sats)]),
@@ -483,6 +499,7 @@ export const bridgeCalls = {
       "reveal-btc-address",
       [addressTuple(address), Cl.bufferFromHex(strip(salt))],
       [],
+      "deny",
     ),
   /**
    * Credit the member, once the signers have swept it.
@@ -490,21 +507,61 @@ export const bridgeCalls = {
    * `tx` and `parents` are the deposit transaction and the transaction behind
    * each of its inputs: the chain of txids is what proves, on chain, that the
    * bitcoin came from the revealed address.
+   *
+   * `ustx` is the STX leg the announcement was priced at, and the whole of what
+   * this call moves: the bridge hands it to the pool, out of its own balance,
+   * and the caller sends nothing. Naming it lets the call go out in deny mode
+   * -- one transfer, from a named principal, for an exact amount, and any
+   * other movement aborts the transaction.
+   *
+   * The condition is about the *bridge*, not the caller, which is what makes it
+   * worth writing here: this call is permissionless, so the member is often not
+   * the one signing it, and the amount a keeper's transaction moves out of the
+   * bridge is the member's STX either way.
+   *
+   * The mode is `originator` either way, so the member is covered even when the
+   * announcement cannot be read: whoever signs this moves nothing of their own,
+   * and the bridge's leg is named on top of that when it is known. Where the
+   * read fails the call still goes -- a deposit whose sats are already swept
+   * has no way back, and refusing to credit it over a missing read would
+   * strand it -- but it goes with the signer protected rather than with
+   * everything permitted.
    */
-  complete: (txid: string, voutIndex: number, tx: string, parents: string[]) =>
-    call(bridge(), "complete-btc-deposit", [
-      Cl.bufferFromHex(strip(txid)),
-      Cl.uint(voutIndex),
-      Cl.bufferFromHex(strip(tx)),
-      Cl.list(parents.map((parent) => Cl.bufferFromHex(strip(parent)))),
-    ]),
-  /** Take the STX leg back from a commitment that was never revealed. */
+  complete: (
+    txid: string,
+    voutIndex: number,
+    tx: string,
+    parents: string[],
+    ustx?: number,
+  ) =>
+    call(
+      bridge(),
+      "complete-btc-deposit",
+      [
+        Cl.bufferFromHex(strip(txid)),
+        Cl.uint(voutIndex),
+        Cl.bufferFromHex(strip(tx)),
+        Cl.list(parents.map((parent) => Cl.bufferFromHex(strip(parent)))),
+      ],
+      ustx !== undefined && ustx > 0
+        ? [Pc.principal(`${config.deployer}.${config.bridge}`).willSendEq(ustx).ustx()]
+        : [],
+      "originator",
+    ),
+  /**
+   * Take the STX leg back from a commitment that was never revealed.
+   *
+   * Originator mode with nothing permitted: the refund comes *out* of the
+   * bridge, so the signer -- who may be a stranger clearing a lapsed
+   * commitment -- has no business sending anything at all here.
+   */
   cancelCommitment: (member: string, digest: string) =>
-    call(bridge(), "cancel-btc-commitment", [
-      Cl.principal(member),
-      Cl.bufferFromHex(strip(digest)),
-    ]),
-  /** …or from a revealed address the bitcoin never followed. */
+    call(
+      bridge(),
+      "cancel-btc-commitment",
+      [Cl.principal(member), Cl.bufferFromHex(strip(digest))],
+    ),
+  /** …or from a revealed address the bitcoin never followed. Same shape. */
   cancelDeposit: (address: PoxAddress) =>
     call(bridge(), "cancel-btc-deposit", [addressTuple(address)]),
 };
@@ -540,6 +597,89 @@ export const addressScript = (address: PoxAddress): Promise<Plain> =>
 /** The STX leg the bridge itself prices `sats` at. */
 export const bridgeQuote = (sats: number): Promise<Plain> =>
   readOnly(bridge(), "get-required-ustx", [Cl.uint(sats)]);
+
+/**
+ * Whether the sBTC signers have swept a deposit, as the *registry* has it.
+ *
+ * The same read `complete-btc-deposit` opens with, against the same contract,
+ * so an answer of `null` here is exactly the `ERR_DEPOSIT_NOT_SWEPT (u304)`
+ * that call would return. Asking first turns a signed transaction that reverts
+ * into a sentence.
+ *
+ * The registry sits beside the token at the same deployer -- one address for
+ * the whole sBTC deployment -- so it is named off `net().sbtc` rather than
+ * configured again.
+ */
+export const sweptDeposit = (txid: string, voutIndex: number): Promise<Plain> => {
+  const [address] = net().sbtc.split(".") as [string, string];
+  return readOnly({ address, name: "sbtc-registry" }, "get-completed-deposit", [
+    Cl.bufferFromHex(strip(txid)),
+    Cl.uint(voutIndex),
+  ]);
+};
+
+/** One thing the bridge did, as it printed it. */
+export interface BridgeEvent {
+  topic: string;
+  /** The bitcoin transaction, where the event is about one. */
+  txid: string;
+  sats: number;
+  ustx: number;
+  /** The Stacks transaction that carried it, for a link to the explorer. */
+  tx: string;
+}
+
+/**
+ * This member's deposits, read back from what the bridge printed.
+ *
+ * There is no per-member index on chain -- the bridge keys its maps by script
+ * and by txid, and neither is enumerable from a contract call -- so the
+ * history is the event log, filtered here. That makes it a *recent* history
+ * rather than a complete one: a member whose deposits are older than the page
+ * asked for will not see them, and the card says so rather than implying the
+ * list is everything.
+ *
+ * A proper history is an indexer's job. This is the honest cheap version: one
+ * request, decoded in the page, filtered to the member who is asking.
+ */
+export async function bridgeHistory(
+  member: string,
+  limit = 50,
+): Promise<BridgeEvent[]> {
+  const id = `${config.deployer}.${config.bridge}`;
+  const response = await fetch(
+    `${apiBase()}/extended/v1/contract/${id}/events?limit=${limit}&offset=0`,
+  );
+  if (!response.ok) throw new Error(`The event log answered ${response.status}`);
+  const body = (await response.json()) as {
+    results?: { tx_id?: string; contract_log?: { value?: { hex?: string } } }[];
+  };
+
+  const out: BridgeEvent[] = [];
+  for (const entry of body.results ?? []) {
+    const hex = entry.contract_log?.value?.hex;
+    if (!hex) continue;
+    let printed: Plain;
+    try {
+      printed = plain(cvToValue(hexToCV(hex), true));
+    } catch {
+      continue;
+    }
+    const fields = printed as Record<string, Plain> | null;
+    if (!fields || typeof fields !== "object") continue;
+    if (String(fields["member"] ?? "") !== member) continue;
+    const topic = String(fields["topic"] ?? "");
+    if (!topic) continue;
+    out.push({
+      topic,
+      txid: String(fields["txid"] ?? "").replace(/^0x/, ""),
+      sats: num(fields["sats"] ?? 0),
+      ustx: num(fields["ustx"] ?? 0),
+      tx: String(entry.tx_id ?? ""),
+    });
+  }
+  return out;
+}
 
 /** A commitment this member has made and not yet revealed, if any. */
 export const commitmentFor = (member: string, digest: string): Promise<Plain> =>

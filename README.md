@@ -308,7 +308,7 @@ sockets go straight from the browser, as the transaction watcher's does.
 
 ## Joining the pool
 
-The "Two ways in" cards are working forms, not illustrations.
+The deposit card is a working form, not an illustration.
 
 **With sBTC** — an amount in sats, the STX leg quoted live from the bound bond
 (`get-required-ustx`, debounced as you type), and one `deposit` call that moves
@@ -416,8 +416,8 @@ every visitor would share one limit.
 ### The bitcoin side is configuration
 
 Four values per network, in `NETWORKS`. They belong to the sBTC deployment
-rather than to this pool, and `?btcChain=`, `?btcApi=`, `?btcExplorer=` and
-`?emily=` override them for a visit.
+rather than to this pool, and `?btcChain=`, `?btcApi=`, `?btcExplorer=`,
+`?walletNetwork=` and `?emily=` override them for a visit.
 
 | | testnet |
 | --- | --- |
@@ -425,6 +425,19 @@ rather than to this pool, and `?btcChain=`, `?btcApi=`, `?btcExplorer=` and
 | `api` | `https://mempool.bitcoin.regtest.hiro.so/api`, esplora-compatible — that regtest's own mempool instance, which is the only thing that can see into it. Its tip agrees with the Stacks node's `burn_block_height`, which is the check that it is the same chain |
 | `explorer` | the same host without `/api`, for linking a bitcoin txid. Its own field because `NETWORKS[].explorer` is the **Stacks** one, and a bitcoin txid pointed there is a dead link that looks live |
 | `emily` | `https://temp.sbtc-emily-dev.com` — **https**, because the page is served over TLS and a browser blocks a plain-text fetch out of it |
+
+**A wallet has to be told which bitcoin, every time.** `sendTransfer` carries
+the network through to the wallet's own UTXO and fee services, and a request
+that omits it does not fall back to the network the member selected — it
+defaults to **mainnet**. That failure is quiet and looks like the member's
+fault: coin selection runs over an empty mainnet account and reports
+`InsufficientFunds` while the wallet's own screen shows the regtest balance
+behind the dialog. A trace of one shows `utxos/addresses/bc1q…?network=mainnet`
+and `market/bitcoin/fees?network=mainnet` going out while the wallet was on
+sBTC Testnet. So the chain is always named, and `?walletNetwork=` covers a
+wallet that spells this one differently — separately from `?btcChain=`, since
+what a wallet calls the chain and how addresses on it are encoded are not the
+same question.
 
 `?btcApi=` and `?btcExplorer=` point a visit at another instance; nothing else
 changes. Where the API cannot see the chain at all, the card says so in those
