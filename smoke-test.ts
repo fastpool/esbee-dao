@@ -551,6 +551,70 @@ check(
     appSourceFaucets.includes('query.set("xlarge", "true")'),
   "and asks for the large drip, since the small one cannot fund a deposit",
 );
+// ── the route belongs to one account ────────────────────────────────────────
+//
+// Two ways the L1 card used to show a member somebody else's route, both of
+// which ended with the amount and the address locked read-only against a
+// commitment the reader had no part in -- and the lock is the one thing on that
+// card a member cannot type their way out of.
+//
+// Asserted against the source rather than by rendering it: `l1Panel` reads
+// module state and `app.ts` mounts itself on import, so the view model cannot
+// be called from here. These are the exact lines that were missing.
+
+// 1. Switching account has to put the previous one's route down. Nothing else
+//    will: the fields are uncontrolled and hold whatever state says, and
+//    `l1Chain` is only re-read for the address still sitting in the field.
+check(
+  /function forgetAccount\(\): Partial<State>/.test(appSourceFaucets),
+  "app.ts has one place that puts a connected account's route down",
+);
+for (const cleared of ["l1Chain: null", 'btcAddress: ""', 'amount: ""', "deposit: null"]) {
+  check(
+    new RegExp(`forgetAccount[\\s\\S]{0,2000}${cleared.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`).test(
+      appSourceFaucets,
+    ),
+    `and it clears ${cleared}, which is what the locked fields are read from`,
+  );
+}
+for (const path of ["doSwitchAccount", "doDisconnect", "doConnect"]) {
+  const body = appSourceFaucets.slice(appSourceFaucets.indexOf(`function ${path}`));
+  check(
+    body.slice(0, 1200).includes("forgetAccount()"),
+    `${path} puts the previous account's route down`,
+  );
+}
+
+// 2. An announcement is keyed by the funding script and nothing else, so the
+//    one standing against an address may belong to anyone -- another member, or
+//    this member's other account. Its sats go to whoever revealed it, so the
+//    card must not lock a member into it.
+check(
+  /announcement: \{ member: string;/.test(appSourceFaucets),
+  "the announcement read back carries whose it is",
+);
+check(
+  appSourceFaucets.includes("c.announcement.member === state.account"),
+  "and the card only treats it as this account's when it is",
+);
+check(
+  /const lockedSats[\s\S]{0,400}ourAnnouncement\(c\)\?\.sats/.test(appSourceFaucets),
+  "so the amount is locked to this account's route, never to a stranger's",
+);
+check(
+  appSourceFaucets.includes("That address is already spoken for"),
+  "and an address somebody else revealed is said in words rather than locked",
+);
+// `cancel-btc-deposit` refuses a live announcement from anyone but the member
+// who made it, so offering it there is a transaction that reverts. What the
+// member wants is their own commitment's STX leg back.
+check(
+  /doCancelL1[\s\S]{0,900}String\(announced\["member"\] \?\? ""\) === state\.account/.test(
+    appSourceFaucets,
+  ),
+  "and the way out cancels this account's own commitment rather than reverting",
+);
+
 // Leaving mid-term is `vault-2`'s one new power, and the card is mostly about
 // what it costs -- so the costs are what is worth asserting, not the button.
 for (const id of ["early-sats", "early-hint"]) {
@@ -726,7 +790,7 @@ check(deadLinks.length === 0, `no dead local links${deadLinks.length ? ` (${[...
 // The name is a word, not initials. Nothing on the site spells the S+B
 // derivation out -- not in the copy, not as a lockup, not in the mark's
 // description.
-const pages = ["index.html", "media-kit.html", "v1/index.html"].map((f) =>
+const pages = ["index.html", "media-kit.html", "analytics.html", "v1/index.html"].map((f) =>
   readFileSync(f, "utf8"),
 );
 for (const banned of ["S · B", "S-B", "S + B", "gives S and B", "an S and a B", "into initials"]) {
@@ -771,6 +835,449 @@ check(
 for (const icon of ["icons/icon-32.png", "icons/icon-180.png"]) {
   check(built(icon), `${icon} exists for the browsers that will not take an SVG`);
 }
+
+/// --- 3e. the analytics page ------------------------------------------------------
+
+// `analytics.html` is the other page this site actually runs: every deployment
+// of this code, measured, plus the calls anyone at all may make. It is a second
+// entry, a second view model and a second template, so everything asserted
+// about the pool's page has to be asserted again here or it is asserted about
+// half the site.
+const analyticsHtml = readFileSync("analytics.html", "utf8");
+const analyticsSource = readFileSync("src/analytics.ts", "utf8");
+const chainSourceEarly = readFileSync("src/chain.ts", "utf8");
+
+const keeperLoopVars = new Set(
+  [...analyticsHtml.matchAll(/<sc-for[^>]*\sas="([^"]+)"/g)].map((m) => m[1]),
+);
+const keeperRoots = new Set(
+  [...analyticsHtml.matchAll(/\{\{([^}]*)\}\}/g)]
+    .map((m) => m[1].trim().split(".")[0])
+    .filter((r) => r && r !== "true" && r !== "false" && !keeperLoopVars.has(r)),
+);
+const keeperMissing = [...keeperRoots].filter((r) => !new Set(keysOf(analyticsSource)).has(r));
+check(
+  keeperMissing.length === 0,
+  `every analytics binding is supplied${keeperMissing.length ? ` (missing: ${keeperMissing.join(", ")})` : ""}`,
+);
+
+const keeperDom = parseHTML(analyticsHtml);
+const keeperTemplate = keeperDom.document.getElementById("tpl") as unknown as HTMLTemplateElement | null;
+const keeperMount = keeperDom.document.getElementById("app");
+check(Boolean(keeperTemplate) && Boolean(keeperMount), "analytics.html has #tpl and #app");
+check(
+  Boolean(keeperDom.document.getElementById("notice")),
+  "and a notice bar outside the template, so a re-render cannot clear it",
+);
+
+// A stat tile, a log row and a deployment row are each one shape used in
+// several places, so one fixture apiece covers all of them.
+const tile = (label: string) => ({ label, value: "0.5 BTC · 50,000,000 sats", note: "read from get-pool" });
+const deposit = (ready: boolean) => ({
+  txidShort: "31c8e79500…2a3f9cbb",
+  txid: "31c8e7950089a796c4dd88fa6468eba63870f07487a2eb8ace429a6d2a3f9cbb",
+  txidLink: "https://mempool.bitcoin.regtest.hiro.so/tx/31c8",
+  txidLinkShow: true,
+  vout: "0",
+  amount: "0.5 BTC · 50,000,000 sats",
+  to: "bcrt1pjs9x…504g5rq",
+  where: "bitcoin block 9,506",
+  swept: ready ? "swept 0.4999 BTC at burn height 9,512" : "not swept yet",
+  why: ready ? "Swept and uncredited." : "The sBTC signers have not swept it yet.",
+  ready,
+  complete: () => {},
+});
+const waitingRow = (ready: boolean, lapsed: boolean) => ({
+  where: "vault-2",
+  whereShow: true,
+  member: "ST16H0KE0BPR4XNQ64115V5Y1V3XTPGMWG6F3CXQE",
+  memberShort: "ST16H0…CXQE",
+  memberLink: "https://explorer.hiro.so/txid/ST16H0KE?chain=testnet",
+  amount: "0.5 BTC · 50,000,000 sats",
+  stx: "25.00 STX",
+  announced: "9,557",
+  announcedAgo: "7 hours ago",
+  addressShow: true,
+  address: "bcrt1qs9kf0t5d5u6r7aklf33a0tquul57tpk8kjsd7w",
+  addressShort: "bcrt1qs9kf0t5d5…kjsd7w",
+  addressLink: "https://mempool.bitcoin.regtest.hiro.so/address/bcrt1qs9",
+  addressLinkShow: true,
+  script: "0x0014816c97ae8da7343f76df4c63d7ac1ce7e9e586c7",
+  revealLink: "https://explorer.hiro.so/txid/0x0f57?chain=testnet",
+  revealShow: true,
+  word: ready ? "ready to credit" : lapsed ? "lapsed" : "waiting",
+  wordBg: "var(--color-neutral-100)",
+  wordFg: "var(--color-neutral-800)",
+  lapses: lapsed ? "Its 2 days 18 hours are up — anyone may release it" : "Anyone may release it from burn height 10,557",
+  releaseShow: lapsed,
+  releaseDim: "1",
+  releaseNote: "Hands the STX leg back to the member.",
+  release: () => {},
+  scanning: false,
+  unscanned: false,
+  blindShow: false,
+  blind: "",
+  noneFound: !ready && !lapsed,
+  deposits: ready ? [deposit(true), deposit(false)] : [],
+});
+
+const keeperScope: Record<string, unknown> = {
+  walletLabel: "Connect wallet",
+  openWallet: () => {},
+  walletNote: "A wallet is only needed to press one of these.",
+  networks: [
+    { label: "testnet", note: "", bg: "var(--color-accent)", fg: "var(--color-bg)", choose: () => {} },
+    { label: "mainnet", note: "not deployed", bg: "transparent", fg: "var(--color-text)", choose: () => {} },
+  ],
+  burnShow: true,
+  burnHeight: "9,663",
+  pace: "a burn block is about 4 minutes here",
+  reading: false,
+  reload: () => {},
+  failedShow: false,
+  failed: "",
+  deploymentsWord: "2 deployments",
+
+  headline: [
+    { label: "sBTC principal", value: "0.5 BTC", note: "50,000,000 sats the ledgers account for" },
+    { label: "Open work", value: "3", note: "1 to credit · 1 to clear · 1 to execute" },
+  ],
+
+  manyShow: true,
+  compare: [
+    {
+      label: "vault-2",
+      pool: "STFCGF789WX1B737VQYAQ6BG3QYVMJGPDJN4TJFM.vault-2",
+      poolShort: "STFCGF….vault-2",
+      poolLink: "https://explorer.hiro.so/txid/x?chain=testnet",
+      daoName: "esbee-dao-2",
+      bridgeName: "bond-bridge-2",
+      sats: "0.095 BTC",
+      satsNote: "9,500,000 sats",
+      ustx: "4.75 STX",
+      epochs: "never staked",
+      state: "a bond is bound",
+      proposals: "0",
+      work: "2",
+      keeper: "bridge v2",
+      keeperDim: "1",
+      failedShow: false,
+      failed: "",
+      focused: true,
+      focus: () => {},
+    },
+    {
+      label: "vault-1",
+      pool: "STFCGF789WX1B737VQYAQ6BG3QYVMJGPDJN4TJFM.vault-1",
+      poolShort: "STFCGF….vault-1",
+      poolLink: "https://explorer.hiro.so/txid/y?chain=testnet",
+      daoName: "esbee-dao",
+      bridgeName: "bond-bridge",
+      sats: "0 BTC",
+      satsNote: "0 sats",
+      ustx: "0.00 STX",
+      epochs: "never staked",
+      state: "idle",
+      proposals: "0",
+      work: "0",
+      keeper: "bridge v1 — no work list",
+      keeperDim: "0.55",
+      failedShow: false,
+      failed: "",
+      focused: false,
+      focus: () => {},
+    },
+  ],
+
+  workNote: "Each row was found in an event log and confirmed against the map it came from.",
+  waitingCount: "2",
+  waitingEmpty: false,
+  waiting: [waitingRow(true, false), waitingRow(false, true)],
+  holdingShow: true,
+  holdingCount: "1",
+  commitTtl: "2 hours",
+  holding: [
+    {
+      where: "vault-2",
+      whereShow: true,
+      memberShort: "ST2PAB…2YCW",
+      memberLink: "https://explorer.hiro.so/txid/z?chain=testnet",
+      amount: "0.0001 BTC · 10,000 sats",
+      stx: "0.01 STX",
+      committed: "8,044",
+      digest: "0x9f21ba5dd4…966ef6e4",
+      when: "Its 2 hours are up — anyone may cancel it",
+      cancelShow: true,
+      cancel: () => {},
+      txLink: "https://explorer.hiro.so/txid/w?chain=testnet",
+      txShow: true,
+    },
+  ],
+
+  picker: [
+    { label: "vault-2", bg: "var(--color-accent)", fg: "var(--color-bg)", choose: () => {} },
+    { label: "vault-1", bg: "transparent", fg: "var(--color-text)", choose: () => {} },
+  ],
+  focusLabel: "vault-2",
+  focusPool: "STFCGF789WX1B737VQYAQ6BG3QYVMJGPDJN4TJFM.vault-2",
+  focusPoolLink: "https://explorer.hiro.so/txid/x?chain=testnet",
+  focusDao: "STFCGF789WX1B737VQYAQ6BG3QYVMJGPDJN4TJFM.esbee-dao-2",
+  focusDaoLink: "https://explorer.hiro.so/txid/d?chain=testnet",
+  focusBridge: "STFCGF789WX1B737VQYAQ6BG3QYVMJGPDJN4TJFM.bond-bridge-2",
+  focusBridgeLink: "https://explorer.hiro.so/txid/b?chain=testnet",
+
+  sheetShow: true,
+  sheet: [tile("In the bond"), tile("Queued"), tile("Honey recognised")],
+  extrasShow: true,
+  extras: [tile("Treasury balance"), tile("Unattributed")],
+  syncShow: true,
+  syncNote: "Permissionless.",
+  sync: () => {},
+
+  rollShow: true,
+  rollEligible: "0.095 BTC · 9,500,000 sats",
+  rollFits: "0.095 BTC · 9,500,000 sats",
+  rollScale: "100.0%",
+  rollUstx: "4.75 STX",
+  rollShort: "the STX leg covers it",
+  rollLimit: "nothing is holding it back",
+  rollWindow: "The stake window opens at burn height 10,512.",
+  bondShow: true,
+  bondIndex: "4",
+  bondStart: "Starts at burn height 10,800",
+  bondRoom: "1 BTC · 100,000,000 sats allocated to this pool",
+  scheduleShow: true,
+  scheduleNow: "Bond 3 is running.",
+  scheduleNext: "Bond 4 opens at burn height 10,800",
+  poolShareShow: true,
+  poolShare: "12.5% of every sat staked into bond 3",
+
+  epochsShow: true,
+  epochsEmpty: false,
+  epochsNote: "2 epochs opened, 0.01 BTC of honey credited across them",
+  epochs: [
+    {
+      index: "1",
+      bond: "4",
+      staked: "0.5 BTC · 50,000,000 sats",
+      ustx: "25.00 STX",
+      scale: "92.0%",
+      scaleNote: "0.04 BTC · 4,000,000 sats was released rather than carried",
+      shares: "0.5 BTC · 50,000,000 sats",
+      sharesNote: "nobody has left mid-term",
+      credited: "0.005 BTC · 500,000 sats",
+      yield: "1.0%",
+      cycle: "212",
+      unlock: "21,600 in 5 days",
+    },
+  ],
+
+  activityShow: true,
+  activityNote: "The last 6 events vault-2 printed. 2 principals appear in it.",
+  activity: [tile("Deposits"), tile("Withdrawals")],
+  recent: [
+    {
+      what: "Deposited",
+      who: "ST16H0…CXQE",
+      whoLink: "https://explorer.hiro.so/txid/v?chain=testnet",
+      whoShow: true,
+      sats: "0.045 BTC · 4,500,000 sats",
+      ustx: "2.25 STX",
+      txLink: "https://explorer.hiro.so/txid/u?chain=testnet",
+    },
+  ],
+
+  bridgeShow: true,
+  bridgeBlocked: false,
+  bridgeBlockedNote: "",
+  funnel: [tile("Commitments"), tile("Reveals"), tile("Credited")],
+  bridgeLogNote: "The last 10 events bond-bridge-2 printed, newest first.",
+  bridgeLog: [
+    {
+      what: "Revealed it",
+      who: "ST16H0…CXQE",
+      whoLink: "https://explorer.hiro.so/txid/v?chain=testnet",
+      amount: "0.5 BTC · 50,000,000 sats",
+      stx: "25.00 STX",
+      txLink: "https://explorer.hiro.so/txid/u?chain=testnet",
+      btcShow: true,
+      btcShort: "31c8e79500…cbb",
+      btcLink: "https://mempool.bitcoin.regtest.hiro.so/tx/31c8",
+    },
+  ],
+
+  floorNote: "4 proposals raised, quorum 7,254 by weight, epoch 0",
+  floorCounts: [tile("Executed"), tile("Carried, unspent"), tile("Open"), tile("Expired")],
+  floorQuiet: false,
+  floorQuietNote: "Nothing is open for a vote.",
+  readyShow: true,
+  readyCount: "1",
+  ready: [
+    {
+      id: "3",
+      kind: "trust-signer",
+      proposer: "ST16H0…CXQE",
+      votes: "9,000 for · 100 against · quorum 7,254",
+      window: "Executable from burn height 9,600, 4 hours ago",
+      execute: () => {},
+    },
+  ],
+  openShow: true,
+  open: [
+    {
+      id: "4",
+      kind: "sweep",
+      votes: "10 for · 0 against",
+      turnout: "0.1% of quorum",
+      closes: "Voting closes at burn height 9,900, in 16 hours",
+    },
+  ],
+
+  checksShow: true,
+  checksNote: "The properties the pool's own test suite holds it to.",
+  checks: [
+    { name: "paid within credited", holds: "holds", bg: "var(--color-accent-2-100)", fg: "var(--color-accent-2-800)" },
+  ],
+
+  network: "testnet",
+  btcChain: "regtest",
+  btcApiShow: true,
+  btcApi: "https://mempool.bitcoin.regtest.hiro.so/api",
+  nodeApi: "https://api.testnet.hiro.so",
+  windowNote: "Every count on this page is over the last 200 events.",
+};
+
+for (const child of renderChildren(keeperTemplate!.content, keeperScope, keeperDom.document as unknown as Document)) {
+  keeperMount!.appendChild(child);
+}
+const keeperOut = keeperMount!.innerHTML;
+const keeperText = keeperMount!.textContent!.replace(/\s+/g, " ");
+check(keeperOut.length > 8_000, `the analytics page renders ${keeperOut.length} bytes`);
+check(!keeperOut.includes("{{"), "analytics: no unresolved mustaches remain");
+check(!/<sc-(for|if)/.test(keeperOut), "analytics: no unresolved sc-for / sc-if remain");
+check(!keeperOut.includes("sc-camel-"), "analytics: no sc-camel-* attributes survive");
+check(!keeperOut.includes("hint-placeholder"), "analytics: canvas-only hints are dropped");
+
+// What the page is *for*, in the words it uses to say so. Half its value is in
+// naming the calls a stranger is allowed to make and half is in refusing to
+// derive anything, so a rewrite that loses either is a rewrite worth catching.
+for (const phrase of [
+  "This code, wherever it is deployed",
+  "no annualisation",
+  "Side by side",
+  "Open work",
+  "permissionless",
+  "Credit it to the pool",
+  "Release the address",
+  "Commitments never revealed",
+  "Carried and waiting to be executed",
+  "Execute it",
+  "Sync rewards",
+  "The ledger of",
+  "What the next roll would commit",
+  "Every epoch it has rolled through",
+  "The bridge, end to end",
+]) {
+  check(keeperText.includes(phrase), `the analytics page says "${phrase}"`);
+}
+
+// Two deposits under one announcement: one ready, one not. Only the ready one
+// gets a button -- offering the other would be a transaction that reverts.
+check(
+  (keeperOut.match(/Credit it to the pool/g) ?? []).length === 1,
+  "and offers the credit only on the deposit the bridge would take",
+);
+// Every row of the work list says which deployment it belongs to. Without that
+// the page would offer a call against whichever pool happened to be focused.
+check(
+  (keeperOut.match(/vault-2/g) ?? []).length >= 4,
+  "and names the deployment each row belongs to",
+);
+
+const keeperDead = [...analyticsHtml.matchAll(/(?:href|src)="([^"]+)"/g)]
+  .map((m) => m[1])
+  .filter((h) => !h.includes("{{"))
+  .filter((h) => !/^(https?:|#|data:|mailto:)/.test(h))
+  .map((h) => h.split("#")[0])
+  .filter((h) => h && h !== "analytics.js" && !existsSync(h));
+check(
+  keeperDead.length === 0,
+  `analytics: no dead local links${keeperDead.length ? ` (${[...new Set(keeperDead)].join(", ")})` : ""}`,
+);
+
+// A directive is an unknown element, and the HTML parser foster-parents an
+// unknown element out of a `<tbody>` and in front of the table -- so a
+// `<sc-for>` written inside one renders every row *outside* the table. It looks
+// like a styling bug, and it cost a rewrite of this page's log once already.
+for (const [name, page] of [
+  ["index.html", html],
+  ["analytics.html", analyticsHtml],
+  ["v1/index.html", readFileSync("v1/index.html", "utf8")],
+] as const) {
+  const tables = [...page.matchAll(/<table[\s\S]*?<\/table>/g)].map((m) => m[0]);
+  check(
+    tables.every((table) => !/<sc-(for|if)/.test(table)),
+    `${name}: no template directive inside a <table>, which the parser would hoist out`,
+  );
+}
+
+// The five calls the page exists to offer, and the site each is made against.
+// Named against `chain.ts` rather than against the page's own text, so renaming
+// one in the chain layer breaks this rather than leaving a button that throws.
+for (const call of [
+  "bridgeCalls.complete",
+  "bridgeCalls.cancelDeposit",
+  "bridgeCalls.cancelCommitment",
+  "poolCalls.syncRewards",
+  "executorFor",
+]) {
+  check(analyticsSource.includes(call), `the analytics page can reach ${call}`);
+}
+// The whole argument of the work list: the log finds candidates, the map decides.
+check(
+  analyticsSource.includes("announcementByScript") && analyticsSource.includes("bridgeLog"),
+  "and confirms every candidate from the log against the bridge's own map",
+);
+check(
+  chainSourceEarly.includes('"get-announcement-by-script"'),
+  "chain.ts can ask the bridge about a script the events carried",
+);
+
+// Several deployments, and every read pointed at the one it belongs to. A
+// loader that reached for `config` instead of its argument would silently
+// report the primary's numbers under every label.
+check(
+  /export function deployments\(\): Deployment\[\]/.test(configSource),
+  "config.ts offers the whole list of deployments, not just the configured one",
+);
+check(
+  configSource.includes('params.get("deployments")'),
+  "and ?deployments= names others for a visit",
+);
+check(
+  chainSourceEarly.includes("export type Site = Deployment") &&
+    chainSourceEarly.includes("export const here = (): Site"),
+  "chain.ts takes a deployment per call, defaulting to the configured one",
+);
+for (const loader of [
+  "loadPool(site: Site = here())",
+  "loadFloor(site: Site = here())",
+  "capabilities(site: Site = here())",
+  "epochHistory(",
+]) {
+  check(chainSourceEarly.includes(loader), `and ${loader.split("(")[0]} reads the one it is given`);
+}
+// "The same code" is never quite the same code -- testnet's two bridges already
+// differ -- so the page asks before it reads.
+check(
+  analyticsSource.includes('can.bridge.has("get-announcement-by-script")'),
+  "the analytics page asks each deployment what it can do before reading it",
+);
+// The page is reachable. A page nothing links to is a page nobody keeps.
+check(
+  html.includes('href="analytics.html"'),
+  "and the pool's page links to it",
+);
 
 /// --- 4. the chain layer is wired to the real contract -------------------------
 
@@ -908,10 +1415,11 @@ if (entryFile) {
   // genuinely grows (~61 kB with the L1 route and the early exit, ~69 kB once
   // the L1 card said where the member is and why in words, ~74 kB once the two
   // deposit cards became one flow, ~76 kB once the L1 route became a stepper
-  // that can be read backwards) and should be read as "something heavy leaked"
-  // rather than "the page got bigger".
+  // that can be read backwards, ~83 kB once the route was scoped to the account
+  // holding it) and should be read as "something heavy leaked" rather than "the
+  // page got bigger".
   check(
-    eagerBytes < 84_000,
+    eagerBytes < 88_000,
     `initial load is ${(eagerBytes / 1024).toFixed(1)} kB of ${(totalBytes / 1024).toFixed(0)} kB built`,
   );
   check(
@@ -930,6 +1438,17 @@ if (entryFile) {
   const deployed = readFileSync("dist/index.html", "utf8");
   check(deployed.includes(`src="${entryFile}"`), "dist/index.html names the hashed entry");
   check(!deployed.includes('src="app.js"'), "and not the unhashed placeholder");
+  // The keeper's page is a second entry beside it, hashed and rewritten the
+  // same way -- and built from the same chunks, which is why it is one esbuild
+  // call and not two.
+  const keeperEntry = readdirSync("dist").find((f) => /^analytics-[A-Z0-9]+\.js$/.test(f));
+  check(Boolean(keeperEntry), "dist/ has a hashed analytics entry");
+  const keeperDeployed = readFileSync("dist/analytics.html", "utf8");
+  check(
+    Boolean(keeperEntry) && keeperDeployed.includes(`src="${keeperEntry}"`),
+    "dist/analytics.html names it",
+  );
+  check(!keeperDeployed.includes('src="analytics.js"'), "and not the unhashed placeholder");
   for (const asset of ["styles.css", "esbee.svg", "fonts", "icons"]) {
     check(built(`dist/${asset}`), `dist/ carries ${asset}`);
   }
@@ -1080,9 +1599,17 @@ if (built("dist/v1")) {
     poolOf("dist/v1").includes("vault-1") && !poolOf("dist/v1").includes("vault-2"),
     "and the retired page's bundle is built against vault-1",
   );
+  // The live bundle knows about `vault-1` now -- the analytics page reads every
+  // deployment, and the retired one is on the list. What still has to hold is
+  // the *order*: `config` is the first entry, so a list that led with the
+  // retired vault would point the pool page, the join card and every post
+  // condition at the contract everyone is leaving.
+  const livePools = poolOf("dist");
   check(
-    poolOf("dist").includes("vault-2") && !poolOf("dist").includes("vault-1"),
-    "while the live page's is built against vault-2",
+    livePools.indexOf("vault-2") !== -1 &&
+      (livePools.indexOf("vault-1") === -1 ||
+        livePools.indexOf("vault-2") < livePools.indexOf("vault-1")),
+    "while the live page's bundle leads with vault-2",
   );
 } else {
   ok.push("skipped v1 bundle checks (run `pnpm run build` first)");

@@ -1,0 +1,514 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Esbee DAO — analytics</title>
+<meta name="description" content="Every deployment of the Esbee pool, measured from its own contracts: the balance sheet, the roll, the epochs, the bridge funnel, the floor — and the calls anyone at all is allowed to finish.">
+<link rel="icon" type="image/svg+xml" href="esbee.svg">
+<link rel="icon" type="image/png" sizes="32x32" href="icons/icon-32.png">
+<link rel="apple-touch-icon" sizes="180x180" href="icons/icon-180.png">
+<link rel="mask-icon" href="esbee.svg" color="#c67139">
+<link rel="stylesheet" href="styles.css">
+<style>
+html { scroll-behavior: smooth; }
+body { margin: 0; }
+a:hover { color: var(--color-accent-700); }
+.mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+.row { background: var(--color-surface); border-radius: 24px; padding: clamp(18px,2.6vw,26px); }
+.kv { display: grid; grid-template-columns: repeat(auto-fit,minmax(min(100%,180px),1fr)); gap: 10px 20px; }
+.kv-k { font-size: 11px; letter-spacing: .1em; text-transform: uppercase; color: var(--color-accent); }
+.kv-v { font-size: 15px; line-height: 1.4; overflow-wrap: anywhere; }
+.stat { background: var(--color-bg); border-radius: 20px; padding: 16px 18px; }
+.stat-v { font-family: var(--font-heading); font-size: clamp(17px,2.1vw,22px); line-height: 1.1; margin: 5px 0; overflow-wrap: anywhere; }
+.stat-n { font-size: 12.5px; line-height: 1.5; color: color-mix(in srgb, var(--color-text) 58%, transparent); }
+.grid { display: grid; grid-template-columns: repeat(auto-fit,minmax(min(100%,190px),1fr)); gap: 12px; }
+.scroll { overflow-x: auto; }
+.sec { max-width: 1240px; margin: 0 auto; padding: clamp(28px,4.5vw,54px) clamp(20px,4vw,40px); }
+.h2 { font-size: clamp(22px,3vw,34px); margin: 0 0 8px; }
+.lede { max-width: 66ch; margin: 0 0 22px; font-size: 15px; line-height: 1.6; color: color-mix(in srgb, var(--color-text) 60%, transparent); }
+</style>
+</head>
+<body>
+<div id="app"></div>
+<!-- Wallet and transaction feedback. Outside the template so a re-render
+     cannot clear it mid-transaction. -->
+<div id="notice" hidden role="status" aria-live="polite"
+     style="position:fixed;left:50%;transform:translateX(-50%);z-index:80;
+            max-width:min(92vw,64ch);padding:10px 16px;border-radius:16px;
+            background:var(--color-surface);color:var(--color-text);
+            box-shadow:var(--shadow-lg);font:14px/1.45 var(--font-body);
+            overflow-wrap:anywhere"></div>
+
+<template id="tpl">
+<div style="background:var(--color-bg);color:var(--color-text);font-family:var(--font-body);min-height:100vh;overflow-x:clip">
+
+<header style="position:sticky;top:0;z-index:40;background:color-mix(in srgb, var(--color-bg) 88%, transparent);backdrop-filter:blur(12px);border-bottom:1px solid color-mix(in srgb, var(--color-text) 8%, transparent)">
+  <div style="max-width:1240px;margin:0 auto;padding:12px clamp(20px,4vw,40px);display:flex;align-items:center;gap:clamp(12px,3vw,32px);flex-wrap:wrap">
+    <a href="index.html" style="display:flex;align-items:center;gap:10px;text-decoration:none;color:var(--color-text);margin-right:auto">
+      <svg width="34" height="34" sc-camel-view-box="0 0 64 64" style="display:block">
+        <path d="M32 3 L59 18 L59 46 L32 61 L5 46 L5 18 Z" style="fill:var(--color-surface);stroke:var(--color-text);stroke-width:3.4;stroke-linejoin:round"></path>
+        <ellipse cx="20" cy="26" rx="8" ry="4.4" transform="rotate(-32 20 26)" style="fill:var(--color-text);opacity:.22"></ellipse>
+        <ellipse cx="44" cy="26" rx="8" ry="4.4" transform="rotate(32 44 26)" style="fill:var(--color-text);opacity:.22"></ellipse>
+        <ellipse cx="32" cy="38" rx="9.5" ry="13" style="fill:var(--color-accent)"></ellipse>
+        <path d="M23.6 33 h16.8 M24.4 42 h15.2" style="stroke:var(--color-text);stroke-width:3.2;stroke-linecap:round"></path>
+        <circle cx="32" cy="24" r="5.4" style="fill:var(--color-text)"></circle>
+      </svg>
+      <span style="font-family:var(--font-heading);font-size:21px;letter-spacing:-0.01em">Esbee<span style="color:var(--color-accent)">.</span></span>
+    </a>
+    <nav style="display:flex;align-items:center;gap:clamp(10px,2vw,24px);flex-wrap:wrap;font-size:14px">
+      <a href="index.html#pool" style="text-decoration:none;color:var(--color-text);white-space:nowrap" style-hover="color:var(--color-accent)">The Pool</a>
+      <a href="index.html#vote" style="text-decoration:none;color:var(--color-text);white-space:nowrap" style-hover="color:var(--color-accent)">Vote</a>
+      <a href="analytics.html" aria-current="page" style="text-decoration:none;color:var(--color-accent);white-space:nowrap">Analytics</a>
+      <a href="#work" style="text-decoration:none;color:var(--color-text);white-space:nowrap" style-hover="color:var(--color-accent)">Open work</a>
+      <a href="#epochs" style="text-decoration:none;color:var(--color-text);white-space:nowrap" style-hover="color:var(--color-accent)">Epochs</a>
+    </nav>
+    <div class="seg" style="flex:none">
+      <sc-for list="{{ networks }}" as="n">
+        <button class="seg-opt" sc-camel-on-click="{{ n.choose }}" title="{{ n.note }}" style="background:{{ n.bg }};color:{{ n.fg }};border:0;font:inherit;font-size:12.5px;cursor:pointer">{{ n.label }}</button>
+      </sc-for>
+    </div>
+    <button class="btn btn-primary" sc-camel-on-click="{{ openWallet }}" style="font-size:14px;padding:9px 18px;white-space:nowrap">{{ walletLabel }}</button>
+  </div>
+</header>
+
+<!-- ── what this page is ─────────────────────────────────────────────────── -->
+<section id="top" class="sec" style="padding-bottom:clamp(16px,2.4vw,26px)">
+  <div class="tag tag-outline" style="margin-bottom:14px">Analytics</div>
+  <h1 style="font-size:clamp(32px,5.6vw,60px);line-height:1.02;letter-spacing:-0.02em;margin:0 0 14px;max-width:17ch">This code, wherever it is deployed.</h1>
+  <p style="font-size:clamp(15px,1.6vw,19px);line-height:1.55;max-width:64ch;margin:0 0 18px;color:color-mix(in srgb, var(--color-text) 78%, transparent)">
+    More than one set of these contracts exists — the same pool and the same DAO deployed twice, holding different money — so this page reads a list of them and puts them side by side. Every figure below is a variable one of those contracts keeps or a count of the events it printed. There is no APY here, no annualisation, and no average the chain does not itself hold.
+  </p>
+  <div style="display:flex;flex-wrap:wrap;gap:14px;align-items:center;font-size:13.5px">
+    <button class="btn btn-secondary" sc-camel-on-click="{{ reload }}" style="font-size:13.5px">Read it again</button>
+    <sc-if value="{{ reading }}"><span class="text-muted">reading the chain…</span></sc-if>
+    <sc-if value="{{ burnShow }}"><span class="text-muted">bitcoin at burn height {{ burnHeight }} · {{ pace }}</span></sc-if>
+    <span class="text-muted">{{ deploymentsWord }} read</span>
+  </div>
+  <sc-if value="{{ failedShow }}">
+    <p style="margin:18px 0 0;font-size:14px;line-height:1.6;color:var(--color-accent-800)">{{ failed }}</p>
+  </sc-if>
+</section>
+
+<!-- ── the top line ──────────────────────────────────────────────────────── -->
+<section class="sec" style="padding-top:0;padding-bottom:clamp(18px,2.6vw,30px)">
+  <div class="grid">
+    <sc-for list="{{ headline }}" as="s" hint-placeholder-count="4">
+      <div style="background:var(--color-surface);border-radius:22px;padding:18px 20px">
+        <div class="kv-k">{{ s.label }}</div>
+        <div class="stat-v">{{ s.value }}</div>
+        <div class="stat-n">{{ s.note }}</div>
+      </div>
+    </sc-for>
+  </div>
+</section>
+
+<!-- ── one row per deployment ────────────────────────────────────────────── -->
+<sc-if value="{{ manyShow }}">
+<section id="deployments" style="background:var(--color-surface)">
+  <div class="sec">
+    <h2 class="h2">Side by side</h2>
+    <p class="lede">
+      Nothing on chain registers a deployment and no API answers “which contracts share this source”, so the list is configuration — <span class="mono">DEPLOYMENTS</span> in <span class="mono">config.ts</span>, extended for a visit with <span class="mono">?deployments=</span>. Each is then asked what functions it actually answers to before it is read, because the same code deployed twice is never quite the same code. Pick one to read in full below.
+    </p>
+    <div class="scroll">
+     <div style="display:flex;flex-direction:column;min-width:760px">
+      <div style="display:grid;grid-template-columns:minmax(120px,1fr) minmax(150px,1.3fr) minmax(130px,1fr) minmax(90px,.8fr) minmax(110px,1fr) minmax(120px,1fr) minmax(90px,.7fr);gap:8px 16px;padding:0 4px 8px;font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--color-accent);border-bottom:1px solid var(--color-divider)">
+        <span>Deployment</span><span>Pool contract</span><span>Principal</span><span>STX</span><span>State</span><span>Bridge</span><span>Open work</span>
+      </div>
+      <sc-for list="{{ compare }}" as="c" hint-placeholder-count="2">
+        <div style="display:grid;grid-template-columns:minmax(120px,1fr) minmax(150px,1.3fr) minmax(130px,1fr) minmax(90px,.8fr) minmax(110px,1fr) minmax(120px,1fr) minmax(90px,.7fr);gap:8px 16px;padding:13px 4px;border-bottom:1px solid var(--color-divider);font-size:13.5px;align-items:baseline">
+          <span>
+            <button sc-camel-on-click="{{ c.focus }}" class="btn btn-ghost" style="font-size:13.5px;padding:2px 6px;margin-left:-6px">{{ c.label }}</button>
+            <sc-if value="{{ c.focused }}"><span class="tag tag-accent" style="font-size:10px;padding:1px 7px">reading</span></sc-if>
+          </span>
+          <span class="mono" style="font-size:12.5px"><a href="{{ c.poolLink }}" target="_blank" rel="noopener" title="{{ c.pool }}" style="color:inherit">{{ c.poolShort }} ↗</a></span>
+          <span>{{ c.sats }} <span class="text-muted" style="font-size:12px">{{ c.satsNote }}</span></span>
+          <span>{{ c.ustx }}</span>
+          <span>{{ c.state }} <span class="text-muted" style="font-size:12px">· {{ c.epochs }}</span></span>
+          <span class="mono" style="font-size:12.5px;opacity:{{ c.keeperDim }}">{{ c.bridgeName }}<br><span class="text-muted" style="font-family:var(--font-body);font-size:12px">{{ c.keeper }}</span></span>
+          <span>{{ c.work }} <span class="text-muted" style="font-size:12px">· {{ c.proposals }} proposals</span></span>
+        </div>
+      </sc-for>
+     </div>
+    </div>
+  </div>
+</section>
+</sc-if>
+
+<!-- ── open work, across every deployment ────────────────────────────────── -->
+<section id="work" class="sec">
+  <h2 class="h2">Open work <span class="text-muted" style="font-family:var(--font-body);font-size:16px">({{ waitingCount }})</span></h2>
+  <p class="lede">
+    Several of these calls are permissionless: the mandate is the state on chain, not the caller. A swept deposit still uncredited, a lapsed address still holding somebody's STX, a proposal that carried and was never spent — anyone can finish any of them, and none of them moves a coin of the caller's. {{ workNote }}
+  </p>
+
+  <sc-if value="{{ waitingEmpty }}">
+    <div class="row"><p style="margin:0;font-size:14.5px;line-height:1.6">Nothing is standing on any bridge that a work list can be built from. Every announcement in reach has been credited, cancelled or released.</p></div>
+  </sc-if>
+
+  <div style="display:flex;flex-direction:column;gap:14px">
+    <sc-for list="{{ waiting }}" as="w" hint-placeholder-count="2">
+      <div class="row">
+        <div style="display:flex;flex-wrap:wrap;gap:10px 16px;align-items:baseline;margin-bottom:14px">
+          <span class="tag" style="background:{{ w.wordBg }};color:{{ w.wordFg }};flex:none">{{ w.word }}</span>
+          <sc-if value="{{ w.whereShow }}"><span class="tag tag-neutral" style="flex:none">{{ w.where }}</span></sc-if>
+          <span style="font-family:var(--font-heading);font-size:19px">{{ w.amount }}</span>
+          <span class="text-muted" style="font-size:13.5px">{{ w.stx }} paid on the Stacks leg</span>
+          <span style="margin-left:auto"></span>
+          <sc-if value="{{ w.revealShow }}"><a href="{{ w.revealLink }}" target="_blank" rel="noopener" style="font-size:13px">the reveal ↗</a></sc-if>
+        </div>
+
+        <div class="kv" style="margin-bottom:14px">
+          <div>
+            <div class="kv-k">Announced by</div>
+            <div class="kv-v mono"><a href="{{ w.memberLink }}" target="_blank" rel="noopener" style="color:inherit">{{ w.memberShort }}</a></div>
+          </div>
+          <div>
+            <div class="kv-k">At burn height</div>
+            <div class="kv-v">{{ w.announced }} <span class="text-muted" style="font-size:13px">{{ w.announcedAgo }}</span></div>
+          </div>
+          <div>
+            <div class="kv-k">Bitcoin must come from</div>
+            <sc-if value="{{ w.addressShow }}">
+              <div class="kv-v mono" title="{{ w.address }}">
+                <sc-if value="{{ w.addressLinkShow }}"><a href="{{ w.addressLink }}" target="_blank" rel="noopener" style="color:inherit">{{ w.addressShort }} ↗</a></sc-if>
+              </div>
+            </sc-if>
+            <div class="kv-v mono text-muted" style="font-size:12px" title="the scriptPubKey the announcement is keyed by">{{ w.script }}</div>
+          </div>
+        </div>
+
+        <sc-if value="{{ w.scanning }}">
+          <p class="text-muted" style="margin:0 0 12px;font-size:13.5px">Looking at what has left that address…</p>
+        </sc-if>
+        <sc-if value="{{ w.unscanned }}">
+          <p class="text-muted" style="margin:0 0 12px;font-size:13.5px">Not looked at on bitcoin — this page reads the newest few, and older announcements are usually waiting on their own member rather than on a keeper.</p>
+        </sc-if>
+        <sc-if value="{{ w.blindShow }}">
+          <p style="margin:0 0 12px;font-size:13.5px;line-height:1.55;color:var(--color-accent-800)">The bitcoin side could not be read: {{ w.blind }}</p>
+        </sc-if>
+        <sc-if value="{{ w.noneFound }}">
+          <p class="text-muted" style="margin:0 0 12px;font-size:13.5px;line-height:1.55">Nothing has been spent out of that address to an sBTC deposit address yet. Until it is, this announcement is only holding the pool's room.</p>
+        </sc-if>
+
+        <sc-for list="{{ w.deposits }}" as="d">
+          <div style="border-top:1px solid var(--color-divider);padding:14px 0 4px">
+            <div style="display:flex;flex-wrap:wrap;gap:8px 16px;align-items:baseline">
+              <span class="mono" style="font-size:13.5px" title="{{ d.txid }}">
+                <sc-if value="{{ d.txidLinkShow }}"><a href="{{ d.txidLink }}" target="_blank" rel="noopener" style="color:inherit">{{ d.txidShort }} ↗</a></sc-if>
+              </span>
+              <span class="text-muted" style="font-size:13px">output {{ d.vout }} · {{ d.where }}</span>
+              <span style="font-size:13.5px">{{ d.amount }}</span>
+              <span class="text-muted mono" style="font-size:12.5px">to {{ d.to }}</span>
+              <span class="text-muted" style="font-size:13px">{{ d.swept }}</span>
+            </div>
+            <p style="margin:8px 0 0;font-size:13.5px;line-height:1.6;opacity:.84;max-width:70ch">{{ d.why }}</p>
+            <sc-if value="{{ d.ready }}">
+              <button class="btn btn-primary" sc-camel-on-click="{{ d.complete }}" style="font-size:13.5px;margin-top:10px">Credit it to the pool</button>
+            </sc-if>
+          </div>
+        </sc-for>
+
+        <div style="border-top:1px solid var(--color-divider);margin-top:14px;padding-top:12px;display:flex;flex-wrap:wrap;gap:10px 16px;align-items:center">
+          <span class="text-muted" style="font-size:13px;flex:1;min-width:min(100%,30ch)">{{ w.lapses }}</span>
+          <sc-if value="{{ w.releaseShow }}">
+            <span class="text-muted" style="font-size:13px;max-width:52ch">{{ w.releaseNote }}</span>
+            <button class="btn btn-secondary" sc-camel-on-click="{{ w.release }}" style="font-size:13px;opacity:{{ w.releaseDim }}">Release the address</button>
+          </sc-if>
+        </div>
+      </div>
+    </sc-for>
+  </div>
+
+  <sc-if value="{{ holdingShow }}">
+    <h3 style="font-size:19px;margin:clamp(24px,3.4vw,36px) 0 8px">Commitments never revealed ({{ holdingCount }})</h3>
+    <p class="lede" style="margin-bottom:14px">Step 1 was paid for and step 2 never happened. Only the member can reveal one — the salt behind the hash never leaves their browser — but once {{ commitTtl }} have passed anyone may cancel it, which hands the STX leg back to them and frees the room it was holding.</p>
+    <div style="display:flex;flex-direction:column;gap:10px">
+      <sc-for list="{{ holding }}" as="h" hint-placeholder-count="2">
+        <div style="background:var(--color-surface);border-radius:22px;padding:16px 20px;display:flex;flex-wrap:wrap;gap:10px 18px;align-items:center">
+          <sc-if value="{{ h.whereShow }}"><span class="tag tag-neutral" style="flex:none">{{ h.where }}</span></sc-if>
+          <span class="mono" style="font-size:13.5px"><a href="{{ h.memberLink }}" target="_blank" rel="noopener" style="color:inherit">{{ h.memberShort }}</a></span>
+          <span style="font-size:14px">{{ h.amount }}</span>
+          <span class="text-muted" style="font-size:13px">{{ h.stx }} held</span>
+          <span class="text-muted mono" style="font-size:12.5px">{{ h.digest }}</span>
+          <span class="text-muted" style="font-size:13px;flex:1;min-width:min(100%,26ch)">committed at {{ h.committed }} · {{ h.when }}</span>
+          <sc-if value="{{ h.txShow }}"><a href="{{ h.txLink }}" target="_blank" rel="noopener" style="font-size:13px">↗</a></sc-if>
+          <sc-if value="{{ h.cancelShow }}">
+            <button class="btn btn-secondary" sc-camel-on-click="{{ h.cancel }}" style="font-size:13px">Cancel it</button>
+          </sc-if>
+        </div>
+      </sc-for>
+    </div>
+  </sc-if>
+</section>
+
+<!-- ── which deployment the rest is about ────────────────────────────────── -->
+<section style="background:var(--color-surface);border-top:1px solid var(--color-divider);position:sticky;top:57px;z-index:30">
+  <div style="max-width:1240px;margin:0 auto;padding:12px clamp(20px,4vw,40px);display:flex;flex-wrap:wrap;gap:10px 16px;align-items:center">
+    <span class="kv-k" style="flex:none">Reading in full</span>
+    <div class="seg" style="flex:none">
+      <sc-for list="{{ picker }}" as="p">
+        <button class="seg-opt" sc-camel-on-click="{{ p.choose }}" style="background:{{ p.bg }};color:{{ p.fg }};border:0;font:inherit;font-size:12.5px;cursor:pointer">{{ p.label }}</button>
+      </sc-for>
+    </div>
+    <span class="mono text-muted" style="font-size:12px;overflow-wrap:anywhere">
+      <a href="{{ focusPoolLink }}" target="_blank" rel="noopener" style="color:inherit">{{ focusPool }} ↗</a>
+    </span>
+  </div>
+</section>
+
+<!-- ── the balance sheet ─────────────────────────────────────────────────── -->
+<section id="ledger" class="sec">
+  <h2 class="h2">The ledger of {{ focusLabel }}</h2>
+  <p class="lede">Every number here is one variable of <span class="mono">get-pool</span>. The four places principal can sit do not overlap, so they add up; honey is counted apart from it, because it is.</p>
+  <sc-if value="{{ sheetShow }}">
+    <div class="grid">
+      <sc-for list="{{ sheet }}" as="s" hint-placeholder-count="8">
+        <div class="stat" style="background:var(--color-surface)">
+          <div class="kv-k">{{ s.label }}</div>
+          <div class="stat-v">{{ s.value }}</div>
+          <div class="stat-n">{{ s.note }}</div>
+        </div>
+      </sc-for>
+    </div>
+  </sc-if>
+
+  <h3 style="font-size:19px;margin:clamp(24px,3.4vw,36px) 0 8px">What the treasury actually holds</h3>
+  <p class="lede" style="margin-bottom:14px">The reads that explain the eight above: the balance itself, and the two ways it can differ from what the books say is owed.</p>
+  <div class="grid">
+    <sc-for list="{{ extras }}" as="e" hint-placeholder-count="4">
+      <div class="stat" style="background:var(--color-surface)">
+        <div class="kv-k">{{ e.label }}</div>
+        <div class="stat-v">{{ e.value }}</div>
+        <div class="stat-n">{{ e.note }}</div>
+      </div>
+    </sc-for>
+    <sc-if value="{{ syncShow }}">
+      <div class="stat" style="background:var(--color-surface)">
+        <div class="kv-k">Reward sync</div>
+        <p class="stat-n" style="margin:6px 0 10px">{{ syncNote }}</p>
+        <button class="btn btn-secondary" sc-camel-on-click="{{ sync }}" style="font-size:13px">Sync rewards</button>
+      </div>
+    </sc-if>
+  </div>
+</section>
+
+<!-- ── the next roll ─────────────────────────────────────────────────────── -->
+<section id="roll" style="background:var(--color-surface)">
+  <div class="sec">
+    <h2 class="h2">What the next roll would commit</h2>
+    <p class="lede"><span class="mono">get-stake-preview</span> computes it, so the page never reproduces the allocation cap, the STX floor or the launch floor in JavaScript. <span class="mono">stake</span> is permissionless: the only thing gating a roll is the clock.</p>
+    <sc-if value="{{ rollShow }}">
+      <div class="grid">
+        <div class="stat"><div class="kv-k">Eligible</div><div class="stat-v">{{ rollEligible }}</div><div class="stat-n">everything that wants in at the next roll</div></div>
+        <div class="stat"><div class="kv-k">Would fit</div><div class="stat-v">{{ rollFits }}</div><div class="stat-n">{{ rollScale }} of it — the rest is released rather than carried</div></div>
+        <div class="stat"><div class="kv-k">STX it takes</div><div class="stat-v">{{ rollUstx }}</div><div class="stat-n">{{ rollShort }}</div></div>
+        <div class="stat"><div class="kv-k">Holding it back</div><div class="stat-v" style="font-size:15px;font-family:var(--font-body);line-height:1.45">{{ rollLimit }}</div><div class="stat-n">{{ rollWindow }}</div></div>
+      </div>
+    </sc-if>
+    <div class="grid" style="margin-top:14px">
+      <sc-if value="{{ bondShow }}">
+        <div class="stat"><div class="kv-k">Bond bound</div><div class="stat-v">bond {{ bondIndex }}</div><div class="stat-n">{{ bondStart }} · {{ bondRoom }}</div></div>
+      </sc-if>
+      <sc-if value="{{ scheduleShow }}">
+        <div class="stat"><div class="kv-k">pox-5, now</div><div class="stat-v" style="font-size:15px;font-family:var(--font-body);line-height:1.45">{{ scheduleNow }}</div><div class="stat-n">{{ scheduleNext }}</div></div>
+      </sc-if>
+      <sc-if value="{{ poolShareShow }}">
+        <div class="stat"><div class="kv-k">This pool's share</div><div class="stat-v">{{ poolShare }}</div><div class="stat-n">read from pox-5, not from the pool</div></div>
+      </sc-if>
+    </div>
+  </div>
+</section>
+
+<!-- ── epochs ────────────────────────────────────────────────────────────── -->
+<section id="epochs" class="sec">
+  <h2 class="h2">Every epoch it has rolled through</h2>
+  <p class="lede">{{ epochsNote }}. An epoch is one bond the pool actually committed to. <em>Carried</em> is what fitted against what was eligible; <em>shares</em> is what is still committed, which falls when somebody leaves mid-term; <em>credited against shares</em> is the honey that epoch earned over what it staked — a ratio, not a rate, and deliberately not annualised.</p>
+  <sc-if value="{{ epochsEmpty }}">
+    <div class="row"><p style="margin:0;font-size:14.5px;line-height:1.6">This pool has never staked, so it has no epochs. Its first roll opens epoch 0.</p></div>
+  </sc-if>
+  <sc-if value="{{ epochsShow }}">
+    <div class="scroll">
+     <div style="display:flex;flex-direction:column;min-width:820px">
+      <div style="display:grid;grid-template-columns:60px 70px minmax(150px,1.2fr) minmax(110px,1fr) minmax(150px,1.2fr) minmax(130px,1fr) minmax(120px,1fr);gap:8px 16px;padding:0 4px 8px;font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--color-accent);border-bottom:1px solid var(--color-divider)">
+        <span>Epoch</span><span>Bond</span><span>Staked</span><span>Carried</span><span>Shares now</span><span>Credited</span><span>Unlocks</span>
+      </div>
+      <sc-for list="{{ epochs }}" as="e" hint-placeholder-count="3">
+        <div style="display:grid;grid-template-columns:60px 70px minmax(150px,1.2fr) minmax(110px,1fr) minmax(150px,1.2fr) minmax(130px,1fr) minmax(120px,1fr);gap:8px 16px;padding:13px 4px;border-bottom:1px solid var(--color-divider);font-size:13.5px;align-items:baseline">
+          <span>#{{ e.index }}</span>
+          <span>{{ e.bond }}</span>
+          <span>{{ e.staked }}<br><span class="text-muted" style="font-size:12px">{{ e.ustx }}</span></span>
+          <span>{{ e.scale }}<br><span class="text-muted" style="font-size:12px">{{ e.scaleNote }}</span></span>
+          <span>{{ e.shares }}<br><span class="text-muted" style="font-size:12px">{{ e.sharesNote }}</span></span>
+          <span>{{ e.credited }}<br><span class="text-muted" style="font-size:12px">{{ e.yield }} against shares</span></span>
+          <span>{{ e.unlock }}<br><span class="text-muted" style="font-size:12px">cycle {{ e.cycle }}</span></span>
+        </div>
+      </sc-for>
+     </div>
+    </div>
+  </sc-if>
+</section>
+
+<!-- ── what members have done ────────────────────────────────────────────── -->
+<section id="activity" style="background:var(--color-surface)">
+  <div class="sec">
+    <h2 class="h2">What has been done to the pool</h2>
+    <p class="lede">{{ activityNote }}</p>
+    <sc-if value="{{ activityShow }}">
+      <div class="grid">
+        <sc-for list="{{ activity }}" as="a" hint-placeholder-count="8">
+          <div class="stat"><div class="kv-k">{{ a.label }}</div><div class="stat-v">{{ a.value }}</div><div class="stat-n">{{ a.note }}</div></div>
+        </sc-for>
+      </div>
+      <div class="scroll" style="margin-top:20px">
+       <div style="display:flex;flex-direction:column;min-width:620px">
+        <div style="display:grid;grid-template-columns:minmax(170px,1.4fr) minmax(100px,.8fr) minmax(160px,1.2fr) minmax(90px,.7fr) 28px;gap:8px 16px;padding:0 4px 8px;font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--color-accent);border-bottom:1px solid var(--color-divider)">
+          <span>What</span><span>Who</span><span>sBTC</span><span>STX</span><span></span>
+        </div>
+        <sc-for list="{{ recent }}" as="r" hint-placeholder-count="6">
+          <div style="display:grid;grid-template-columns:minmax(170px,1.4fr) minmax(100px,.8fr) minmax(160px,1.2fr) minmax(90px,.7fr) 28px;gap:8px 16px;padding:11px 4px;border-bottom:1px solid var(--color-divider);font-size:13.5px;align-items:baseline">
+            <span>{{ r.what }}</span>
+            <span class="mono" style="font-size:12.5px"><sc-if value="{{ r.whoShow }}"><a href="{{ r.whoLink }}" target="_blank" rel="noopener" style="color:inherit">{{ r.who }}</a></sc-if></span>
+            <span>{{ r.sats }}</span>
+            <span>{{ r.ustx }}</span>
+            <span><a href="{{ r.txLink }}" target="_blank" rel="noopener" title="the transaction that carried it">↗</a></span>
+          </div>
+        </sc-for>
+       </div>
+      </div>
+    </sc-if>
+  </div>
+</section>
+
+<!-- ── the bridge funnel ─────────────────────────────────────────────────── -->
+<section id="bridge" class="sec">
+  <h2 class="h2">The bridge, end to end</h2>
+  <p class="lede">Bringing L1 bitcoin in is five steps and two of them can be abandoned, so the interesting number is not the volume but the conversion: how many commitments became reveals, and how many reveals became credited positions.</p>
+  <sc-if value="{{ bridgeBlocked }}">
+    <p style="margin:0 0 18px;font-size:14px;line-height:1.6;max-width:66ch;color:var(--color-accent-800)">{{ bridgeBlockedNote }}</p>
+  </sc-if>
+  <div class="grid">
+    <sc-for list="{{ funnel }}" as="f" hint-placeholder-count="6">
+      <div class="stat" style="background:var(--color-surface)"><div class="kv-k">{{ f.label }}</div><div class="stat-v">{{ f.value }}</div><div class="stat-n">{{ f.note }}</div></div>
+    </sc-for>
+  </div>
+  <sc-if value="{{ bridgeShow }}">
+    <p class="lede" style="margin:22px 0 12px">{{ bridgeLogNote }}</p>
+    <div class="scroll">
+     <div style="display:flex;flex-direction:column;min-width:640px">
+      <div style="display:grid;grid-template-columns:minmax(140px,1.2fr) minmax(90px,.8fr) minmax(150px,1.2fr) minmax(80px,.6fr) minmax(120px,1fr) 28px;gap:8px 16px;padding:0 4px 8px;font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--color-accent);border-bottom:1px solid var(--color-divider)">
+        <span>What</span><span>Who</span><span>sBTC</span><span>STX leg</span><span>Bitcoin</span><span></span>
+      </div>
+      <sc-for list="{{ bridgeLog }}" as="e" hint-placeholder-count="6">
+        <div style="display:grid;grid-template-columns:minmax(140px,1.2fr) minmax(90px,.8fr) minmax(150px,1.2fr) minmax(80px,.6fr) minmax(120px,1fr) 28px;gap:8px 16px;padding:11px 4px;border-bottom:1px solid var(--color-divider);font-size:13.5px;align-items:baseline">
+          <span>{{ e.what }}</span>
+          <span class="mono" style="font-size:12.5px"><a href="{{ e.whoLink }}" target="_blank" rel="noopener" style="color:inherit">{{ e.who }}</a></span>
+          <span>{{ e.amount }}</span>
+          <span>{{ e.stx }}</span>
+          <span class="mono" style="font-size:12.5px"><sc-if value="{{ e.btcShow }}"><a href="{{ e.btcLink }}" target="_blank" rel="noopener" style="color:inherit">{{ e.btcShort }} ↗</a></sc-if></span>
+          <span><a href="{{ e.txLink }}" target="_blank" rel="noopener" title="the Stacks transaction that carried it">↗</a></span>
+        </div>
+      </sc-for>
+     </div>
+    </div>
+  </sc-if>
+</section>
+
+<!-- ── the floor ─────────────────────────────────────────────────────────── -->
+<section id="floor" style="background:var(--color-surface)">
+  <div class="sec">
+    <h2 class="h2">The floor</h2>
+    <p class="lede">{{ floorNote }}. Executing a proposal that carried is permissionless — the mandate is the vote, not the executor — and a mandate left unspent lapses when its window closes.</p>
+    <div class="grid">
+      <sc-for list="{{ floorCounts }}" as="f" hint-placeholder-count="4">
+        <div class="stat"><div class="kv-k">{{ f.label }}</div><div class="stat-v">{{ f.value }}</div><div class="stat-n">{{ f.note }}</div></div>
+      </sc-for>
+    </div>
+
+    <sc-if value="{{ floorQuiet }}">
+      <div style="background:var(--color-bg);border-radius:22px;padding:18px 22px;margin-top:16px"><p style="margin:0;font-size:14.5px;line-height:1.6">{{ floorQuietNote }}</p></div>
+    </sc-if>
+
+    <sc-if value="{{ readyShow }}">
+      <h3 style="font-size:19px;margin:clamp(20px,3vw,30px) 0 12px">Carried and waiting to be executed ({{ readyCount }})</h3>
+      <div style="display:flex;flex-direction:column;gap:12px">
+        <sc-for list="{{ ready }}" as="r" hint-placeholder-count="1">
+          <div style="background:var(--color-bg);border-radius:22px;padding:16px 20px;display:flex;flex-wrap:wrap;gap:10px 18px;align-items:center">
+            <span class="tag tag-accent-2" style="flex:none">#{{ r.id }}</span>
+            <span class="mono" style="font-size:13.5px">{{ r.kind }}</span>
+            <span class="text-muted" style="font-size:13px">raised by {{ r.proposer }}</span>
+            <span class="text-muted" style="font-size:13px;flex:1;min-width:min(100%,28ch)">{{ r.votes }} · {{ r.window }}</span>
+            <button class="btn btn-primary" sc-camel-on-click="{{ r.execute }}" style="font-size:13.5px">Execute it</button>
+          </div>
+        </sc-for>
+      </div>
+    </sc-if>
+
+    <sc-if value="{{ openShow }}">
+      <h3 style="font-size:19px;margin:clamp(20px,3vw,30px) 0 12px">Still being voted on</h3>
+      <div style="display:flex;flex-direction:column">
+        <sc-for list="{{ open }}" as="o" hint-placeholder-count="1">
+          <div style="border-top:1px solid var(--color-divider);padding:12px 0;display:flex;flex-wrap:wrap;gap:8px 16px;align-items:baseline">
+            <span class="tag tag-neutral" style="flex:none">#{{ o.id }}</span>
+            <span class="mono" style="font-size:13.5px">{{ o.kind }}</span>
+            <span class="text-muted" style="font-size:13px">{{ o.votes }} · {{ o.turnout }}</span>
+            <span class="text-muted" style="font-size:13px">{{ o.closes }}</span>
+            <a href="index.html#vote" style="font-size:13px;margin-left:auto">vote on it ↗</a>
+          </div>
+        </sc-for>
+      </div>
+    </sc-if>
+  </div>
+</section>
+
+<!-- ── the contract's own self-checks ────────────────────────────────────── -->
+<sc-if value="{{ checksShow }}">
+<section id="checks" class="sec">
+  <h2 class="h2">What the contract says about itself</h2>
+  <p class="lede">{{ checksNote }}</p>
+  <div style="display:flex;flex-wrap:wrap;gap:8px">
+    <sc-for list="{{ checks }}" as="c" hint-placeholder-count="6">
+      <span class="tag" style="background:{{ c.bg }};color:{{ c.fg }}">{{ c.name }} · {{ c.holds }}</span>
+    </sc-for>
+  </div>
+</section>
+</sc-if>
+
+<footer style="background:var(--color-neutral-900);color:var(--color-neutral-200)">
+  <div style="max-width:1240px;margin:0 auto;padding:clamp(32px,5vw,60px) clamp(20px,4vw,40px) clamp(24px,4vw,40px);display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,220px),1fr));gap:clamp(20px,4vw,44px)">
+    <div>
+      <div style="font-family:var(--font-heading);font-size:20px;margin-bottom:10px">Esbee DAO</div>
+      <p style="margin:0;font-size:13.5px;line-height:1.6;opacity:.6;max-width:34ch">A pooled staker for pox-5 Bitcoin Staking Bonds, with the operator seat held by its own members.</p>
+    </div>
+    <div>
+      <div style="font-size:11px;letter-spacing:.1em;text-transform:uppercase;opacity:.5;margin-bottom:12px">Elsewhere</div>
+      <div style="display:flex;flex-direction:column;gap:8px;font-size:14px">
+        <a href="index.html" style="color:var(--color-neutral-200);text-decoration:none" style-hover="color:var(--color-accent-400)">The pool</a>
+        <a href="index.html#join" style="color:var(--color-neutral-200);text-decoration:none" style-hover="color:var(--color-accent-400)">Join it</a>
+        <a href="media-kit.html" style="color:var(--color-neutral-200);text-decoration:none" style-hover="color:var(--color-accent-400)">Media kit</a>
+      </div>
+    </div>
+    <div>
+      <div style="font-size:11px;letter-spacing:.1em;text-transform:uppercase;opacity:.5;margin-bottom:12px">Read against</div>
+      <div style="display:flex;flex-direction:column;gap:6px;font-size:12.5px;opacity:.62;overflow-wrap:anywhere">
+        <span>{{ network }} · {{ nodeApi }}</span>
+        <span class="mono">{{ focusPool }}</span>
+        <span class="mono">{{ focusDao }}</span>
+        <span class="mono">{{ focusBridge }}</span>
+        <sc-if value="{{ btcApiShow }}"><span>bitcoin {{ btcChain }} · {{ btcApi }}</span></sc-if>
+      </div>
+    </div>
+    <div>
+      <div style="font-size:11px;letter-spacing:.1em;text-transform:uppercase;opacity:.5;margin-bottom:12px">Reading the numbers</div>
+      <p style="margin:0;font-size:13.5px;line-height:1.6;opacity:.6">{{ windowNote }} A count is what the log reached, not what has ever happened — a complete history is an indexer's job. Pre-launch: contracts unaudited and testnet-only.</p>
+    </div>
+  </div>
+</footer>
+
+</div>
+</template>
+
+<script type="module" src="analytics.js"></script>
+</body>
+</html>

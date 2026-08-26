@@ -80,8 +80,10 @@ await ready();
 mkdirSync(out, { recursive: true });
 
 // The retired vault's page is a page of this site like any other, and the one
-// most likely to be forgotten when something about the design changes.
-for (const page of ["index.html", "media-kit.html", "v1/index.html"]) {
+// most likely to be forgotten when something about the design changes. The
+// keeper's page is the other: it is nobody's landing page, so nothing else
+// would catch it going wrong.
+for (const page of ["index.html", "media-kit.html", "analytics.html", "v1/index.html"]) {
   const file = join(out, `${page.replace(".html", "").replace("/", "-")}.png`);
   execFileSync(chrome, [
     "--headless",

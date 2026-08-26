@@ -40,11 +40,21 @@ const EMILY_PROXY = JSON.stringify(
   process.env.EMILY_PROXY ?? (process.env.NETLIFY ? "/emily" : ""),
 );
 
-// The live site, and the retired vault's page under it. Each is an entry, the
-// pages that name it, and the directory it is written to.
+// The live site, and the retired vault's page under it. Each is its entries,
+// the pages that name them, and the directory it is written to.
+//
+// The live site has two entries rather than one: `app.ts` is the pool's page,
+// and `analytics.ts` is the keeper's list of what anyone may finish. They are
+// built in one esbuild call so that what they share -- the template runtime,
+// the config, and the wallet chunk both of them reach for -- is one chunk on
+// disk and one download for a reader who opens both.
 const SITES = [
-  { entry: join(root, "src", "app.ts"), dir: out, pages: ["index.html", "media-kit.html"] },
-  { entry: join(root, "v1", "src", "app.ts"), dir: join(out, "v1"), pages: ["v1/index.html"] },
+  {
+    entries: [join(root, "src", "app.ts"), join(root, "src", "analytics.ts")],
+    dir: out,
+    pages: ["index.html", "media-kit.html", "analytics.html"],
+  },
+  { entries: [join(root, "v1", "src", "app.ts")], dir: join(out, "v1"), pages: ["v1/index.html"] },
 ];
 const FILES = ["styles.css", "esbee.svg"];
 const DIRS = ["fonts", "icons"];
@@ -57,7 +67,7 @@ for (const site of SITES) {
   execFileSync(
     join(root, "node_modules", "esbuild", "bin", "esbuild"),
     [
-      site.entry,
+      ...site.entries,
       "--bundle",
       "--splitting",
       "--format=esm",
@@ -85,26 +95,42 @@ for (const site of SITES) {
 for (const file of FILES) cpSync(join(root, file), join(out, file));
 for (const dir of DIRS) cpSync(join(root, dir), join(out, dir), { recursive: true });
 
-// 3. the pages, each pointed at the bundle that was actually built beside it.
+// 3. the pages, each pointed at the bundles that were actually built beside it.
+//
+// A page names `app.js` or `analytics.js`; what esbuild wrote is that name plus
+// a content hash. Every entry of the site is looked up once and every page is
+// rewritten against all of them, so a page may name either -- or, one day, both.
 for (const site of SITES) {
-  const entry = readdirSync(site.dir).find((f) => /^app-[A-Z0-9]+\.js$/.test(f));
-  if (!entry) {
-    console.error(`no hashed entry in ${site.dir} -- did esbuild change its naming?`);
-    process.exit(1);
+  const built = readdirSync(site.dir);
+  const hashed = new Map();
+  for (const path of site.entries) {
+    const name = path.split("/").pop().replace(/\.ts$/, "");
+    const file = built.find((f) => new RegExp(`^${name}-[A-Z0-9]+\\.js$`).test(f));
+    if (!file) {
+      console.error(`no hashed ${name} in ${site.dir} -- did esbuild change its naming?`);
+      process.exit(1);
+    }
+    hashed.set(`${name}.js`, file);
   }
   for (const page of site.pages) {
     const html = readFileSync(join(root, page), "utf8");
-    const rewritten = html.replaceAll('src="app.js"', `src="${entry}"`);
-    if (html.includes('src="app.js"') && rewritten === html) {
+    let rewritten = html;
+    for (const [name, file] of hashed) {
+      rewritten = rewritten.replaceAll(`src="${name}"`, `src="${file}"`);
+    }
+    if (rewritten === html && [...hashed.keys()].some((n) => html.includes(`src="${n}"`))) {
       console.error(`${page}: could not rewrite the script path`);
       process.exit(1);
     }
     const written = join(site.dir, page.split("/").pop());
     writeFileSync(written, rewritten);
-    // A page still naming the unhashed entry would 404 for every visitor while
+    // A page still naming an unhashed entry would 404 for every visitor while
     // looking fine in the repo, so it is worth failing the build here.
-    if (readFileSync(written, "utf8").includes('src="app.js"')) {
-      console.error(`${written} still points at an unhashed app.js`);
+    const stale = [...hashed.keys()].find((name) =>
+      readFileSync(written, "utf8").includes(`src="${name}"`),
+    );
+    if (stale) {
+      console.error(`${written} still points at an unhashed ${stale}`);
       process.exit(1);
     }
   }

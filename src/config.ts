@@ -97,13 +97,15 @@ export const NETWORKS: Record<NetworkName, NetworkInfo> = {
     // chain, and it answers esplora's shapes. `?btcApi=` and `?btcExplorer=`
     // point a visit at another.
     //
-    // Emily is a dev instance, `https` rather than `http`: this page is served
-    // over TLS and a browser blocks a plain-text fetch out of it.
+    // Emily is sBTC's own testnet instance. `https` rather than `http`, because
+    // this page is served over TLS and a browser blocks a plain-text fetch out
+    // of it -- and no trailing slash, because every caller joins a path that
+    // already starts with one.
     bitcoin: {
       chain: "regtest",
       api: "https://mempool.bitcoin.regtest.hiro.so/api",
       explorer: "https://mempool.bitcoin.regtest.hiro.so",
-      emily: "https://temp.sbtc-emily-dev.com",
+      emily: "https://testnet.sbtc-emily.com",
     },
   },
   mainnet: {
@@ -134,12 +136,14 @@ export const NETWORKS: Record<NetworkName, NetworkInfo> = {
   },
 };
 
-interface Deployment {
+export interface Deployment {
   deployer: string;
   dao: string;
   pool: string;
   /** The bridge that credits L1 bitcoin into this pool, and no other. */
   bridge: string;
+  /** What to call it where several are listed side by side. */
+  label: string;
   /**
    * The pool this one replaced, if any.
    *
@@ -164,16 +168,39 @@ interface Deployment {
 // Mainnet has no address yet. Filling it in is all that switching takes: the
 // selector below is live on every network, and one with no deployer falls back
 // to the rehearsal rather than erroring.
-const DEPLOYMENTS: Record<NetworkName, Deployment> = {
-  testnet: {
-    deployer: "STFCGF789WX1B737VQYAQ6BG3QYVMJGPDJN4TJFM",
-    dao: "esbee-dao-2",
-    pool: "vault-2",
-    bridge: "bond-bridge-2",
-    retired: "vault-1",
-  },
-  mainnet: { deployer: "", dao: "esbee-dao", pool: "bond-staker", bridge: "bond-bridge" },
-  devnet: { deployer: "", dao: "esbee-dao", pool: "bond-staker", bridge: "bond-bridge" },
+//
+// A *list*, primary first. More than one set of these contracts exists on
+// testnet already -- `vault-1` and `vault-2` are the same code deployed twice,
+// holding different money under different DAOs -- and the analytics page reads
+// all of them. Everything else on the site reads the first, which is what
+// `config` below is.
+const DEPLOYMENTS: Record<NetworkName, Deployment[]> = {
+  testnet: [
+    {
+      deployer: "STFCGF789WX1B737VQYAQ6BG3QYVMJGPDJN4TJFM",
+      dao: "esbee-dao-2",
+      pool: "vault-2",
+      bridge: "bond-bridge-2",
+      label: "vault-2",
+      retired: "vault-1",
+    },
+    // The retired set. Same pool and DAO code as the one above -- the two agree
+    // function for function -- but an older bridge, which is exactly why the
+    // analytics page asks each deployment what it can do rather than assuming.
+    {
+      deployer: "STFCGF789WX1B737VQYAQ6BG3QYVMJGPDJN4TJFM",
+      dao: "esbee-dao",
+      pool: "vault-1",
+      bridge: "bond-bridge",
+      label: "vault-1",
+    },
+  ],
+  mainnet: [
+    { deployer: "", dao: "esbee-dao", pool: "bond-staker", bridge: "bond-bridge", label: "bond-staker" },
+  ],
+  devnet: [
+    { deployer: "", dao: "esbee-dao", pool: "bond-staker", bridge: "bond-bridge", label: "bond-staker" },
+  ],
 };
 
 /** Networks the page offers to switch between, in the order they are shown. */
@@ -193,7 +220,7 @@ const stored =
   typeof localStorage === "undefined" ? null : localStorage.getItem(STORED_NETWORK);
 const requested = params.get("network") ?? stored;
 const network: NetworkName = isNetwork(requested) ? requested : "testnet";
-const deployment = DEPLOYMENTS[network];
+const deployment = DEPLOYMENTS[network][0]!;
 
 /**
  * Switch networks and reload.
@@ -212,7 +239,7 @@ export function setNetwork(next: NetworkName): void {
 
 /** Whether a network has contracts to talk to, for labelling the switcher. */
 export const hasDeployment = (name: NetworkName): boolean =>
-  Boolean(DEPLOYMENTS[name].deployer);
+  Boolean(DEPLOYMENTS[name][0]?.deployer);
 
 export const config = {
   network,
@@ -220,9 +247,66 @@ export const config = {
   dao: params.get("dao") ?? deployment.dao,
   pool: params.get("pool") ?? deployment.pool,
   bridge: params.get("bridge") ?? deployment.bridge,
+  // The label follows `?pool=`: a visit pointed at another contract should not
+  // keep calling it by the configured one's name in a list of several.
+  label: params.get("pool") ?? deployment.label,
   /** The retired pool `v1/` is about, or "" where this network never had one. */
   retired: deployment.retired ?? "",
 };
+
+/**
+ * Every deployment of this code the page knows of on this network, primary
+ * first.
+ *
+ * There is no way to find the others by asking a chain: nothing on chain
+ * registers a deployment, and no API answers "which contracts share this
+ * source". So it is a list here, and `?deployments=` extends it for a visit --
+ * `deployer` alone, or `deployer:dao:pool:bridge` where the names differ from
+ * the primary's:
+ *
+ *   ?deployments=ST1ABC…
+ *   ?deployments=ST1ABC…,ST2DEF…:esbee-dao-3:vault-3:bond-bridge-3
+ *
+ * The primary always leads and always carries the single-contract overrides, so
+ * `?deployer=` keeps meaning what it meant.
+ */
+export function deployments(): Deployment[] {
+  const primary: Deployment = {
+    deployer: config.deployer,
+    dao: config.dao,
+    pool: config.pool,
+    bridge: config.bridge,
+    label: config.label,
+    retired: config.retired || undefined,
+  };
+  const asked = params.get("deployments");
+  const rest = asked
+    ? asked
+        .split(",")
+        .map((entry) => entry.trim())
+        .filter(Boolean)
+        .map((entry) => {
+          const [deployer, dao, pool, bridge] = entry.split(":");
+          return {
+            deployer: deployer ?? "",
+            dao: dao || primary.dao,
+            pool: pool || primary.pool,
+            bridge: bridge || primary.bridge,
+            label: pool || `${(deployer ?? "").slice(0, 6)}…`,
+          };
+        })
+    : DEPLOYMENTS[network].slice(1);
+  // Never twice. A `?deployments=` that names the primary again would otherwise
+  // read every number on the page a second time and add it to itself.
+  const seen = new Set([id(primary)]);
+  return [
+    primary,
+    ...rest.filter((entry) => entry.deployer !== "" && !seen.has(id(entry)) && seen.add(id(entry)) !== undefined),
+  ].filter((entry) => entry.deployer !== "");
+}
+
+/** A deployment's identity: four contracts, so all four have to match. */
+const id = (d: Deployment): string => `${d.deployer}.${d.dao}.${d.pool}.${d.bridge}`;
 
 /** Whether there is a deployment to talk to at all. */
 export const configured = (): boolean => Boolean(config.deployer);

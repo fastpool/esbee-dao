@@ -30,6 +30,7 @@ else on the page is a plain static file.
 | `src/nostr.ts` | what the chat runs on -- relays, keys, the two rooms, member verification. Loaded after the page paints |
 | `src/stacks-verify.ts` | checking a wallet's signature without stacks.js: c32, the signed-message hash, a principal in, a tuple out |
 | `v1/` | the same site again, pointed at the retired `vault-1`: its own `index.html`, its own `src/`, its own bundle. It exists so members can take their money out of the old contract |
+| `analytics.html`, `src/analytics.ts` | the analytics page: every deployment of this code, measured, plus the calls anyone at all is allowed to finish. Its own entry, its own view model |
 | `media-kit.html` | the name, mark, palette and voice |
 | `esbee.svg` | the mark — the same artwork the header draws inline, and the favicon |
 | `styles.css`, `fonts/` | the design system's tokens and its two typefaces |
@@ -125,6 +126,10 @@ The pages and the stylesheet keep their names and revalidate on each visit.
 lazy wallet chunks and sourcemaps that only devtools asks for.
 
 ## Networks
+
+`DEPLOYMENTS` is a **list per network**, primary first: everything but the
+analytics page reads the first entry, and that page reads all of them. See
+[Analytics](#analytics) for `?deployments=`.
 
 **Testnet is live**, at `STFCGF789WX1B737VQYAQ6BG3QYVMJGPDJN4TJFM` —
 `vault-2` for the pool, `esbee-dao-2` for the seat, `bond-bridge-2` for the
@@ -424,7 +429,7 @@ rather than to this pool, and `?btcChain=`, `?btcApi=`, `?btcExplorer=`,
 | `chain` | `regtest` — Stacks testnet is anchored to a **regtest** burnchain, not testnet4. `/v2/info` gives it away: `parent_network_id` is `0xdab5bffa`, the regtest magic, where testnet3 and testnet4 are `0x0709110b`. So its addresses are `bcrt1…`, and a `tb1…` is the wrong chain here |
 | `api` | `https://mempool.bitcoin.regtest.hiro.so/api`, esplora-compatible — that regtest's own mempool instance, which is the only thing that can see into it. Its tip agrees with the Stacks node's `burn_block_height`, which is the check that it is the same chain |
 | `explorer` | the same host without `/api`, for linking a bitcoin txid. Its own field because `NETWORKS[].explorer` is the **Stacks** one, and a bitcoin txid pointed there is a dead link that looks live |
-| `emily` | `https://temp.sbtc-emily-dev.com` — **https**, because the page is served over TLS and a browser blocks a plain-text fetch out of it |
+| `emily` | `https://testnet.sbtc-emily.com` — sBTC's own testnet instance. **https**, because the page is served over TLS and a browser blocks a plain-text fetch out of it |
 
 **A wallet has to be told which bitcoin, every time.** `sendTransfer` carries
 the network through to the wallet's own UTXO and fee services, and a request
@@ -540,6 +545,120 @@ alone; the page says so instead of pretending otherwise.
 field renamed in Clarity shows up here as a type error rather than as
 `undefined` on the page.
 
+## Analytics
+
+`analytics.html`, linked from the header. Three things, in the order it puts
+them.
+
+### It reads a *list* of deployments
+
+More than one set of these contracts exists. `vault-1` and `vault-2` are the
+same pool and the same DAO deployed twice at one address, holding different
+money, and there is no reason a third could not be somebody else's. So
+`DEPLOYMENTS` in `config.ts` is a list per network rather than one entry, and
+the page reads all of them.
+
+    ?deployments=ST1ABC…
+    ?deployments=ST1ABC…,ST2DEF…:esbee-dao-3:vault-3:bond-bridge-3
+
+`deployer` alone reuses the primary's contract names; the long form spells all
+four where they differ. The **primary is always first** — everything else on
+the site (`config`, the join card, every post condition) is that entry, so the
+order is load-bearing and `pnpm test` asserts the built bundle still leads with
+`vault-2`.
+
+There is no discovery here and there cannot be: nothing on chain registers a
+deployment, and no API answers *which contracts share this source*. A registry
+plus an override is the honest version of that.
+
+**Every read takes the deployment it is about.** `chain.ts` grew a `Site` — the
+four contracts that name each other — threaded through `loadPool`, `loadFloor`,
+`bridgeLog`, `poolLog`, `epochHistory` and every call the page can make, all
+defaulting to the configured one so nothing else changed. Half of one
+deployment read against half of another would report the wrong DAO's proposals
+against the right pool's shares.
+
+**"The same code" is never quite the same code**, and this is not hypothetical:
+testnet's two bridges already differ, because v1 committed to the transaction
+and has no `get-announcement-by-script` for anyone to read announcements back
+from. So each deployment is asked what functions it answers to —
+`capabilities()`, one interface fetch per contract — and every optional section
+is gated on the answer. `vault-1` therefore sits in the comparison with its
+numbers and says *bridge v1 — no work list* rather than erroring or, worse,
+reading as having nothing to do. The same gate is what picks up the newer
+pool's `invariant-*` reads where a deployment has them.
+
+The comparison is always shown; a **picker** chooses which deployment the
+detail below it is about.
+
+### The open work
+
+Several calls here are permissionless: the mandate is the state on chain, not
+the caller, and a call nobody is watching for is a call nobody makes.
+
+| | |
+| --- | --- |
+| `complete-btc-deposit` | bitcoin the sBTC signers have swept and the pool has not been told about. The sats go to whoever announced the funding address, so finishing it for them costs a fee and gains nothing but the pool moving |
+| `cancel-btc-deposit` | an announcement whose bitcoin never came, past its ~1000 burn blocks. Clearing it hands the STX leg back to the member and frees the pool's room |
+| `cancel-btc-commitment` | the same, for a commitment nobody revealed. Only the member can reveal one — the salt never leaves their browser — so a stale commitment is otherwise a slot held for good |
+| `execute-*` | a proposal that carried, inside its window. The mandate lapses if nobody spends it |
+| `sync-rewards` | reward sBTC that has arrived and has not been split |
+
+The list spans every deployment at once, and each row is labelled with the one
+it belongs to — the button calls *that* pool, not whichever is focused.
+
+**The log finds candidates; the map decides.** None of this is enumerable from
+a contract call — the bridge keys `announcements` by scriptPubKey and `credited`
+by txid, and a Clarity map cannot be walked. So the page reads each contract's
+event log for *candidates* and then asks about every one of them directly:
+`get-announcement-by-script` for a reveal, `get-commitment` for a commit. What
+is listed is what the map still holds this minute, not what was once printed. A
+log that has scrolled past a deposit loses a row; a log trusted for state would
+report one as pending long after it was credited.
+
+**The bitcoin half is the same shape.** There is no txid on chain until a
+deposit is credited, so the only way to ask *has the bitcoin arrived* is to
+spell the announced address back out (`encodeAddress`, the inverse of the decode
+the join card does), ask the explorer what has left it, and ask the sBTC
+registry whether any of those outputs was swept. Only taproot outputs are asked
+about: an sBTC deposit address is a taproot output, always.
+
+**"Ready" means the call succeeds**, not that it looks plausible. Each candidate
+is put through `complete-btc-deposit`'s own checks in the contract's own order —
+swept at all, minted to *this* deployment's treasury and nowhere else, every
+input locked to the announced address, and the announcement older than the sweep
+— and the row says which one it failed rather than offering a button that
+reverts. The one press that could do harm is releasing an address whose bitcoin
+is on its way, so where there is a swept deposit against it that button says so
+and steps back.
+
+### The numbers
+
+For the focused deployment, and **nothing is derived**: every figure is a
+variable the contract keeps or a count of events it printed. No APY, no
+annualisation, no average the chain does not itself hold.
+
+| | |
+| --- | --- |
+| the ledger | `get-pool`, laid out so it adds up. The four places principal can sit — bonded, queued, released, withdrawing — do not overlap; `exiting-sats` is a subset of bonded and is shown as a share of it rather than added; honey is counted apart, because `total-credited` and `total-paid` are about rewards and not principal |
+| the treasury | `get-treasury-balance` beside the two ways it can differ from what the books owe: `get-unattributed-principal` and `get-unrecognized-rewards`. The second is what `sync-rewards` splits, and the button is beside it |
+| the next roll | `get-stake-preview` — eligible against what fits, the STX shortfall, and which of the two caps is biting. Plus the bound bond, pox-5's own schedule, and this pool's share of every sat staked into the bond it is in |
+| epochs | `get-epoch` for each, walked from `epoch-count` rather than probed. Per epoch: what was staked, the roll's scale-back, shares still committed against shares at the roll, and the honey credited against them. That last is a **ratio, not a rate** — it is not annualised, on purpose |
+| activity | the pool's own log, tallied by topic, with the principals that appear in it. That is a count of who has *acted* in the window, not of members: the ledger keys members by principal and never counts them, and the page says so where it shows the number |
+| the bridge funnel | commitments → reveals → credited, with the conversion at each step, what was given up, and what has been bridged in. The interesting number is the conversion, not the volume: two of the five steps can be abandoned |
+| the floor | proposals executed, carried-and-unspent, open, expired; turnout against quorum |
+| self-checks | the pool's `invariant-*` reads, where a deployment has them. Only the no-argument ones, since the rest need a member or an epoch to ask about |
+
+Every count is over the last 200 events of the contract it is about — what the
+log reached, not what has ever happened. A complete history is an indexer's job
+and the page says so rather than implying otherwise.
+
+It is a second **entry**, not a second site: `src/analytics.ts` is bundled
+alongside `src/app.ts` in one esbuild call, so the template runtime, the config
+and the wallet chunk both pages reach for are one chunk on disk and one download
+for a reader who opens both. Its own view model and its own template, though —
+the two pages answer different questions and a shared one would answer neither.
+
 ## Testing
 
 `pnpm test` renders `index.html` through `src/render.ts` against a real DOM
@@ -554,6 +673,15 @@ field renamed in Clarity shows up here as a type error rather than as
 - the entry chunk stays small and free of the wallet SDK and the relays
 - `esbee.svg` and the header draw the same cell, so the mark cannot drift
 - the name is never spelled as initials
+
+- the analytics page resolves too, from its own view model, still names every
+  call it exists to offer, and still labels each row with the deployment it
+  belongs to
+- `config.ts` offers the whole list of deployments and `chain.ts` takes one per
+  call, so a loader that reached for `config` instead of its argument is caught
+- no template directive sits inside a `<table>`, which the HTML parser would
+  foster-parent out of it — a bug that renders as valid markup and looks like
+  a styling mistake
 
 - the chat's own template resolves, keeps a draft across a render, and links
   a URL in a message
@@ -571,7 +699,8 @@ Both are the same tool: headless Chrome, from Playwright's cache
 (`pnpm exec playwright install chromium` if it is not there — it needs no
 system packages beyond that download). Set `CHROME=` to point at another.
 
-`pnpm run shot` serves the site and screenshots it. Worth doing after any change
+`pnpm run shot` serves the site and screenshots every page — the pool's, the
+media kit, the analytics page and the retired vault's. Worth doing after any change
 to the mark or the renderer: the test suite proves the markup resolves, but it
 cannot see. Three bugs got through it and were obvious the moment something
 drew them —

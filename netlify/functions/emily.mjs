@@ -1,7 +1,7 @@
 // Emily, with this site's token attached.
 //
-//   /emily/testnet/deposit          ->  https://temp.sbtc-emily-dev.com/deposit
-//   /emily/testnet/deposit/<txid>/0 ->  https://temp.sbtc-emily-dev.com/deposit/<txid>/0
+//   /emily/testnet/deposit          ->  https://testnet.sbtc-emily.com/deposit
+//   /emily/testnet/deposit/<txid>/0 ->  https://testnet.sbtc-emily.com/deposit/<txid>/0
 //
 // Emily is what tells the sBTC signers a deposit exists; a deposit nobody
 // registers is swept by nobody. The instance this site talks to on testnet
@@ -23,7 +23,7 @@
 
 /** Only these, so a path cannot name an arbitrary host. */
 const HOSTS = {
-  testnet: "https://temp.sbtc-emily-dev.com",
+  testnet: "https://testnet.sbtc-emily.com",
   mainnet: "https://sbtc-emily.com",
 };
 

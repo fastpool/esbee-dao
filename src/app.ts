@@ -235,8 +235,17 @@ interface L1Chain {
   salt: boolean;
   /** `get-commitment`: made, not yet revealed. */
   commitment: { sats: number; ustx: number; at: number } | null;
-  /** `get-announcement`: revealed, and the bitcoin has not been credited yet. */
-  announcement: { sats: number; ustx: number; at: number } | null;
+  /**
+   * `get-announcement`: revealed, and the bitcoin has not been credited yet.
+   *
+   * Carries whose it is, which the commitment does not have to: commitments are
+   * keyed by `(member, digest)` and so are already this member's, while an
+   * announcement is keyed by the funding script alone. Anyone's reveal of an
+   * address is what the bridge holds against it, and the sats will go to
+   * whoever that was -- so the card has to know whether that is the account
+   * looking at it.
+   */
+  announcement: { member: string; sats: number; ustx: number; at: number } | null;
   /** `get-credited-deposit` for the txid in the field, if there is one. */
   credited: { sats: number } | null;
   /**
@@ -1425,8 +1434,31 @@ async function readBtcBalance(address: string): Promise<number | null> {
 const lockedSats = (): number | null => {
   const c = state.l1Chain;
   if (!c || c.credited) return null;
-  return c.announcement?.sats ?? c.commitment?.sats ?? null;
+  return ourAnnouncement(c)?.sats ?? c.commitment?.sats ?? null;
 };
+
+/**
+ * The announcement against this address, but only where it is this account's.
+ *
+ * An announcement is keyed by the funding script and nothing else, so the one
+ * the bridge holds for an address may belong to anybody -- another member, or
+ * this member's *other* account. Its sats go to whoever revealed it, and the
+ * fields on this card exist to describe a route the person reading it is on.
+ * Locking them to somebody else's numbers is worse than showing nothing: it
+ * tells a member they are half-way through something they have not started,
+ * and refuses to let them type their way out of it.
+ *
+ * The commitment needs no such test. `get-commitment` is keyed by
+ * `(member, digest)`, so a commitment read back is already this account's.
+ */
+const ourAnnouncement = (c: L1Chain): L1Chain["announcement"] =>
+  c.announcement && c.announcement.member === state.account ? c.announcement : null;
+
+/** Somebody else got to this address first, and the bridge holds it for them. */
+const takenByAnother = (c: L1Chain | null): string =>
+  c && c.announcement && c.announcement.member !== state.account
+    ? c.announcement.member
+    : "";
 
 /**
  * Whether an L1 route is part-way through, and so not a thing to change under.
@@ -1451,7 +1483,7 @@ const l1Underway = (): boolean => lockedSats() !== null;
 const lockedUstx = (): number | null => {
   const c = state.l1Chain;
   if (!c || c.credited) return null;
-  return c.announcement?.ustx ?? c.commitment?.ustx ?? null;
+  return ourAnnouncement(c)?.ustx ?? c.commitment?.ustx ?? null;
 };
 
 /**
@@ -1568,6 +1600,7 @@ async function loadL1(): Promise<void> {
           : null,
         announcement: revealed
           ? {
+              member: String(revealed["member"] ?? ""),
               sats: num(revealed["sats"]),
               ustx: num(revealed["ustx"]),
               at: num(revealed["announced-at-height"]),
@@ -2027,8 +2060,13 @@ async function doCancelL1(): Promise<void> {
   const api = await chainApi();
   if (address) {
     const salt = known(address.text);
-    const announced = await api.announcementFor(address.pox);
-    if (announced) {
+    const announced = tuple(await api.announcementFor(address.pox));
+    // Only this account's. An announcement is keyed by the funding script, so
+    // the one standing against an address may be somebody else's -- and
+    // `cancel-btc-deposit` refuses a live announcement from anyone but the
+    // member who made it. Falling through to the commitment is what the member
+    // actually wants there: their own STX leg back.
+    if (announced && String(announced["member"] ?? "") === state.account) {
       await withWallet("the cancellation", () =>
         api.bridgeCalls.cancelDeposit(address.pox),
       );
@@ -2660,7 +2698,33 @@ function l1Stage(c: L1Chain): L1Stage {
     };
   }
 
-  const announced = c.announcement;
+  // Somebody else's reveal stands against this address. First reveal takes it,
+  // so a reveal of this account's would be refused on chain -- and the sats, if
+  // any arrive, are credited to whoever announced it. Said here rather than
+  // discovered at step 2, which is a commit too late.
+  const other = takenByAnother(c);
+  if (other) {
+    return {
+      current: 1,
+      act: 0,
+      title: "That address is already spoken for",
+      note:
+        `The bridge holds an announcement for it made by ${shorten(other)}` +
+        (state.account ? `, not by ${shorten(state.account)}` : "") +
+        `. First reveal takes an address, so a reveal from here would be ` +
+        `refused — and bitcoin sent from it credits them, not you. Use another ` +
+        `address you control; any will do.` +
+        (c.commitment
+          ? ` The commitment this account made against it can be given up at ` +
+            `the foot of the card, which hands its STX leg back.`
+          : ""),
+      amount: c.commitment
+        ? `${written(c.commitment.sats)} committed · ${stx(c.commitment.ustx)} paid`
+        : "",
+    };
+  }
+
+  const announced = ourAnnouncement(c);
   if (announced) {
     const amount = `${written(announced.sats)} announced · ${stx(announced.ustx)} paid`;
     const lapses = announced.at + ANNOUNCE_TTL;
@@ -2924,6 +2988,11 @@ function l1Panel(): L1Panel {
   // ordinary case for a reader: no wallet, or no address to read against, and
   // then the five steps are an explanation rather than a position.
   const chain = l1Known();
+  // The announcement this account actually holds. Everything below that says
+  // "revealed" has to be about that one: an address somebody else announced is
+  // theirs, and describing it here as this member's reveal -- with its hold,
+  // its address and its deadline -- is the same lie the locked fields were.
+  const mine = chain ? ourAnnouncement(chain) : null;
   const blind = !chain;
   const stage = chain ? l1Stage(chain) : null;
   const current = stage?.current ?? 1;
@@ -3067,10 +3136,10 @@ function l1Panel(): L1Panel {
     // When the way out is open, said before it is pressed. The rules are the
     // bridge's: a member may abandon their own commitment whenever, and a
     // revealed address only once its hold has run out.
-    cancelWhen: chain?.announcement
-      ? chain.burn >= chain.announcement.at + ANNOUNCE_TTL
+    cancelWhen: mine
+      ? chain!.burn >= mine.at + ANNOUNCE_TTL
         ? "The address is no longer held, so this releases it and pays the STX leg back."
-        : `The address is held until burn height ${fmt(chain.announcement.at + ANNOUNCE_TTL)}; ` +
+        : `The address is held until burn height ${fmt(mine.at + ANNOUNCE_TTL)}; ` +
           `this works once that has passed, and the bitcoin must not be on its way.`
       : chain?.commitment
         ? "Yours to abandon at any time, as long as you have not sent the bitcoin."
@@ -3112,20 +3181,18 @@ function l1Panel(): L1Panel {
     // The hash stands in for the address for exactly one bitcoin block. While
     // it does, it is the only thing on chain that is the member's -- so it is
     // worth showing, and worth saying what it is for.
-    digestShow: Boolean(chain?.commitment && !chain.announcement && !chain.credited),
+    digestShow: Boolean(chain?.commitment && !mine && !chain.credited),
     digestShort: middle(chain?.digest ?? "", 12, 8),
     digestFull: chain?.digest ?? "",
     copyDigest: () => void copy(chain?.digest ?? "", "The committed hash"),
-    revealedShow: Boolean(chain?.announcement),
+    revealedShow: Boolean(mine),
     revealedShort: middle(chain?.address ?? ""),
     revealedFull: chain?.address ?? "",
-    revealedHeld: chain?.announcement
-      ? `held until burn height ${fmt(chain.announcement.at + ANNOUNCE_TTL)}`
-      : "",
+    revealedHeld: mine ? `held until burn height ${fmt(mine.at + ANNOUNCE_TTL)}` : "",
     copyRevealed: () => void copy(chain?.address ?? "", "The revealed address"),
     // Only while it still matters: after the reveal the secret has done its
     // work and losing it costs nothing.
-    saltShow: Boolean(chain && !chain.announcement && !chain.credited),
+    saltShow: Boolean(chain && !mine && !chain.credited),
     saltState: chain?.salt ? "kept in this browser" : "not in this browser",
     saltTone: chain?.salt ? "var(--color-accent-2-800)" : "var(--color-accent-800)",
     saltNote: chain?.salt
@@ -3564,12 +3631,78 @@ async function doConnect(): Promise<void> {
   if (!configured()) return setState({ connected: true, walletOpen: false });
   try {
     const api = await chainApi();
+    const previous = state.account;
     const account = await api.connect();
-    setState({ connected: Boolean(account), account, walletOpen: false });
+    // The wallet is free to hand back an account other than the one this page
+    // was showing -- picked at the prompt, or switched inside the wallet with
+    // nothing to tell the page about it. Either way what the old account left
+    // behind goes with it. `doSwitchAccount` has already cleared by the time it
+    // reaches here, so this is the path that covers everything else.
+    const changed = account !== null && previous !== null && account !== previous;
+    setState({
+      ...(changed ? forgetAccount() : {}),
+      connected: Boolean(account),
+      account,
+      walletOpen: false,
+    });
     void refresh();
   } catch (error) {
     setState({ notice: `Could not connect: ${message(error)}` });
   }
+}
+
+/**
+ * Everything on this page that belonged to the account being put down.
+ *
+ * Most of the page re-reads itself on the next `refresh`, and for a while that
+ * looked like enough. It is not, because of what does *not* re-read: the L1
+ * card's fields are uncontrolled and hold whatever state says, and `l1Chain`
+ * is only read again when `wantsL1()` says so and only ever for the address in
+ * the field. Left alone across a switch, the new account arrives at the
+ * previous one's bitcoin address, the previous one's amount, and an amount
+ * field locked read-only against a commitment it has no part in -- and the
+ * lock is the one thing on the card a member cannot type their way out of.
+ *
+ * So it is cleared here rather than left to be overwritten. The parts kept in
+ * `localStorage` are keyed by bitcoin address, not by account, and stay: they
+ * are this browser's memory of a route, and the account that owns it is the one
+ * that will type that address back in.
+ */
+function forgetAccount(): Partial<State> {
+  // The bitcoin bundle is loaded on demand and this flag is what asks for it.
+  // A new account has touched nothing yet.
+  l1Armed = false;
+  return {
+    connected: false,
+    account: null,
+    votes: {},
+    member: null,
+    memberSats: 0,
+    // The L1 route, whole. `l1Chain` is what locks the fields, and the three
+    // fields are what it was read against.
+    l1Chain: null,
+    btcAddress: "",
+    walletBtc: "",
+    btcBalance: null,
+    btcTxid: "",
+    btcVout: "0",
+    btcFaucetTx: "",
+    deposit: null,
+    emily: null,
+    review: null,
+    route: "",
+    // The amount is the other locked field, and `loadL1` writes the committed
+    // sats into it -- so it belongs to the commitment, not to the browser.
+    amount: "",
+    quotedFor: 0,
+    quotedUstx: 0,
+    earlyAmount: "",
+    // Both of these are one account's own history and one account's own
+    // transaction; neither means anything under the next.
+    history: null,
+    historyReading: false,
+    pending: null,
+  };
 }
 
 /**
@@ -3585,7 +3718,7 @@ async function doSwitchAccount(): Promise<void> {
   try {
     const api = await chainApi();
     api.disconnect();
-    setState({ connected: false, account: null, votes: {}, walletBtc: "" });
+    setState(forgetAccount());
     await doConnect();
   } catch (error) {
     setState({ notice: `Could not switch accounts: ${message(error)}` });
@@ -3595,10 +3728,7 @@ async function doSwitchAccount(): Promise<void> {
 function doDisconnect(): void {
   if (configured()) void chainApi().then((api) => api.disconnect());
   setState({
-    connected: false,
-    account: null,
-    votes: {},
-    walletBtc: "",
+    ...forgetAccount(),
     // Nothing left for it to be about: a profile of an account that is no
     // longer connected is a dialog full of dashes.
     walletOpen: false,

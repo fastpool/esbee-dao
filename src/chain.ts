@@ -28,6 +28,7 @@ import {
   config,
   configured,
   net,
+  type Deployment,
   onConfiguredChain,
   walletNetwork,
   walletNetworkAdvice,
@@ -43,9 +44,33 @@ export interface ContractId {
   name: string;
 }
 
-export const dao = (): ContractId => ({ address: config.deployer, name: config.dao });
-export const pool = (): ContractId => ({ address: config.deployer, name: config.pool });
-export const bridge = (): ContractId => ({ address: config.deployer, name: config.bridge });
+/**
+ * One deployment of this code: the four contracts that name each other.
+ *
+ * Every read and every call below takes one, defaulting to the deployment the
+ * page is configured for. Threading it rather than reaching for `config` is
+ * what lets the analytics page read several sets of these contracts at once --
+ * they are the same code at different addresses, and half of one read against
+ * half of another would report the wrong DAO's proposals against the right
+ * pool's shares.
+ */
+export type Site = Deployment;
+
+/** The deployment this page is pointed at, which is the default everywhere. */
+export const here = (): Site => ({
+  deployer: config.deployer,
+  dao: config.dao,
+  pool: config.pool,
+  bridge: config.bridge,
+  label: config.label,
+});
+
+export const dao = (site: Site = here()): ContractId =>
+  ({ address: site.deployer, name: site.dao });
+export const pool = (site: Site = here()): ContractId =>
+  ({ address: site.deployer, name: site.pool });
+export const bridge = (site: Site = here()): ContractId =>
+  ({ address: site.deployer, name: site.bridge });
 
 /// --- which network an address is on ------------------------------------------
 
@@ -413,7 +438,8 @@ export const poolCalls = {
    * and the notice itself, so there is nothing here to authorize. The manager
    * is the one `get-config` reports -- `stake` refuses any other.
    */
-  stake: (manager: string) => call(pool(), "stake", [Cl.principal(manager)]),
+  stake: (manager: string, site?: Site) =>
+    call(pool(site), "stake", [Cl.principal(manager)]),
   /** Take back everything still queued. Committed shares are not touched. */
   withdraw: () => call(pool(), "withdraw"),
   requestExit: () => call(pool(), "request-exit"),
@@ -440,7 +466,7 @@ export const poolCalls = {
    * takes the member's shares out of the epoch, and anything unrecognised at
    * that moment is split among whoever is left instead.
    */
-  syncRewards: () => call(pool(), "sync-rewards"),
+  syncRewards: (site?: Site) => call(pool(site), "sync-rewards"),
   claimRewards: (member: string) =>
     call(pool(), "claim-rewards", [Cl.principal(member)]),
   claimPrincipal: (member: string) =>
@@ -493,9 +519,9 @@ export const bridgeCalls = {
    * some future version of the contract, or a contract at this address that is
    * not the one intended, tries to.
    */
-  revealAddress: (address: PoxAddress, salt: string) =>
+  revealAddress: (address: PoxAddress, salt: string, site?: Site) =>
     call(
-      bridge(),
+      bridge(site),
       "reveal-btc-address",
       [addressTuple(address), Cl.bufferFromHex(strip(salt))],
       [],
@@ -533,9 +559,10 @@ export const bridgeCalls = {
     tx: string,
     parents: string[],
     ustx?: number,
+    site: Site = here(),
   ) =>
     call(
-      bridge(),
+      bridge(site),
       "complete-btc-deposit",
       [
         Cl.bufferFromHex(strip(txid)),
@@ -544,7 +571,7 @@ export const bridgeCalls = {
         Cl.list(parents.map((parent) => Cl.bufferFromHex(strip(parent)))),
       ],
       ustx !== undefined && ustx > 0
-        ? [Pc.principal(`${config.deployer}.${config.bridge}`).willSendEq(ustx).ustx()]
+        ? [Pc.principal(`${site.deployer}.${site.bridge}`).willSendEq(ustx).ustx()]
         : [],
       "originator",
     ),
@@ -555,15 +582,15 @@ export const bridgeCalls = {
    * bridge, so the signer -- who may be a stranger clearing a lapsed
    * commitment -- has no business sending anything at all here.
    */
-  cancelCommitment: (member: string, digest: string) =>
+  cancelCommitment: (member: string, digest: string, site?: Site) =>
     call(
-      bridge(),
+      bridge(site),
       "cancel-btc-commitment",
       [Cl.principal(member), Cl.bufferFromHex(strip(digest))],
     ),
   /** …or from a revealed address the bitcoin never followed. Same shape. */
-  cancelDeposit: (address: PoxAddress) =>
-    call(bridge(), "cancel-btc-deposit", [addressTuple(address)]),
+  cancelDeposit: (address: PoxAddress, site?: Site) =>
+    call(bridge(site), "cancel-btc-deposit", [addressTuple(address)]),
 };
 
 /** The STX leg the bound bond prices `sats` at. */
@@ -575,8 +602,8 @@ export const quote = (sats: number): Promise<Plain> =>
  * an sBTC deposit names the Stacks account it mints to, and only the treasury
  * will do -- `complete-btc-deposit` refuses anything else.
  */
-export const depositRecipient = (): Promise<Plain> =>
-  readOnly(bridge(), "get-deposit-address");
+export const depositRecipient = (site?: Site): Promise<Plain> =>
+  readOnly(bridge(site), "get-deposit-address");
 
 /** What to commit to, computed by the contract so a client cannot disagree. */
 export const addressDigest = (address: PoxAddress, salt: string): Promise<Plain> =>
@@ -618,6 +645,70 @@ export const sweptDeposit = (txid: string, voutIndex: number): Promise<Plain> =>
   ]);
 };
 
+/// --- reading a contract's events back ---------------------------------------------
+
+/** One `print` a contract made, decoded. */
+export interface LoggedEvent {
+  topic: string;
+  /** Everything else the tuple carried, keyed as the contract spelled it. */
+  fields: Record<string, Plain>;
+  /** The Stacks transaction that carried it, for a link to the explorer. */
+  tx: string;
+}
+
+/** Hiro's own ceiling on one page of events. */
+const PAGE = 50;
+
+/**
+ * A contract's event log, decoded, newest first.
+ *
+ * This is how anything is *found* here at all. A Clarity map cannot be walked
+ * from outside -- the bridge keys announcements by scriptPubKey and the pool
+ * keys members by principal, and neither is enumerable from a contract call --
+ * so the log is the only index there is. It is treated as a way in and never as
+ * an answer: everything found here is confirmed against the map it came from
+ * before the page says anything about it. A log that has scrolled past an entry
+ * loses a row; a log trusted for state would report one long after it changed.
+ *
+ * Hiro caps a page at 50, so a larger `limit` is walked a page at a time.
+ */
+export async function contractLog(id: string, limit = 50): Promise<LoggedEvent[]> {
+  const out: LoggedEvent[] = [];
+  for (let offset = 0; offset < limit; offset += PAGE) {
+    const page = Math.min(PAGE, limit - offset);
+    const response = await fetch(
+      `${apiBase()}/extended/v1/contract/${id}/events?limit=${page}&offset=${offset}`,
+    );
+    if (!response.ok) throw new Error(`The event log answered ${response.status}`);
+    const body = (await response.json()) as {
+      results?: { tx_id?: string; contract_log?: { value?: { hex?: string } } }[];
+    };
+    const results = body.results ?? [];
+    for (const entry of results) {
+      const hex = entry.contract_log?.value?.hex;
+      if (!hex) continue;
+      let printed: Plain;
+      try {
+        printed = plain(cvToValue(hexToCV(hex), true));
+      } catch {
+        continue;
+      }
+      const fields = printed as Record<string, Plain> | null;
+      if (!fields || typeof fields !== "object") continue;
+      const topic = String(fields["topic"] ?? "");
+      if (!topic) continue;
+      out.push({ topic, fields, tx: String(entry.tx_id ?? "") });
+    }
+    // A short page is the end of the log; asking for the next one would only
+    // cost a request that answers with nothing.
+    if (results.length < page) break;
+  }
+  return out;
+}
+
+const hexField = (fields: Record<string, Plain>, name: string): string =>
+  String(fields[name] ?? "").replace(/^0x/, "");
+
 /** One thing the bridge did, as it printed it. */
 export interface BridgeEvent {
   topic: string;
@@ -630,60 +721,114 @@ export interface BridgeEvent {
 }
 
 /**
+ * The same event, with everything else the bridge printed in it.
+ *
+ * `BridgeEvent` is the member's own history and needs four fields; this is what
+ * a keeper reading the whole log needs -- who it was about, which script or
+ * digest it keyed, and the height after which anyone may clear it. Nothing is
+ * inferred here: every field below is one the contract wrote.
+ */
+export interface BridgeLogEntry extends BridgeEvent {
+  member: string;
+  /** The scriptPubKey an announcement is keyed by, on the events that carry one. */
+  script: string;
+  /** That script's address, as the bridge stores it -- a reveal prints both. */
+  address: PoxAddress | null;
+  /** What a commitment is keyed by, on the events that carry one. */
+  digest: string;
+  /** The burn height from which anyone may cancel it. 0 where the event has none. */
+  cancellableFrom: number;
+}
+
+export async function bridgeLog(
+  limit = 50,
+  site: Site = here(),
+): Promise<BridgeLogEntry[]> {
+  const log = await contractLog(`${site.deployer}.${site.bridge}`, limit);
+  return log.map(({ topic, fields, tx }) => {
+    const address = fields["address"] as Record<string, Plain> | undefined;
+    return {
+      topic,
+      member: String(fields["member"] ?? ""),
+      script: hexField(fields, "script"),
+      address: address
+        ? {
+            version: String(address["version"] ?? "").replace(/^0x/, ""),
+            hashbytes: String(address["hashbytes"] ?? "").replace(/^0x/, ""),
+          }
+        : null,
+      digest: hexField(fields, "digest"),
+      txid: hexField(fields, "txid"),
+      sats: num(fields["sats"] ?? 0),
+      ustx: num(fields["ustx"] ?? 0),
+      cancellableFrom: num(fields["cancellable-from"] ?? 0),
+      tx,
+    };
+  });
+}
+
+/** One thing the pool did: a deposit, a withdrawal, a roll, a claim. */
+export interface PoolLogEntry {
+  topic: string;
+  /** Whoever it was about -- the field is named for what they did. */
+  who: string;
+  sats: number;
+  ustx: number;
+  /** The epoch it names, where it names one. */
+  epoch: number;
+  tx: string;
+}
+
+/**
+ * The pool's own log.
+ *
+ * The ledger never counts its members -- `members` is a map keyed by principal,
+ * and Clarity cannot count one -- so this is the only place a member *count*
+ * exists at all, and it is a count of principals seen in a window rather than
+ * of members held. The page says so where it shows one.
+ */
+export async function poolLog(
+  limit = 50,
+  site: Site = here(),
+): Promise<PoolLogEntry[]> {
+  const log = await contractLog(`${site.deployer}.${site.pool}`, limit);
+  return log.map(({ topic, fields, tx }) => ({
+    topic,
+    // Every actor field the pool prints, in the order it prefers them. A roll
+    // and a bind are about nobody, and come back as "".
+    who: String(
+      fields["depositor"] ?? fields["member"] ?? fields["recipient"] ?? "",
+    ),
+    sats: num(fields["sats"] ?? fields["shares"] ?? fields["amount"] ?? 0),
+    ustx: num(fields["ustx"] ?? 0),
+    epoch: num(fields["epoch"] ?? fields["queued-epoch"] ?? 0),
+    tx,
+  }));
+}
+
+/**
  * This member's deposits, read back from what the bridge printed.
  *
- * There is no per-member index on chain -- the bridge keys its maps by script
- * and by txid, and neither is enumerable from a contract call -- so the
- * history is the event log, filtered here. That makes it a *recent* history
+ * The same log, filtered to one principal. That makes it a *recent* history
  * rather than a complete one: a member whose deposits are older than the page
  * asked for will not see them, and the card says so rather than implying the
  * list is everything.
- *
- * A proper history is an indexer's job. This is the honest cheap version: one
- * request, decoded in the page, filtered to the member who is asking.
  */
 export async function bridgeHistory(
   member: string,
   limit = 50,
+  site: Site = here(),
 ): Promise<BridgeEvent[]> {
-  const id = `${config.deployer}.${config.bridge}`;
-  const response = await fetch(
-    `${apiBase()}/extended/v1/contract/${id}/events?limit=${limit}&offset=0`,
-  );
-  if (!response.ok) throw new Error(`The event log answered ${response.status}`);
-  const body = (await response.json()) as {
-    results?: { tx_id?: string; contract_log?: { value?: { hex?: string } } }[];
-  };
-
-  const out: BridgeEvent[] = [];
-  for (const entry of body.results ?? []) {
-    const hex = entry.contract_log?.value?.hex;
-    if (!hex) continue;
-    let printed: Plain;
-    try {
-      printed = plain(cvToValue(hexToCV(hex), true));
-    } catch {
-      continue;
-    }
-    const fields = printed as Record<string, Plain> | null;
-    if (!fields || typeof fields !== "object") continue;
-    if (String(fields["member"] ?? "") !== member) continue;
-    const topic = String(fields["topic"] ?? "");
-    if (!topic) continue;
-    out.push({
-      topic,
-      txid: String(fields["txid"] ?? "").replace(/^0x/, ""),
-      sats: num(fields["sats"] ?? 0),
-      ustx: num(fields["ustx"] ?? 0),
-      tx: String(entry.tx_id ?? ""),
-    });
-  }
-  return out;
+  return (await bridgeLog(limit, site)).filter((entry) => entry.member === member);
 }
 
 /** A commitment this member has made and not yet revealed, if any. */
-export const commitmentFor = (member: string, digest: string): Promise<Plain> =>
-  readOnly(bridge(), "get-commitment", [
+export const commitmentFor = (
+  member: string,
+  digest: string,
+  site?: Site,
+): Promise<Plain> =>
+  readOnly(bridge(site), "get-commitment", [
     Cl.principal(member),
     Cl.bufferFromHex(strip(digest)),
   ]);
@@ -692,9 +837,25 @@ export const commitmentFor = (member: string, digest: string): Promise<Plain> =>
 export const announcementFor = (address: PoxAddress): Promise<Plain> =>
   readOnly(bridge(), "get-announcement", [addressTuple(address)]);
 
+/**
+ * The same, keyed by the script the events carry.
+ *
+ * A reveal prints both the address and the script it hashes to, and this is
+ * the read that says whether that announcement is still standing: the bridge
+ * deletes it on a completion and on a cancellation, so a tuple here means the
+ * deposit is still waiting and `none` means somebody has already dealt with
+ * it. It is what turns the log from a story into a work list.
+ */
+export const announcementByScript = (script: string, site?: Site): Promise<Plain> =>
+  readOnly(bridge(site), "get-announcement-by-script", [Cl.bufferFromHex(strip(script))]);
+
 /** Whether a bitcoin output has already been credited to somebody. */
-export const creditedDeposit = (txid: string, voutIndex: number): Promise<Plain> =>
-  readOnly(bridge(), "get-credited-deposit", [
+export const creditedDeposit = (
+  txid: string,
+  voutIndex: number,
+  site?: Site,
+): Promise<Plain> =>
+  readOnly(bridge(site), "get-credited-deposit", [
     Cl.bufferFromHex(strip(txid)),
     Cl.uint(voutIndex),
   ]);
@@ -770,12 +931,13 @@ export const daoCalls = {
     call(dao(), "propose-sweep", [Cl.principal(recipient)]),
 
   // Execution is permissionless: the mandate is the vote, not the executor.
-  executeTrustSigner: (id: number) => call(dao(), "execute-trust-signer", [Cl.uint(id)]),
-  executeDistrustSigner: (id: number) =>
-    call(dao(), "execute-distrust-signer", [Cl.uint(id)]),
-  executeOperatorChange: (id: number) =>
-    call(dao(), "execute-operator-change", [Cl.uint(id)]),
-  executeSweep: (id: number) => call(dao(), "execute-sweep", [Cl.uint(id)]),
+  executeTrustSigner: (id: number, site?: Site) =>
+    call(dao(site), "execute-trust-signer", [Cl.uint(id)]),
+  executeDistrustSigner: (id: number, site?: Site) =>
+    call(dao(site), "execute-distrust-signer", [Cl.uint(id)]),
+  executeOperatorChange: (id: number, site?: Site) =>
+    call(dao(site), "execute-operator-change", [Cl.uint(id)]),
+  executeSweep: (id: number, site?: Site) => call(dao(site), "execute-sweep", [Cl.uint(id)]),
   // The only one that takes the managers as traits, so it cannot be driven
   // from the proposal id alone.
   executeSignerChange: (id: number, manager: string, oldManager: string) =>
@@ -787,7 +949,10 @@ export const daoCalls = {
 };
 
 /** Which `execute-*` a carried proposal needs, keyed by the kind it stores. */
-export const executorFor: Record<string, (id: number) => Promise<string | null>> = {
+export const executorFor: Record<
+  string,
+  (id: number, site?: Site) => Promise<string | null>
+> = {
   "trust-signer": daoCalls.executeTrustSigner,
   "distrust-signer": daoCalls.executeDistrustSigner,
   "operator-change": daoCalls.executeOperatorChange,
@@ -846,14 +1011,14 @@ export interface Floor {
  * page reports around them. Returns null when there is nothing to read from --
  * no deployment configured.
  */
-export async function loadFloor(): Promise<Floor | null> {
-  if (!configured()) return null;
+export async function loadFloor(site: Site = here()): Promise<Floor | null> {
+  if (!site.deployer) return null;
   const me = account;
 
   const [count, quorum, epoch, burn] = await Promise.all([
-    readOnly(dao(), "get-proposal-count"),
-    readOnly(dao(), "get-quorum"),
-    readOnly(dao(), "current-epoch"),
+    readOnly(dao(site), "get-proposal-count"),
+    readOnly(dao(site), "get-quorum"),
+    readOnly(dao(site), "current-epoch"),
     burnHeight(),
   ]);
 
@@ -862,10 +1027,10 @@ export async function loadFloor(): Promise<Floor | null> {
   const entries = await Promise.all(
     ids.map(async (id): Promise<FloorEntry | null> => {
       const [proposal, status, mine] = await Promise.all([
-        readOnly(dao(), "get-proposal", [Cl.uint(id)]),
-        readOnly(dao(), "get-status", [Cl.uint(id)]),
+        readOnly(dao(site), "get-proposal", [Cl.uint(id)]),
+        readOnly(dao(site), "get-status", [Cl.uint(id)]),
         me
-          ? readOnly(dao(), "get-vote", [Cl.uint(id), Cl.principal(me)])
+          ? readOnly(dao(site), "get-vote", [Cl.uint(id), Cl.principal(me)])
           : Promise.resolve(null),
       ]);
       if (!proposal || !status) return null;
@@ -879,7 +1044,7 @@ export async function loadFloor(): Promise<Floor | null> {
   );
 
   const weight = me
-    ? Number(await readOnly(dao(), "get-weight", [Cl.principal(me)]))
+    ? Number(await readOnly(dao(site), "get-weight", [Cl.principal(me)]))
     : 0;
 
   return {
@@ -974,10 +1139,13 @@ export interface BondSchedule {
  * Bond periods are evenly spaced, so two reads give the whole schedule and the
  * indices fall out of arithmetic instead of walking one call at a time.
  */
-export async function loadSchedule(burn: number): Promise<BondSchedule | null> {
+export async function loadSchedule(
+  burn: number,
+  site: Site = here(),
+): Promise<BondSchedule | null> {
   const [poxAddress, poxName] = net().pox.split(".") as [string, string];
   const pox = { address: poxAddress, name: poxName };
-  const staker = `${config.deployer}.${config.pool}`;
+  const staker = `${site.deployer}.${site.pool}`;
 
   const heightOf = async (index: number) =>
     Number(await readOnly(pox, "bond-period-to-burn-height", [Cl.uint(index)]));
@@ -1014,6 +1182,190 @@ export async function loadSchedule(burn: number): Promise<BondSchedule | null> {
   return { current, next };
 }
 
+/// --- what a deployment can actually do ---------------------------------------------
+
+/**
+ * What one deployment's three contracts answer to, and with how many arguments.
+ *
+ * A `Map` rather than a set of names because arity matters here: the pool's
+ * `invariant-*` reads come in both shapes, and only the ones taking nothing can
+ * be asked without knowing which member or epoch to ask about.
+ */
+export type Answers = Map<string, number>;
+
+export interface Capabilities {
+  pool: Answers;
+  dao: Answers;
+  bridge: Answers;
+}
+
+/**
+ * Ask a deployment what it can do, rather than assuming.
+ *
+ * Several deployments of "the same code" are never quite the same code. On
+ * testnet today `vault-1` and `vault-2` agree function for function, and their
+ * *bridges* do not: the older one committed to a transaction and has no
+ * `get-announcement-by-script` for a keeper to read announcements back from. A
+ * page that assumed would either error on the old set or quietly show it as
+ * having no open work, and neither is true.
+ *
+ * One request per contract, and the answer is the interface every Stacks node
+ * publishes -- so this costs three reads and removes every guess after them.
+ * A contract that cannot be reached comes back as an empty set, which reads as
+ * "cannot do anything" and leaves those sections off rather than broken.
+ */
+export async function capabilities(site: Site = here()): Promise<Capabilities> {
+  const names = async (contract: string): Promise<Answers> => {
+    try {
+      const response = await fetch(
+        `${apiBase()}/v2/contracts/interface/${site.deployer}/${contract}`,
+      );
+      if (!response.ok) return new Map();
+      const body = (await response.json()) as {
+        functions?: { name?: string; args?: unknown[] }[];
+      };
+      return new Map(
+        (body.functions ?? []).map((f) => [String(f.name ?? ""), (f.args ?? []).length]),
+      );
+    } catch {
+      return new Map();
+    }
+  };
+  const [poolNames, daoNames, bridgeNames] = await Promise.all([
+    names(site.pool),
+    names(site.dao),
+    names(site.bridge),
+  ]);
+  return { pool: poolNames, dao: daoNames, bridge: bridgeNames };
+}
+
+/**
+ * The pool's balance sheet beside its ledger: what the treasury actually holds,
+ * and the three ways that can differ from what the books say it owes.
+ *
+ * Each is asked for only where the deployment has it, and each fails soft --
+ * these are the numbers that explain the others, not the ones the page is
+ * built on.
+ */
+export interface PoolExtras {
+  treasury: number | null;
+  unattributed: number | null;
+  unrecognized: number | null;
+  committing: number | null;
+  rewardEpoch: number | null;
+  canStake: boolean | null;
+  stakeWindow: number | null;
+}
+
+export async function poolExtras(
+  site: Site = here(),
+  can: Answers = new Map(),
+): Promise<PoolExtras> {
+  const read = async (fn: string): Promise<Plain | null> =>
+    can.size > 0 && !can.has(fn)
+      ? null
+      : await readOnly(pool(site), fn).catch(() => null);
+  const [treasury, unattributed, unrecognized, committing, rewardEpoch, canStake, window] =
+    await Promise.all([
+      read("get-treasury-balance"),
+      read("get-unattributed-principal"),
+      read("get-unrecognized-rewards"),
+      read("get-committing-sats"),
+      read("get-reward-epoch"),
+      read("can-still-stake"),
+      read("stake-window-start"),
+    ]);
+  const asNumber = (value: Plain | null): number | null =>
+    value === null || value === undefined ? null : num(value);
+  return {
+    treasury: asNumber(treasury),
+    unattributed: asNumber(unattributed),
+    unrecognized: asNumber(unrecognized),
+    committing: asNumber(committing),
+    rewardEpoch: asNumber(rewardEpoch),
+    canStake: typeof canStake === "boolean" ? canStake : null,
+    stakeWindow: asNumber(window),
+  };
+}
+
+/** One epoch as the pool recorded it -- a bond the pool actually rolled into. */
+export interface Epoch {
+  index: number;
+  "bond-index": number;
+  "first-reward-cycle": number;
+  "unlock-burn-height": number;
+  "staked-at-height": number;
+  /** What wanted in, against what fitted: their ratio is the roll's scale-back. */
+  "eligible-sats": number;
+  "staked-sats": number;
+  /** What is *still* committed -- an early unstake takes a leaver's out of it. */
+  "total-shares": number;
+  "staked-ustx": number;
+  "reward-index": number;
+  /** Reward sBTC the epoch has been credited, which is the honey it earned. */
+  credited: number;
+}
+
+/**
+ * Every epoch the pool has opened, oldest first.
+ *
+ * `get-config` reports `epoch-count`, so the indices are known rather than
+ * probed -- there is no walking until a read comes back empty.
+ */
+export async function epochHistory(
+  count: number,
+  site: Site = here(),
+): Promise<Epoch[]> {
+  const indices = Array.from({ length: Math.max(0, count) }, (_, i) => i);
+  const rows = await Promise.all(
+    indices.map(async (index) => {
+      const record = await readOnly(pool(site), "get-epoch", [Cl.uint(index)]).catch(
+        () => null,
+      );
+      if (!record || typeof record !== "object") return null;
+      const fields = record as Record<string, Plain>;
+      return {
+        index,
+        "bond-index": num(fields["bond-index"] ?? 0),
+        "first-reward-cycle": num(fields["first-reward-cycle"] ?? 0),
+        "unlock-burn-height": num(fields["unlock-burn-height"] ?? 0),
+        "staked-at-height": num(fields["staked-at-height"] ?? 0),
+        "eligible-sats": num(fields["eligible-sats"] ?? 0),
+        "staked-sats": num(fields["staked-sats"] ?? 0),
+        "total-shares": num(fields["total-shares"] ?? 0),
+        "staked-ustx": num(fields["staked-ustx"] ?? 0),
+        "reward-index": num(fields["reward-index"] ?? 0),
+        credited: num(fields["credited"] ?? 0),
+      } satisfies Epoch;
+    }),
+  );
+  return rows.filter((row): row is Epoch => row !== null);
+}
+
+/**
+ * The contract's own self-checks, as it answers them.
+ *
+ * Newer builds of the pool carry `invariant-*` read-onlys -- the properties its
+ * test suite holds it to, exposed so anyone can hold it to them on chain. Only
+ * the ones taking no argument are asked, and only where the deployment has
+ * them: an older pool simply has no such section.
+ */
+export async function invariants(
+  site: Site = here(),
+  can: Answers = new Map(),
+): Promise<{ name: string; holds: boolean | null }[]> {
+  const names = [...can]
+    .filter(([fn, args]) => fn.startsWith("invariant-") && args === 0)
+    .map(([fn]) => fn)
+    .sort();
+  return Promise.all(
+    names.map(async (name) => {
+      const answer = await readOnly(pool(site), name).catch(() => null);
+      return { name, holds: typeof answer === "boolean" ? answer : null };
+    }),
+  );
+}
+
 export interface PoolState {
   totals: Record<string, Plain> | null;
   live: LiveEpoch | null;
@@ -1031,14 +1383,16 @@ export interface PoolState {
  * The pool's own numbers: the stats in the header, and the bond behind the
  * countdown -- the one it is staked into, or the one it is waiting on.
  */
-export async function loadPool(): Promise<PoolState | null> {
-  if (!configured()) return null;
+export async function loadPool(site: Site = here()): Promise<PoolState | null> {
+  if (!site.deployer) return null;
   const [totals, live, cfg, bond, preview, burn] = await Promise.all([
-    readOnly(pool(), "get-pool"),
-    readOnly(pool(), "get-live-epoch"),
-    readOnly(pool(), "get-config"),
-    readOnly(pool(), "get-bound-bond"),
-    readOnly(pool(), "get-stake-preview"),
+    readOnly(pool(site), "get-pool"),
+    readOnly(pool(site), "get-live-epoch"),
+    readOnly(pool(site), "get-config"),
+    readOnly(pool(site), "get-bound-bond"),
+    // `get-stake-preview` reverts on a pool that has finished rather than
+    // answering, so it is the one read here that is allowed to come back empty.
+    readOnly(pool(site), "get-stake-preview").catch(() => null),
     burnHeight(),
   ]);
   return {
@@ -1048,6 +1402,6 @@ export async function loadPool(): Promise<PoolState | null> {
     bond: bond as unknown as BoundBond | null,
     preview: preview as unknown as StakePreview | null,
     burn,
-    schedule: await loadSchedule(burn).catch(() => null),
+    schedule: await loadSchedule(burn, site).catch(() => null),
   };
 }

@@ -101,6 +101,35 @@ export function decodeAddress(address: string): PoxAddress {
   }
 }
 
+/**
+ * `{version, hashbytes}` -> `bcrt1q…`. The inverse of `decodeAddress`.
+ *
+ * The bridge's events carry the pox shape, not an address, and every bitcoin
+ * API is asked for an address -- so anything reading the log back has to spell
+ * it again. Encoded on the configured chain, which is what makes the answer a
+ * link a reader can follow rather than a hash.
+ *
+ * Throws for a version this chain has no address for, which is a version the
+ * bridge could not have taken an announcement for either.
+ */
+export function encodeAddress(address: PoxAddress): string {
+  const version = address.version.replace(/^0x/, "").toLowerCase();
+  const bytes = hexToBytes(address.hashbytes);
+  const encoder = btc.Address(chain());
+  const encode = (out: Parameters<typeof encoder.encode>[0]) => encoder.encode(out);
+  // p2sh and the two p2sh-wrapped segwit versions are one script on the chain,
+  // so they are one address here -- the wrapping only shows up in the redeem
+  // script, which the scriptPubKey does not carry.
+  if (version === "00") return encode({ type: "pkh", hash: bytes });
+  if (version === "01" || version === "02" || version === "03") {
+    return encode({ type: "sh", hash: bytes });
+  }
+  if (version === "04") return encode({ type: "wpkh", hash: bytes });
+  if (version === "05") return encode({ type: "wsh", hash: bytes });
+  if (version === "06") return encode({ type: "tr", pubkey: bytes });
+  throw new Error(`No address on this chain has version 0x${version}`);
+}
+
 /** Whether an address parses at all, for saying so as it is typed. */
 export function readAddress(address: string): PoxAddress | null {
   try {
@@ -242,6 +271,73 @@ const text = async (path: string): Promise<string> => {
 export const rawTx = (txid: string): Promise<string> =>
   text(`/tx/${txid.replace(/^0x/, "")}/hex`);
 
+
+/** A transaction that spent from an announced address, as esplora reports it. */
+export interface FundingTx {
+  txid: string;
+  /** The burn height it confirmed at, or null while it is still in a mempool. */
+  height: number | null;
+  /**
+   * Whether every input is locked to the announced address.
+   *
+   * `complete-btc-deposit` checks exactly this and refuses anything else, so a
+   * transaction that fails it is not a deposit the bridge will credit however
+   * much it paid -- and saying so is cheaper than a reverted transaction.
+   */
+  fromAddressOnly: boolean;
+  /** Its outputs, less the change that went straight back to the address. */
+  outputs: { index: number; sats: number; address: string; taproot: boolean }[];
+}
+
+/**
+ * What was spent out of `address`, most recent first.
+ *
+ * This is how a deposit is found by someone who is not the member who sent it.
+ * The bridge stores no txid until the deposit is credited -- the announcement
+ * is keyed by the funding script alone -- so the only way to ask "has the
+ * bitcoin arrived for this announcement" is to look at the address the
+ * announcement named and see what left it.
+ *
+ * Esplora answers with the most recent chain of transactions rather than all
+ * of them, which is the same honest limit the event log has: a deposit older
+ * than that page is not found here, and nothing pretends otherwise.
+ */
+export async function fundingTxs(address: string): Promise<FundingTx[]> {
+  const seen = (await json(`/address/${address}/txs`)) as EsploraTx[];
+  return seen
+    .filter((tx) =>
+      (tx.vin ?? []).some((input) => input.prevout?.scriptpubkey_address === address),
+    )
+    .map((tx) => ({
+      txid: tx.txid,
+      height: tx.status?.confirmed ? (tx.status.block_height ?? null) : null,
+      fromAddressOnly: (tx.vin ?? []).every(
+        (input) => input.prevout?.scriptpubkey_address === address,
+      ),
+      outputs: (tx.vout ?? [])
+        .map((out, index) => ({
+          index,
+          sats: out.value ?? 0,
+          address: out.scriptpubkey_address ?? "",
+          taproot: out.scriptpubkey_type === "v1_p2tr",
+        }))
+        // Change back to the funding address is not a deposit to anywhere, and
+        // an sBTC deposit is always the taproot output -- so what is left is
+        // the short list worth asking the registry about.
+        .filter((out) => out.address !== address),
+    }));
+}
+
+/** Only the fields of esplora's transaction this page reads. */
+interface EsploraTx {
+  txid: string;
+  status?: { confirmed?: boolean; block_height?: number };
+  vin?: { prevout?: { scriptpubkey_address?: string } }[];
+  vout?: { value?: number; scriptpubkey_address?: string; scriptpubkey_type?: string }[];
+}
+
+/** The same read as `text`, for the endpoints that answer with JSON. */
+const json = async (path: string): Promise<unknown> => JSON.parse(await text(path));
 
 /**
  * Which output of `txid` pays `address`, for the vout every later step needs.
