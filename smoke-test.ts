@@ -236,6 +236,22 @@ const scope: Record<string, unknown> = {
     headline: "Bond 3",
     lead: "lead",
     rows: [{ label: "Term ends", value: "burn 9000", when: "in 4d 2h", icon: "✓", fg: "#060" }],
+    dial: {
+      show: true,
+      notice: { dash: "100 402", offset: "-0", color: "#a19786", op: "0.38" },
+      wait: { dash: "60 402", offset: "-100", color: "#c0b6a5", op: "0.38" },
+      open: { dash: "200 402", offset: "-160", color: "#8fa073", op: "1" },
+      frozen: { dash: "42 402", offset: "-360", color: "#402310", op: "0.38" },
+      tail: { dash: "0 402", offset: "-402", color: "#8fa073", op: "0.38" },
+      elapsed: { dash: "180 276", offset: "0", color: "#c67139", op: "1" },
+      dotX: "96.00", dotY: "6.00",
+      centerKicker: "Bond", centerValue: "3", centerNote: "188 blocks to stake",
+      phase: "Stake window open",
+      phaseNote: "`stake` can land now, and for 188 blocks more (12 hours).",
+      legend: [
+        { color: "#8fa073", label: "Stake window open", span: "burn 10,512 → 10,700", op: "1", weight: "500" },
+      ],
+    },
   },
   networks: [
     { name: "testnet", label: "testnet", note: "", bg: "#c67139", fg: "#fff", choose: () => {} },
@@ -1416,10 +1432,10 @@ if (entryFile) {
   // the L1 card said where the member is and why in words, ~74 kB once the two
   // deposit cards became one flow, ~76 kB once the L1 route became a stepper
   // that can be read backwards, ~83 kB once the route was scoped to the account
-  // holding it) and should be read as "something heavy leaked" rather than "the
-  // page got bigger".
+  // holding it, ~88 kB once the bond's run-up was drawn as a ring) and should be
+  // read as "something heavy leaked" rather than "the page got bigger".
   check(
-    eagerBytes < 88_000,
+    eagerBytes < 90_000,
     `initial load is ${(eagerBytes / 1024).toFixed(1)} kB of ${(totalBytes / 1024).toFixed(0)} kB built`,
   );
   check(
