@@ -57,6 +57,7 @@ import type {
   Site,
 } from "./chain.js";
 import type { Plain } from "./plain.js";
+import { freezeIn } from "./cycles.js";
 
 type ChainModule = typeof import("./chain.js");
 type L1Module = typeof import("./l1.js");
@@ -861,7 +862,40 @@ function viewModel(): Scope {
   const live = here?.pool?.live ?? null;
   const bond = here?.pool?.bond ?? null;
   const schedule = here?.pool?.schedule ?? null;
+  const cycles = here?.pool?.cycles ?? null;
   const floor = here?.floor ?? null;
+
+  /**
+   * Whether the roll can be made now, said the way the chain would answer it.
+   *
+   * `can-still-stake` is the pool's own read and only means "bound, and the
+   * bond has not started" -- it is true from the moment of the bind, hours
+   * before the window opens, and stays true through pox-5's prepare phase,
+   * when `register-for-bond` answers `(err u47)` and the roll cannot be made
+   * at all. Both ends of that are the difference between a bond rolled and a
+   * bond missed, so both are named here.
+   */
+  const rollWindowNote = (): string => {
+    if (!bond?.bound || extras?.canStake !== true) {
+      return extras?.stakeWindow
+        ? `The stake window opens at burn height ${fmt(extras.stakeWindow)}, ${relative(extras.stakeWindow, burn)}.`
+        : "No bond is bound, so there is no window to wait for yet.";
+    }
+    const opens = Math.max(number(bond["stake-opens-at"]), number(bond["notice-ends-at"]));
+    const start = number(bond["start-height"]);
+    const freeze = freezeIn(opens, start, cycles);
+    if (burn < opens) {
+      return `The stake window opens at burn height ${fmt(opens)}, ${relative(opens, burn)}.`;
+    }
+    if (freeze && burn >= freeze.from) {
+      return `pox-5 froze the staker set for this cycle at burn height ${fmt(freeze.from)}: ` +
+        `stake reverts with (err u47) until the bond starts at ${fmt(start)}, so this bond ` +
+        `can no longer be rolled into.`;
+    }
+    const closes = freeze ? freeze.from : start;
+    return `The stake window is open, and stake is permissionless — anyone may roll it, ` +
+      `until burn height ${fmt(closes)}, ${relative(closes, burn)}.`;
+  };
   const activity = tally(here?.activity ?? null);
   const bridge = tally(here?.bridge ?? null);
   const movers = new Set((here?.activity ?? []).map((e) => e.who).filter(Boolean));
@@ -1129,11 +1163,7 @@ function viewModel(): Scope {
           ? "allocation-limited — the bond has no more room for this pool"
           : "nothing is holding it back"
       : "",
-    rollWindow: extras?.canStake === true
-      ? "The stake window is open, and stake is permissionless — anyone may roll it."
-      : extras?.stakeWindow
-        ? `The stake window opens at burn height ${fmt(extras.stakeWindow)}, ${relative(extras.stakeWindow, burn)}.`
-        : "No bond is bound, so there is no window to wait for yet.",
+    rollWindow: rollWindowNote(),
     bondShow: Boolean(bond?.bound),
     bondIndex: bond ? fmt(number(bond["bond-index"])) : "",
     bondStart: bond

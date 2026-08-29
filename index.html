@@ -416,23 +416,68 @@ a:hover { color: var(--color-accent-700); }
     </div>
   </div>
   <sc-if value="{{ bond.show }}">
-    <div style="margin-top:clamp(14px,2vw,20px);background:var(--color-surface);border-radius:28px;padding:clamp(18px,3vw,26px) clamp(20px,3vw,30px);display:flex;flex-wrap:wrap;gap:18px;align-items:flex-start;justify-content:space-between">
-      <div style="flex:1 1 320px">
-        <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:baseline">
-          <span style="font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--color-accent)">{{ bond.kicker }}</span>
-          <div style="font-family:var(--font-heading);font-size:19px">{{ bond.headline }}</div>
+    <div style="margin-top:clamp(14px,2vw,20px);background:var(--color-surface);border-radius:28px;padding:clamp(18px,3vw,26px) clamp(20px,3vw,30px);display:flex;flex-direction:column;gap:clamp(16px,2.4vw,22px)">
+      <div style="display:flex;flex-wrap:wrap;gap:18px;align-items:flex-start;justify-content:space-between">
+        <div style="flex:1 1 320px">
+          <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:baseline">
+            <span style="font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--color-accent)">{{ bond.kicker }}</span>
+            <div style="font-family:var(--font-heading);font-size:19px">{{ bond.headline }}</div>
+          </div>
+          <p class="text-muted" style="margin:2px 0 0;font-size:13px;max-width:52ch">{{ bond.lead }}</p>
         </div>
-        <p class="text-muted" style="margin:2px 0 0;font-size:13px;max-width:52ch">{{ bond.lead }}</p>
+        <!-- One grid for every row rather than one flex row each, so the three
+             columns line up down the card instead of each row spacing itself. -->
+        <div style="min-width:min(100%,320px);flex:1;display:grid;grid-template-columns:1fr auto auto;font-size:12px;align-items:baseline">
+          <sc-for list="{{ bond.rows }}" as="r">
+            <span style="color:{{ r.fg }};padding:6px 0;border-top:1px solid var(--color-divider)">{{ r.icon }} {{ r.label }}</span>
+            <span style="font-family:ui-monospace,monospace;opacity:.7;text-align:right;white-space:nowrap;padding:6px 0 6px 14px;border-top:1px solid var(--color-divider)">{{ r.value }}</span>
+            <span style="color:var(--color-accent-700);text-align:right;white-space:nowrap;padding:6px 0 6px 14px;border-top:1px solid var(--color-divider)">{{ r.when }}</span>
+          </sc-for>
+        </div>
       </div>
-      <!-- One grid for every row rather than one flex row each, so the three
-           columns line up down the card instead of each row spacing itself. -->
-      <div style="min-width:min(100%,320px);flex:1;display:grid;grid-template-columns:1fr auto auto;font-size:12px;align-items:baseline">
-        <sc-for list="{{ bond.rows }}" as="r">
-          <span style="color:{{ r.fg }};padding:6px 0;border-top:1px solid var(--color-divider)">{{ r.icon }} {{ r.label }}</span>
-          <span style="font-family:ui-monospace,monospace;opacity:.7;text-align:right;white-space:nowrap;padding:6px 0 6px 14px;border-top:1px solid var(--color-divider)">{{ r.value }}</span>
-          <span style="color:var(--color-accent-700);text-align:right;white-space:nowrap;padding:6px 0 6px 14px;border-top:1px solid var(--color-divider)">{{ r.when }}</span>
-        </sc-for>
-      </div>
+      <!-- The same heights again, as one ring: bound at the top, the bond's own
+           start back at the top, and the phases between them in order. The
+           listing above is exact and still leaves the reader to work out which
+           of six dates is the one to act on -- and that the window's last
+           blocks are pox-5's prepare phase, where `stake` reverts. -->
+      <sc-if value="{{ bond.dial.show }}">
+        <div style="display:flex;flex-wrap:wrap;gap:clamp(16px,3vw,32px);align-items:center;border-top:1px solid var(--color-divider);padding-top:clamp(14px,2vw,20px)">
+          <div style="position:relative;width:192px;height:192px;flex:none">
+            <svg width="192" height="192" sc-camel-view-box="0 0 192 192" aria-hidden="true" style="display:block">
+              <g transform="rotate(-90 96 96)" fill="none">
+                <circle cx="96" cy="96" r="72" stroke="var(--color-neutral-300)" stroke-width="20"></circle>
+                <circle cx="96" cy="96" r="72" stroke-width="20" stroke="{{ bond.dial.notice.color }}" stroke-opacity="{{ bond.dial.notice.op }}" stroke-dasharray="{{ bond.dial.notice.dash }}" stroke-dashoffset="{{ bond.dial.notice.offset }}"></circle>
+                <circle cx="96" cy="96" r="72" stroke-width="20" stroke="{{ bond.dial.wait.color }}" stroke-opacity="{{ bond.dial.wait.op }}" stroke-dasharray="{{ bond.dial.wait.dash }}" stroke-dashoffset="{{ bond.dial.wait.offset }}"></circle>
+                <circle cx="96" cy="96" r="72" stroke-width="20" stroke="{{ bond.dial.open.color }}" stroke-opacity="{{ bond.dial.open.op }}" stroke-dasharray="{{ bond.dial.open.dash }}" stroke-dashoffset="{{ bond.dial.open.offset }}"></circle>
+                <circle cx="96" cy="96" r="72" stroke-width="20" stroke="{{ bond.dial.frozen.color }}" stroke-opacity="{{ bond.dial.frozen.op }}" stroke-dasharray="{{ bond.dial.frozen.dash }}" stroke-dashoffset="{{ bond.dial.frozen.offset }}"></circle>
+                <circle cx="96" cy="96" r="72" stroke-width="20" stroke="{{ bond.dial.tail.color }}" stroke-opacity="{{ bond.dial.tail.op }}" stroke-dasharray="{{ bond.dial.tail.dash }}" stroke-dashoffset="{{ bond.dial.tail.offset }}"></circle>
+                <circle cx="96" cy="96" r="56" stroke="var(--color-divider)" stroke-width="3"></circle>
+                <circle cx="96" cy="96" r="56" stroke-width="3" stroke-linecap="round" stroke="{{ bond.dial.elapsed.color }}" stroke-dasharray="{{ bond.dial.elapsed.dash }}" stroke-dashoffset="0"></circle>
+              </g>
+              <!-- The chain tip, outside the band: the elapsed ring says how far
+                   through the run-up it is, this says where that falls. -->
+              <circle cx="{{ bond.dial.dotX }}" cy="{{ bond.dial.dotY }}" r="4" fill="var(--color-text)"></circle>
+            </svg>
+            <div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;pointer-events:none">
+              <span style="font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;opacity:.55">{{ bond.dial.centerKicker }}</span>
+              <span style="font-family:var(--font-heading);font-size:38px;line-height:1.05">{{ bond.dial.centerValue }}</span>
+              <span style="font-size:10.5px;opacity:.6;width:88px;line-height:1.3">{{ bond.dial.centerNote }}</span>
+            </div>
+          </div>
+          <div style="flex:1 1 320px;min-width:min(100%,260px);max-width:min(100%,600px)">
+            <div style="display:grid;gap:7px">
+              <sc-for list="{{ bond.dial.legend }}" as="ph">
+                <div style="display:flex;align-items:center;gap:9px;font-size:12.5px;opacity:{{ ph.op }};font-weight:{{ ph.weight }}">
+                  <span style="width:11px;height:11px;border-radius:3px;flex:none;background:{{ ph.color }}"></span>
+                  <span style="flex:1 1 auto">{{ ph.label }}</span>
+                  <span style="font-family:ui-monospace,monospace;font-size:11.5px;opacity:.7;white-space:nowrap">{{ ph.span }}</span>
+                </div>
+              </sc-for>
+            </div>
+            <p style="margin:13px 0 0;font-size:13px;line-height:1.55;max-width:56ch"><span style="font-family:var(--font-heading)">Current phase: {{ bond.dial.phase }}</span> — {{ bond.dial.phaseNote }}</p>
+          </div>
+        </div>
+      </sc-if>
     </div>
   </sc-if>
 </section>

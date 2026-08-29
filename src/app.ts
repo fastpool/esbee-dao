@@ -29,6 +29,7 @@ import {
   walletNetworkAdvice,
 } from "./config.js";
 import { num } from "./plain.js";
+import { freezeIn, type PoxCycles } from "./cycles.js";
 import { beeIdentity, discuss, mountChat, syncChat } from "./chat.js";
 import type {
   BridgeEvent,
@@ -599,12 +600,235 @@ const row = (label: string, value: string, when: string, done: boolean): BondRow
   fg: done ? "var(--color-accent-2-700)" : "var(--color-text)",
 });
 
+/// --- the run-up, drawn as a dial -------------------------------------------------
+
+// The ring's geometry, in the SVG's own user space. One place, because the
+// arcs, the elapsed track and the needle all have to agree about where the
+// middle is.
+// The elapsed ring sits just inside the phase band rather than around the
+// label: a ring drawn close to the middle reads as a border on the text, and
+// the hole is the one place the ring has room to say which bond it is about.
+const RING = { box: 192, mid: 96, outer: 72, inner: 56, dot: 90 };
+
+// A hairline of the page's own background between one phase and the next, so
+// two neighbouring greys still read as two phases. In user space, like the rest
+// of the ring.
+const PHASE_GAP = 3;
+
+const circumference = (radius: number): number => 2 * Math.PI * radius;
+
+/** One arc of the ring: a dashed circle, offset to where the phase begins. */
+interface DialArc {
+  dash: string;
+  offset: string;
+  color: string;
+  op: string;
+}
+
+/** A phase as the legend lists it, in the order the run-up runs. */
+interface DialPhase {
+  color: string;
+  label: string;
+  span: string;
+  op: string;
+  weight: string;
+}
+
+interface BondDial {
+  show: boolean;
+  /** The four phases of the run-up, plus whatever window survives the freeze. */
+  notice: DialArc;
+  wait: DialArc;
+  open: DialArc;
+  frozen: DialArc;
+  tail: DialArc;
+  /** How far through the run-up the chain is, on the inner ring. */
+  elapsed: DialArc;
+  /** The chain tip, as a dot just outside the band, in the SVG's coordinates. */
+  dotX: string;
+  dotY: string;
+  centerKicker: string;
+  centerValue: string;
+  centerNote: string;
+  phase: string;
+  phaseNote: string;
+  legend: DialPhase[];
+}
+
+const NO_DIAL: BondDial = {
+  show: false,
+  notice: { dash: "", offset: "", color: "", op: "" },
+  wait: { dash: "", offset: "", color: "", op: "" },
+  open: { dash: "", offset: "", color: "", op: "" },
+  frozen: { dash: "", offset: "", color: "", op: "" },
+  tail: { dash: "", offset: "", color: "", op: "" },
+  elapsed: { dash: "", offset: "", color: "", op: "" },
+  dotX: "0", dotY: "0",
+  centerKicker: "", centerValue: "", centerNote: "",
+  phase: "", phaseNote: "", legend: [],
+};
+
+const PHASE_COLORS = {
+  // Two greys and a track to tell apart, so they are two steps apart on the
+  // ramp rather than one -- neighbouring greys at half strength read as one
+  // phase, which is the opposite of what the ring is for.
+  notice: "var(--color-neutral-700)",
+  wait: "var(--color-neutral-500)",
+  open: "var(--color-accent-2-500)",
+  frozen: "var(--color-accent-900)",
+  elapsed: "var(--color-accent)",
+};
+
+/**
+ * The wait for a bond, as one ring: bound at the top, the bond's start back at
+ * the top again, and the phases between them in the order they run.
+ *
+ * A list of heights is exact and still leaves the shape of the wait to be
+ * worked out by the reader -- which of six dates is the one to act on, how much
+ * of the window is left, and the fact that its last blocks are not window at
+ * all. The ring says all three at a glance, and the rows underneath stay for
+ * the exact heights.
+ */
+function bondDial(
+  index: number,
+  bound: number,
+  notice: number,
+  opens: number,
+  start: number,
+  burn: number,
+  cycles: PoxCycles | null,
+): BondDial {
+  const total = start - bound;
+  if (total <= 0) return NO_DIAL;
+
+  const clamp = (height: number) => Math.min(Math.max(height, bound), start);
+  const at = (height: number) => (clamp(height) - bound) / total;
+
+  const noticeEnds = clamp(notice);
+  // The window is open only once *both* the pool's window and the members'
+  // notice are past, and `bind-bond` guarantees the notice comes first -- but
+  // the ring is drawn from what the contract reports, not from that guarantee.
+  const opensAt = clamp(Math.max(opens, notice));
+  const freeze = freezeIn(opensAt, start, cycles);
+  const frozenFrom = freeze ? freeze.from : start;
+  const frozenTo = freeze ? freeze.to : start;
+
+  const phase =
+    burn < noticeEnds ? "notice"
+      : burn < opensAt ? "wait"
+        : burn < frozenFrom ? "open"
+          : burn < frozenTo ? "frozen"
+            : burn < start ? "open"
+              : "started";
+
+  const arc = (from: number, to: number, color: string, current: boolean): DialArc => {
+    const c = circumference(RING.outer);
+    const full = Math.max(0, to - from) * c;
+    // A phase too short to survive the gap keeps a sliver instead: 100 blocks
+    // of prepare phase against a 1,360-block run-up is exactly the segment a
+    // reader most needs to see, and rounding it away would be the old bug in a
+    // new place.
+    const length = full === 0 ? 0 : Math.max(full - PHASE_GAP, 1.5);
+    return {
+      dash: `${length.toFixed(2)} ${c.toFixed(2)}`,
+      offset: `${(-from * c).toFixed(2)}`,
+      color,
+      // The phase in progress at full strength and the rest held back, which is
+      // what makes the ring answer "where are we" before it is even read.
+      op: current ? "1" : "0.55",
+    };
+  };
+
+  const done = at(burn);
+  const inner = circumference(RING.inner);
+  const angle = ((done * 360 - 90) * Math.PI) / 180;
+  const head = {
+    x: RING.mid + RING.dot * Math.cos(angle),
+    y: RING.mid + RING.dot * Math.sin(angle),
+  };
+
+  const span = (a: number, b: number) => `burn ${fmt(a)} → ${fmt(b)}`;
+  const legend: DialPhase[] = [
+    { key: "notice", label: "Members' notice", a: bound, b: noticeEnds, color: PHASE_COLORS.notice },
+    { key: "wait", label: "Bound, window not open", a: noticeEnds, b: opensAt, color: PHASE_COLORS.wait },
+    { key: "open", label: "Stake window open", a: opensAt, b: frozenFrom, color: PHASE_COLORS.open },
+    { key: "frozen", label: "pox-5 prepare phase · stake reverts", a: frozenFrom, b: frozenTo, color: PHASE_COLORS.frozen },
+  ]
+    .filter((entry) => entry.b > entry.a)
+    .map((entry) => ({
+      color: entry.color,
+      label: entry.label,
+      span: span(entry.a, entry.b),
+      op: entry.key === phase ? "1" : "0.55",
+      weight: entry.key === phase ? "500" : "400",
+    }));
+
+  const left = (target: number) => duration(Math.max(0, target - burn));
+  const blocks = (target: number) => Math.max(0, target - burn);
+  const note =
+    phase === "notice"
+      ? `The members' notice on this bond runs another ${left(noticeEnds)}.`
+      : phase === "wait"
+        ? `Nothing can be committed yet. The window opens in ${left(opensAt)}.`
+        : phase === "frozen"
+          ? `pox-5 has frozen the staker set for this cycle: \`stake\` reverts with ` +
+            `(err u47) until bond ${index} starts at burn ${fmt(start)}. There is no ` +
+            `block left to stake it in.`
+          : phase === "started"
+            ? `Bond ${index} has started. The window to stake into it has closed.`
+            : freeze
+              ? `\`stake\` can land now, and for ${fmt(blocks(frozenFrom))} blocks more ` +
+                `(${left(frozenFrom)}). At burn ${fmt(frozenFrom)} pox-5's prepare phase ` +
+                `freezes the staker set and the call starts reverting.`
+              : `\`stake\` can land now, and for ${fmt(blocks(start))} blocks more ` +
+                `(${left(start)}).`;
+
+  return {
+    show: true,
+    notice: arc(0, at(noticeEnds), PHASE_COLORS.notice, phase === "notice"),
+    wait: arc(at(noticeEnds), at(opensAt), PHASE_COLORS.wait, phase === "wait"),
+    open: arc(at(opensAt), at(frozenFrom), PHASE_COLORS.open, phase === "open"),
+    frozen: arc(at(frozenFrom), at(frozenTo), PHASE_COLORS.frozen, phase === "frozen"),
+    tail: arc(at(frozenTo), 1, PHASE_COLORS.open, phase === "open" && burn >= frozenTo),
+    elapsed: {
+      dash: `${(done * inner).toFixed(2)} ${inner.toFixed(2)}`,
+      offset: "0",
+      color: PHASE_COLORS.elapsed,
+      op: "1",
+    },
+    dotX: head.x.toFixed(2),
+    dotY: head.y.toFixed(2),
+    centerKicker: "Bond",
+    centerValue: String(index),
+    centerNote:
+      phase === "open"
+        ? `${fmt(blocks(freeze ? frozenFrom : start))} blocks to stake`
+        : phase === "wait"
+          ? `opens in ${left(opensAt)}`
+          : phase === "notice"
+            ? `notice · ${left(noticeEnds)}`
+            : phase === "frozen"
+              ? "window closed"
+              : "started",
+    phase:
+      phase === "notice" ? "Members' notice"
+        : phase === "wait" ? "Bound, window not open"
+          : phase === "open" ? "Stake window open"
+            : phase === "frozen" ? "pox-5 prepare phase"
+              : "Bond started",
+    phaseNote: note,
+    legend,
+  };
+}
+
 interface BondPanel {
   show: boolean;
   kicker: string;
   headline: string;
   lead: string;
   rows: BondRow[];
+  /** The run-up as a ring, where there is one still to run. */
+  dial: BondDial;
 }
 
 /**
@@ -624,6 +848,7 @@ function bondPanel(): BondPanel {
       headline: "",
       lead: "",
       rows: [],
+      dial: NO_DIAL,
     };
   }
 
@@ -647,6 +872,7 @@ function bondPanel(): BondPanel {
         row("First reward cycle", String(num(live["first-reward-cycle"])), "", true),
         row("Term ends", `burn ${fmt(unlock)}`, relative(unlock, burn), burn >= unlock),
       ],
+      dial: NO_DIAL,
     };
   }
 
@@ -656,27 +882,39 @@ function bondPanel(): BondPanel {
   // so it falls through to the schedule below rather than sitting here as
   // "next bond" with dates that have all gone by.
   if (bond && bond.bound && bond.stakeable) {
+    const index = num(bond["bond-index"]);
     const start = num(bond["start-height"]);
     const opens = num(bond["stake-opens-at"]);
     const notice = num(bond["notice-ends-at"]);
+    const bound = num(bond["bound-at-height"]);
     const unlock = num(bond["unlock-burn-height"]);
     const waiting = start > burn;
+    // Where pox-5 stops taking the registration, which is the deadline that
+    // actually matters and is nowhere in `get-bound-bond`.
+    const freeze = freezeIn(Math.max(opens, notice), start, pool.cycles);
     return {
       show: true,
       kicker: "Next bond",
-      headline: `Bond ${num(bond["bond-index"])}`,
+      headline: `Bond ${index}`,
       lead: waiting
         ? `Deposits are open until burn ${fmt(start)} — ${relative(start, burn)}. ` +
           `The pool stakes inside the window before that, and the term then runs ` +
           `to burn ${fmt(unlock)}, ${relative(unlock, burn)}.`
         : `This bond has started. The window to stake into it has closed.`,
       rows: [
-        row("Bound at", `burn ${fmt(num(bond["bound-at-height"]))}`, relative(num(bond["bound-at-height"]), burn), true),
+        row("Bound at", `burn ${fmt(bound)}`, relative(bound, burn), true),
         row("Notice ends", `burn ${fmt(notice)}`, relative(notice, burn), burn >= notice),
         row("Stake window opens", `burn ${fmt(opens)}`, relative(opens, burn), burn >= opens),
+        // Between these two nothing can be staked, so they are two rows rather
+        // than one: a window that reads as open to the last block is how a bond
+        // gets missed with time apparently still on the clock.
+        ...(freeze
+          ? [row("pox-5 freezes the set", `burn ${fmt(freeze.from)}`, relative(freeze.from, burn), burn >= freeze.from)]
+          : []),
         row("Deposits close, bond starts", `burn ${fmt(start)}`, relative(start, burn), burn >= start),
         row("Term ends", `burn ${fmt(unlock)}`, relative(unlock, burn), burn >= unlock),
       ],
+      dial: bondDial(index, bound, notice, opens, start, burn, pool.cycles),
     };
   }
 
@@ -701,6 +939,7 @@ function bondPanel(): BondPanel {
             `can no longer be joined. Deposits stay closed until the operator binds ` +
             `another. Chain tip is burn ${fmt(burn)}.`,
       rows: [],
+      dial: NO_DIAL,
     };
   }
 
@@ -780,6 +1019,7 @@ function bondPanel(): BondPanel {
         next.allowance !== null,
       ),
     ],
+    dial: NO_DIAL,
   };
 }
 
@@ -825,8 +1065,19 @@ function stagePill(): StagePill {
   if (bond?.bound) {
     const index = num(bond["bond-index"]);
     const start = num(bond["start-height"]);
-    // A bond that has started without the pool in it is not a stage the pool
-    // can act on: `bind-bond` may replace it, so the badge says so plainly.
+    const freeze = freezeIn(
+      Math.max(num(bond["stake-opens-at"]), num(bond["notice-ends-at"])),
+      start,
+      pool.cycles,
+    );
+    // Inside pox-5's prepare phase the bond is already lost, however many
+    // blocks are left before it starts -- "starts in 4 hours" would read as
+    // time to act. A bond that has started without the pool in it is not a
+    // stage the pool can act on either: `bind-bond` may replace it, so the
+    // badge says so plainly.
+    if (freeze && pool.burn >= freeze.from && pool.burn < start) {
+      return { label: `Stake window closed · bond ${index} passed the pool by`, ...past };
+    }
     return pool.burn < start
       ? {
           label: `Deposits open · bond ${index} starts ${relative(start, pool.burn)}`,
@@ -938,6 +1189,11 @@ function launchPanel(): LaunchPanel {
   // failed, or the button would go dark against a vault that has no floor at
   // all.
   const meetsFloor = preview === null || preview["meets-floor"] !== false;
+  // The one check `stake` does not make itself: pox-5 makes it, inside
+  // `register-for-bond`, and a call that fails there costs a fee and the bond.
+  // See `freezeIn`. The window's last blocks are not window.
+  const freeze = freezeIn(Math.max(opens, notice), start, pool.cycles);
+  const frozen = freeze !== null && burn >= freeze.from && burn < freeze.to;
   // Everything `stake` itself checks, so the button is offered only when the
   // call would actually go through. The milestone is deliberately not among
   // them: the contract has no opinion about half an allocation, and gating the
@@ -947,6 +1203,7 @@ function launchPanel(): LaunchPanel {
     burn >= opens &&
     burn >= notice &&
     burn < start &&
+    !frozen &&
     Boolean(preview) &&
     num(preview!["sats"]) > 0 &&
     meetsFloor;
@@ -1009,7 +1266,12 @@ function launchPanel(): LaunchPanel {
             : ".")
         : burn < notice
           ? `The members' notice runs to burn ${fmt(notice)}, ${relative(notice, burn)}.`
-          : "Nothing eligible to stake yet.",
+          : frozen
+            ? `pox-5 froze the staker set for this cycle at burn ${fmt(freeze!.from)}: ` +
+              `register-for-bond answers (err u47) from there until bond ` +
+              `${num(bond!["bond-index"])} starts at burn ${fmt(start)}, so there is no ` +
+              `block left to stake it in. Deposits stay yours and roll to the next bind.`
+            : "Nothing eligible to stake yet.",
     stake: () => void doStake(),
   };
 }

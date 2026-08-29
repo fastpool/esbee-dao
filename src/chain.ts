@@ -34,8 +34,10 @@ import {
   walletNetworkAdvice,
 } from "./config.js";
 import { num, plain, type Plain } from "./plain.js";
+import type { PoxCycles } from "./cycles.js";
 
 export { num, plain, type Plain };
+export type { PoxCycles };
 
 export { Cl };
 
@@ -1130,6 +1132,28 @@ export interface BondSchedule {
 }
 
 /**
+ * The cycle geometry, read from pox-5 rather than `/v2/pox` so it is the same
+ * source, and the same node, as every other number the page draws. See
+ * `PoxCycles` and `freezeIn` in cycles.ts for what it is for.
+ */
+export async function loadPoxCycles(): Promise<PoxCycles | null> {
+  const [poxAddress, poxName] = net().pox.split(".") as [string, string];
+  const info = await readOnly({ address: poxAddress, name: poxName }, "get-pox-info");
+  if (!info || typeof info !== "object") return null;
+  const fields = info as Record<string, Plain>;
+  const cycles: PoxCycles = {
+    first: num(fields["first-burnchain-block-height"]),
+    length: num(fields["reward-cycle-length"]),
+    prepare: num(fields["prepare-cycle-length"]),
+    cycle: num(fields["reward-cycle-id"]),
+  };
+  // A zero-length cycle would put every boundary at the same height and leave
+  // `freezeIn` dividing by it. Nothing marked is better than a window marked
+  // wrong.
+  return cycles.length > 0 && cycles.prepare > 0 ? cycles : null;
+}
+
+/**
  * Where the chain is in pox-5's bond schedule.
  *
  * Read from pox-5 rather than the pool, because when nothing is bound the pool
@@ -1377,6 +1401,8 @@ export interface PoolState {
   burn: number;
   /** Read from pox-5, so the page can say what is running even when unbound. */
   schedule: BondSchedule | null;
+  /** Where the cycle boundaries fall, which is where the stake window really ends. */
+  cycles: PoxCycles | null;
 }
 
 /**
@@ -1385,7 +1411,7 @@ export interface PoolState {
  */
 export async function loadPool(site: Site = here()): Promise<PoolState | null> {
   if (!site.deployer) return null;
-  const [totals, live, cfg, bond, preview, burn] = await Promise.all([
+  const [totals, live, cfg, bond, preview, burn, cycles] = await Promise.all([
     readOnly(pool(site), "get-pool"),
     readOnly(pool(site), "get-live-epoch"),
     readOnly(pool(site), "get-config"),
@@ -1394,6 +1420,9 @@ export async function loadPool(site: Site = here()): Promise<PoolState | null> {
     // answering, so it is the one read here that is allowed to come back empty.
     readOnly(pool(site), "get-stake-preview").catch(() => null),
     burnHeight(),
+    // An older pox-5 without `get-pox-info` costs the freeze marking and
+    // nothing else, so this is allowed to come back empty too.
+    loadPoxCycles().catch(() => null),
   ]);
   return {
     totals: totals as Record<string, Plain> | null,
@@ -1403,5 +1432,6 @@ export async function loadPool(site: Site = here()): Promise<PoolState | null> {
     preview: preview as unknown as StakePreview | null,
     burn,
     schedule: await loadSchedule(burn, site).catch(() => null),
+    cycles,
   };
 }
