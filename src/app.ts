@@ -632,6 +632,8 @@ interface DialPhase {
   span: string;
   op: string;
   weight: string;
+  /** Where the phase is explained, for the one that needs it. Empty otherwise. */
+  href: string;
 }
 
 interface BondDial {
@@ -761,6 +763,10 @@ function bondDial(
       span: span(entry.a, entry.b),
       op: entry.key === phase ? "1" : "0.55",
       weight: entry.key === phase ? "500" : "400",
+      // The ring says when the notice ends; it cannot say what the notice is
+      // for, and that is the one phase where not knowing costs a member the
+      // chance to act. The rest are self-explanatory from their labels.
+      href: entry.key === "notice" ? "#faq-notice" : "",
     }));
 
   const left = (target: number) => duration(Math.max(0, target - burn));
@@ -3871,13 +3877,21 @@ function viewModel(): Scope {
       { title: "It cannot surprise you", body: "A bond must be bound ~4 days before it can be staked, so nobody is carried into terms they had no chance to read." },
       { title: "It cannot lock anyone out", body: "The operator is a set with an enabled flag, and no key may change its own entry. Handover takes two moves by two parties." },
     ],
+    // Each question carries its own anchor, so a place on the page where one
+    // comes up can point straight at it -- the dial's notice arc does.
     faq: [
-      { q: "What happens if the bond is too small for everything queued?", a: "The roll still happens — missing the window is far worse than rolling light. stake commits what fits, scales every member’s sats by the same fraction, and releases the remainder." },
-      { q: "Can I leave mid-bond?", a: "Two ways. Request an exit and it is honoured at the next roll: your principal comes back then, and the final cycle’s honey when that epoch settles. Or leave now — unstake-sbtc-early takes committed sats straight back out of the bond, which is what pox-5 always allowed. The sats become claimable principal at once; the STX leg still waits for the roll, and the rest of that bond’s honey is forfeited." },
-      { q: "Why is my weight the square root?", a: "So that capital buys influence at a decreasing rate. Ten thousand times the stake is a hundred times the say — enough to matter, not enough to decide alone." },
-      { q: "Why can a queued deposit not vote?", a: "It is withdrawable on demand. Counting it would let anyone rent a majority for a single transaction: deposit, vote, withdraw." },
-      { q: "Who can execute a passed proposal?", a: "Anyone. The mandate is the vote, not the executor. If the underlying call fails, the mandate survives and can be spent once it would succeed." },
+      { id: "faq-small-bond", q: "What happens if the bond is too small for everything queued?", a: "The roll still happens — missing the window is far worse than rolling light. stake commits what fits, scales every member’s sats by the same fraction, and releases the remainder." },
       {
+        id: "faq-notice",
+        q: "What is the members’ notice?",
+        a: "The gap between the operator binding a bond and the first block anyone can be staked into it — around four days, and the pool’s own stake reverts before it is up. It is there so nobody is carried into terms they had no chance to read: while it runs, a queued deposit is still yours to withdraw, and a committed one can be taken out of the roll with request-exit. Once the pool has staked, an exit waits for the next roll, which may be a whole bond away. The countdown at the top of the page shows how much of the notice is left.",
+      },
+      { id: "faq-leave-mid-bond", q: "Can I leave mid-bond?", a: "Two ways. Request an exit and it is honoured at the next roll: your principal comes back then, and the final cycle’s honey when that epoch settles. Or leave now — unstake-sbtc-early takes committed sats straight back out of the bond, which is what pox-5 always allowed. The sats become claimable principal at once; the STX leg still waits for the roll, and the rest of that bond’s honey is forfeited." },
+      { id: "faq-weight", q: "Why is my weight the square root?", a: "So that capital buys influence at a decreasing rate. Ten thousand times the stake is a hundred times the say — enough to matter, not enough to decide alone." },
+      { id: "faq-queued-vote", q: "Why can a queued deposit not vote?", a: "It is withdrawable on demand. Counting it would let anyone rent a majority for a single transaction: deposit, vote, withdraw." },
+      { id: "faq-execute", q: "Who can execute a passed proposal?", a: "Anyone. The mandate is the vote, not the executor. If the underlying call fails, the mandate survives and can be spent once it would succeed." },
+      {
+        id: "faq-live",
         q: "Is any of this live?",
         a: configured()
           ? `Yes — this page reads ${config.deployer}.${config.dao} on ${config.network}, and a vote here is a real transaction.`

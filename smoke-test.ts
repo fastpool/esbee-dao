@@ -101,7 +101,7 @@ const scope: Record<string, unknown> = {
   powers: [{ call: "trust-signer-manager", title: "Add a manager", body: "body" }],
   gates: [{ n: "1", label: "Voting period", body: "body" }],
   trust: [{ title: "It cannot reach a deposit", body: "body" }],
-  faq: [{ q: "Question?", a: "Answer." }],
+  faq: [{ id: "faq-notice", q: "Question?", a: "Answer." }],
   join: {
     open: true, closed: false, connected: true, disconnected: true,
     connect: () => {},
@@ -249,7 +249,8 @@ const scope: Record<string, unknown> = {
       phase: "Stake window open",
       phaseNote: "`stake` can land now, and for 188 blocks more (12 hours).",
       legend: [
-        { color: "#8fa073", label: "Stake window open", span: "burn 10,512 → 10,700", op: "1", weight: "500" },
+        { color: "#a19786", label: "Members' notice", span: "burn 10,000 → 10,512", op: "0.55", weight: "400", href: "#faq-notice" },
+        { color: "#8fa073", label: "Stake window open", span: "burn 10,512 → 10,700", op: "1", weight: "500", href: "" },
       ],
     },
   },
@@ -298,6 +299,17 @@ for (const phrase of [
 }
 
 check(mount!.querySelectorAll("svg").length > 0, "svg icons render in their namespace");
+
+// The dial names the notice and counts it down; the question is where it says
+// what the notice is for. A link into the FAQ is only worth having while the
+// anchor it names is still on the page, so the pair is checked together rather
+// than each half on its own.
+const noticeLink = mount!.querySelector('a[href="#faq-notice"]');
+check(Boolean(noticeLink), "the dial's notice phase links to the question that explains it");
+check(
+  Boolean(mount!.querySelector("#faq-notice")),
+  "and the FAQ carries that anchor for it to land on",
+);
 
 // The header button opens who you are, not a list of wallets this page cannot
 // actually detect. The chat's identity belongs there too: it is a nostr key
