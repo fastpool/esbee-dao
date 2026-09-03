@@ -1420,6 +1420,9 @@ function viewModel(): Scope {
       { call: "update-bond-registration", title: "Move the registration", body: "Only onto a hash trusted before the live epoch was staked — the emergency switch." },
       { call: "update-operator", title: "Change the seat", body: "Add or retire an operator key. The DAO cannot remove its own entry." },
       { call: "sweep-unattributed-principal", title: "Sweep the stray", body: "Move bitcoin that arrived without an announcement. Measured above everything owed." },
+      // Five, not the live page's six. `set-next-bond` arrived with the `-1`
+      // and `-3` DAOs; the one this page reads does not have it, and listing a
+      // power a contract does not hold is a promise it cannot keep.
     ],
     gates: [
       { n: "1", label: "Voting period", body: "~2 days. A proposal cannot be raised and settled before anyone has looked at it." },

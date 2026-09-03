@@ -1037,6 +1037,17 @@ export const daoCalls = {
     call(dao(), "propose-operator-change", [Cl.principal(who), Cl.bool(enabled)]),
   proposeSweep: (recipient: string) =>
     call(dao(), "propose-sweep", [Cl.principal(recipient)]),
+  /**
+   * Aim the pool at a later bond.
+   *
+   * `set-next-bond` is a *floor* for `bind-next-bond`, not a choice of bond:
+   * `index` is the earliest the pool may bind next, so N+1 skips bond N, M aims
+   * at M, and u0 clears the floor again. The contract caps it MAX_SKIP past the
+   * earliest reachable bond, so this cannot park the pool somewhere it will
+   * never reach.
+   */
+  proposeNextBond: (index: number) =>
+    call(dao(), "propose-next-bond", [Cl.uint(index)]),
 
   // Execution is permissionless: the mandate is the vote, not the executor.
   executeTrustSigner: (id: number, site?: Site) =>
@@ -1046,6 +1057,8 @@ export const daoCalls = {
   executeOperatorChange: (id: number, site?: Site) =>
     call(dao(site), "execute-operator-change", [Cl.uint(id)]),
   executeSweep: (id: number, site?: Site) => call(dao(site), "execute-sweep", [Cl.uint(id)]),
+  executeNextBond: (id: number, site?: Site) =>
+    call(dao(site), "execute-next-bond", [Cl.uint(id)]),
   // The only one that takes the managers as traits, so it cannot be driven
   // from the proposal id alone.
   executeSignerChange: (id: number, manager: string, oldManager: string) =>
@@ -1065,6 +1078,7 @@ export const executorFor: Record<
   "distrust-signer": daoCalls.executeDistrustSigner,
   "operator-change": daoCalls.executeOperatorChange,
   sweep: daoCalls.executeSweep,
+  "next-bond": daoCalls.executeNextBond,
 };
 
 /// --- reading the floor ----------------------------------------------------------
@@ -1178,6 +1192,31 @@ export interface BoundBond {
   "min-sats": number;
   "stx-value-ratio": number;
   "min-ustx-ratio": number;
+}
+
+/**
+ * pox-5's own terms for a bond: what it pays, and what it asks alongside.
+ *
+ * These belong to the protocol rather than to this pool -- `setup-bond` sets
+ * them and every staker in the bond gets the same ones -- which is why they are
+ * read from pox-5 and not from the vault. `get-bound-bond` carries the ratio
+ * but not the rate, and the rate is the number anyone asks about first.
+ *
+ * Both are basis points: 300 is 3%, 500 is 5%.
+ */
+export interface BondTerms {
+  "target-rate": number;
+  "min-ustx-ratio": number;
+  "stx-value-ratio": number;
+}
+
+/** The terms of one bond, straight from the protocol contract. */
+export async function bondTerms(index: number): Promise<BondTerms | null> {
+  const [address, name] = net().pox.split(".") as [string, string];
+  const answer = await readOnly({ address, name }, "get-protocol-bond", [
+    Cl.uint(index),
+  ]);
+  return (answer as unknown as BondTerms | null) ?? null;
 }
 
 /** `get-live-epoch`: the bond the pool is staked into right now, if any. */
@@ -1521,6 +1560,8 @@ export interface PoolState {
   schedule: BondSchedule | null;
   /** Where the cycle boundaries fall, which is where the stake window really ends. */
   cycles: PoxCycles | null;
+  /** What the bond pays and what it asks in STX. Null where it could not be read. */
+  terms: BondTerms | null;
 }
 
 /**
@@ -1558,5 +1599,24 @@ export async function loadPool(site: Site = here()): Promise<PoolState | null> {
     burn,
     schedule: await loadSchedule(burn, site).catch(() => null),
     cycles,
+    // Read after the rest, because it is keyed on a bond index that only the
+    // reads above know. Allowed to fail like the other pox-5 extras: the terms
+    // are worth showing and nothing on the page depends on having them.
+    terms: await termsFor(bond === UNREAD ? null : (bond as unknown as BoundBond | null), live),
   };
+}
+
+/**
+ * The terms of whichever bond the page is about -- the one the pool is staked
+ * into if it is staked, and the one it is bound to otherwise.
+ */
+async function termsFor(
+  bond: BoundBond | null,
+  live: Plain,
+): Promise<BondTerms | null> {
+  const index =
+    (live as unknown as LiveEpoch | null)?.["bond-index"] ??
+    (bond?.bound ? bond["bond-index"] : null);
+  if (index === null || index === undefined) return null;
+  return bondTerms(Number(index)).catch(() => null);
 }

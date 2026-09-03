@@ -5,6 +5,29 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Esbee DAO — analytics</title>
 <meta name="description" content="Every deployment of the Esbee pool, measured from its own contracts: the balance sheet, the roll, the epochs, the bridge funnel, the floor — and the calls anyone at all is allowed to finish.">
+<!-- What everywhere else shows instead of the page.
+
+     Without these a share is the title and the description as grey text, which
+     is what Discord and Slack fall back to and what this link looked like until
+     now. `og:image` has to be absolute -- a relative one resolves against the
+     crawler, not the site -- so the canonical host is written out here rather
+     than inferred. `scripts/make-og.mjs` draws the card; `pnpm run og`. -->
+<link rel="canonical" href="https://www.esbee-dao.org/analytics.html">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Esbee DAO">
+<meta property="og:title" content="Esbee DAO — analytics">
+<meta property="og:description" content="Every deployment of the Esbee pool, measured from its own contracts: the balance sheet, the roll, the epochs, the bridge funnel, the floor — and the calls anyone at all is allowed to finish.">
+<meta property="og:url" content="https://www.esbee-dao.org/analytics.html">
+<meta property="og:image" content="https://www.esbee-dao.org/og.png">
+<meta property="og:image:type" content="image/png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="The Esbee mark beside the words: a hive that holds the bond.">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Esbee DAO — analytics">
+<meta name="twitter:description" content="Every deployment of the Esbee pool, measured from its own contracts: the balance sheet, the roll, the epochs, the bridge funnel, the floor — and the calls anyone at all is allowed to finish.">
+<meta name="twitter:image" content="https://www.esbee-dao.org/og.png">
+<meta name="theme-color" content="#ebddc5">
 <link rel="icon" type="image/svg+xml" href="esbee.svg">
 <link rel="icon" type="image/png" sizes="32x32" href="icons/icon-32.png">
 <link rel="apple-touch-icon" sizes="180x180" href="icons/icon-180.png">
@@ -497,6 +520,13 @@ a:hover { color: var(--color-accent-700); }
         <span class="mono">{{ focusDao }}</span>
         <span class="mono">{{ focusBridge }}</span>
         <sc-if value="{{ btcApiShow }}"><span>bitcoin {{ btcChain }} · {{ btcApi }}</span></sc-if>
+      </div>
+    </div>
+    <div>
+      <div style="font-size:11px;letter-spacing:.1em;text-transform:uppercase;opacity:.5;margin-bottom:12px">Source</div>
+      <div style="display:flex;flex-direction:column;gap:8px;font-size:14px">
+        <a href="https://github.com/fastpool/sbtc-pool-bond-staker" target="_blank" rel="noopener" style="color:var(--color-neutral-200);text-decoration:none" style-hover="color:var(--color-accent-400)">sbtc-pool-bond-staker ↗</a>
+        <a href="https://github.com/fastpool/esbee-dao" target="_blank" rel="noopener" style="color:var(--color-neutral-200);text-decoration:none" style-hover="color:var(--color-accent-400)">esbee-dao ↗</a>
       </div>
     </div>
     <div>

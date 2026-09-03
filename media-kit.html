@@ -5,6 +5,29 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Esbee — media kit</title>
 <meta name="description" content="The Esbee name, mark, palette and voice.">
+<!-- What everywhere else shows instead of the page.
+
+     Without these a share is the title and the description as grey text, which
+     is what Discord and Slack fall back to and what this link looked like until
+     now. `og:image` has to be absolute -- a relative one resolves against the
+     crawler, not the site -- so the canonical host is written out here rather
+     than inferred. `scripts/make-og.mjs` draws the card; `pnpm run og`. -->
+<link rel="canonical" href="https://www.esbee-dao.org/media-kit.html">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Esbee DAO">
+<meta property="og:title" content="Esbee — media kit">
+<meta property="og:description" content="The Esbee name, mark, palette and voice.">
+<meta property="og:url" content="https://www.esbee-dao.org/media-kit.html">
+<meta property="og:image" content="https://www.esbee-dao.org/og.png">
+<meta property="og:image:type" content="image/png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="The Esbee mark beside the words: a hive that holds the bond.">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Esbee — media kit">
+<meta name="twitter:description" content="The Esbee name, mark, palette and voice.">
+<meta name="twitter:image" content="https://www.esbee-dao.org/og.png">
+<meta name="theme-color" content="#ebddc5">
 <link rel="icon" type="image/svg+xml" href="esbee.svg">
 <link rel="icon" type="image/png" sizes="32x32" href="icons/icon-32.png">
 <link rel="apple-touch-icon" sizes="180x180" href="icons/icon-180.png">

@@ -190,6 +190,10 @@ interface State {
   stx: { balance: number; locked: number; spendable: number } | null;
   /** The explainer for a member whose STX leg costs more than they can spend. */
   topUpOpen: boolean;
+  /** Which of the six the compose form is writing, and its one toggle. */
+  composeKind: string;
+  composeEnabled: boolean;
+  composeOpen: boolean;
   /** What the amount field is written in. Sats is the contract's own unit. */
   unit: Unit;
   /** The amount as typed, so a re-render can put it back where it was. */
@@ -305,6 +309,9 @@ const state: State = {
   quotedUstx: 0,
   stx: null,
   topUpOpen: false,
+  composeKind: "trust-signer",
+  composeEnabled: true,
+  composeOpen: false,
   unit: "sats",
   amount: "",
   earlyAmount: "",
@@ -510,6 +517,8 @@ const KIND_BLURBS: Record<string, string> = {
     "Adds or retires an operator key. The DAO cannot remove its own entry from the seat.",
   sweep:
     "Moves bitcoin that reached the treasury without an announcement. Measured above everything owed, so it cannot reach member principal.",
+  "next-bond":
+    "Sets the earliest bond `bind-next-bond` may take. N+1 skips bond N, M aims at M, and 0 clears the floor. Capped a few bonds past the earliest reachable one, so it cannot park the pool out of reach.",
 };
 
 function fromChain(entry: FloorEntry, burn: number): ProposalBase {
@@ -769,7 +778,7 @@ function bondDial(
     { key: "notice", label: "Members' notice", a: bound, b: noticeEnds, color: PHASE_COLORS.notice },
     { key: "wait", label: "Bound, window not open", a: noticeEnds, b: opensAt, color: PHASE_COLORS.wait },
     { key: "open", label: "Stake window open", a: opensAt, b: frozenFrom, color: PHASE_COLORS.open },
-    { key: "frozen", label: "pox-5 prepare phase · stake reverts", a: frozenFrom, b: frozenTo, color: PHASE_COLORS.frozen },
+    { key: "frozen", label: "pox-5 prepare phase, no more staking txs", a: frozenFrom, b: frozenTo, color: PHASE_COLORS.frozen },
   ]
     .filter((entry) => entry.b > entry.a)
     .map((entry) => ({
@@ -1517,6 +1526,250 @@ function afterQuote(): void {
   const { show } = shortfall();
   if (line) line.textContent = shortfallText();
   box.style.display = show ? "block" : "none";
+}
+
+/// --- raising a proposal ----------------------------------------------------------
+
+/**
+ * The six things the DAO can be asked to do, in the order the trust section
+ * lists them, with what each one needs typed.
+ *
+ * Kept beside `KIND_BLURBS` rather than merged into it: that map explains a
+ * proposal already on the floor to a reader, and this one asks somebody to
+ * write a new one. They say different things for the same reason a label and a
+ * caption do.
+ */
+const COMPOSE_KINDS: {
+  kind: string;
+  label: string;
+  /** What the member has to fill in. Drives which fields the form shows. */
+  fields: "hash" | "managers" | "operator" | "recipient" | "index";
+  hint: string;
+}[] = [
+  {
+    kind: "trust-signer",
+    label: "Trust a manager",
+    fields: "hash",
+    hint: "The signer-manager's code hash: 32 bytes, 64 hex characters. Trusting is the slow half — it only takes effect at the next roll.",
+  },
+  {
+    kind: "distrust-signer",
+    label: "Distrust a manager",
+    fields: "hash",
+    hint: "The code hash to drop. This one takes effect the moment it executes, which is the right way round.",
+  },
+  {
+    kind: "signer-change",
+    label: "Move the registration",
+    fields: "managers",
+    hint: "Contract principals, both of them — `SP….signer-manager`. The new manager must already have been trusted before the live epoch was staked.",
+  },
+  {
+    kind: "operator-change",
+    label: "Change the seat",
+    fields: "operator",
+    hint: "The address to add or retire — the toggle beside it says which. A wallet address, not a contract.",
+  },
+  {
+    kind: "sweep",
+    label: "Sweep the stray",
+    fields: "recipient",
+    hint: "Where unattributed bitcoin should go. Only the balance above everything owed can move, so this cannot reach member principal.",
+  },
+  {
+    kind: "next-bond",
+    label: "Aim at a later bond",
+    fields: "index",
+    hint: "A bond index, or 0. The pool will bind no earlier than this one.",
+  },
+];
+
+interface ComposePanel {
+  /** The member can actually raise one: the DAO checks both of these itself. */
+  show: boolean;
+  open: boolean;
+  toggle: () => void;
+  toggleLabel: string;
+  kinds: { label: string; bg: string; fg: string; choose: () => void }[];
+  blurb: string;
+  hint: string;
+  needHash: boolean;
+  needManagers: boolean;
+  needOperator: boolean;
+  needRecipient: boolean;
+  needIndex: boolean;
+  enabledLabel: string;
+  enabledNote: string;
+  toggleEnabled: () => void;
+  submit: () => void;
+}
+
+function composePanel(): ComposePanel {
+  const chosen =
+    COMPOSE_KINDS.find((k) => k.kind === state.composeKind) ?? COMPOSE_KINDS[0]!;
+  const { weight } = weights();
+  return {
+    // `open-proposal` asserts a weight above zero and a live epoch, so a form
+    // offered without either is a form that can only produce a failed
+    // transaction. The line above it says why it is missing.
+    show:
+      configured() && state.connected && Boolean(state.pool?.live) && weight > 0,
+    open: state.composeOpen,
+    toggle: () => setState({ composeOpen: !state.composeOpen }),
+    toggleLabel: state.composeOpen ? "Close" : "Raise a proposal",
+    kinds: COMPOSE_KINDS.map((k) => ({
+      label: k.label,
+      bg: k.kind === chosen.kind ? "var(--color-accent)" : "transparent",
+      fg: k.kind === chosen.kind ? "var(--color-bg)" : "var(--color-text)",
+      choose: () => setState({ composeKind: k.kind }),
+    })),
+    blurb: KIND_BLURBS[chosen.kind] ?? "",
+    hint: chosen.hint,
+    needHash: chosen.fields === "hash",
+    needManagers: chosen.fields === "managers",
+    needOperator: chosen.fields === "operator",
+    needRecipient: chosen.fields === "recipient",
+    needIndex: chosen.fields === "index",
+    enabledLabel: state.composeEnabled ? "Add to the seat" : "Retire from the seat",
+    enabledNote: state.composeEnabled
+      ? "This address gains an operator key."
+      : "This address loses its operator key.",
+    toggleEnabled: () => setState({ composeEnabled: !state.composeEnabled }),
+    submit: () => void doPropose(),
+  };
+}
+
+/**
+ * A principal typed into the compose form, checked before a wallet sees it.
+ *
+ * Every one of these ends up in a proposal the hive then votes on, and a
+ * proposal carrying a typo is not a thing that can be edited -- it can only be
+ * voted down and raised again. So the check is here, before the signature,
+ * rather than in the contract's error after it.
+ */
+function composePrincipal(
+  id: string,
+  what: string,
+  contractOnly = false,
+): string | null {
+  const value = field(id);
+  if (!value) {
+    setState({ notice: `${what} is required.` });
+    return null;
+  }
+  if (!/^S[A-Z0-9]{38,40}(\.[a-zA-Z]([a-zA-Z0-9]|[-_])*)?$/.test(value)) {
+    setState({ notice: `${what} does not read as a Stacks principal.` });
+    return null;
+  }
+  if (contractOnly && !value.includes(".")) {
+    setState({
+      notice: `${what} has to be a contract — \`SP….signer-manager\`, not a wallet address.`,
+    });
+    return null;
+  }
+  if (!walletMatchesNetwork(value)) {
+    setState({ notice: `${what} is an address for another network.` });
+    return null;
+  }
+  return value;
+}
+
+/** Raise the proposal the form is currently describing. */
+async function doPropose(): Promise<void> {
+  if (!configured()) return;
+  const kind = state.composeKind;
+  const api = await chainApi();
+  const calls = api.daoCalls;
+  const label = "the proposal";
+
+  if (kind === "trust-signer" || kind === "distrust-signer") {
+    const hash = field("compose-hash").replace(/^0x/i, "").toLowerCase();
+    if (!/^[0-9a-f]{64}$/.test(hash)) {
+      return setState({
+        notice: "A signer-manager code hash is 32 bytes — 64 hex characters.",
+      });
+    }
+    await withWallet(label, () =>
+      kind === "trust-signer"
+        ? calls.proposeTrustSigner(hash)
+        : calls.proposeDistrustSigner(hash),
+    );
+    return;
+  }
+
+  if (kind === "signer-change") {
+    const manager = composePrincipal("compose-manager", "The new manager", true);
+    if (!manager) return;
+    const previous = composePrincipal(
+      "compose-old-manager",
+      "The manager being replaced",
+      true,
+    );
+    if (!previous) return;
+    if (manager === previous) {
+      return setState({ notice: "Those are the same manager." });
+    }
+    await withWallet(label, () => calls.proposeSignerChange(manager, previous));
+    return;
+  }
+
+  if (kind === "operator-change") {
+    const who = composePrincipal("compose-who", "The operator address");
+    if (!who) return;
+    await withWallet(label, () =>
+      calls.proposeOperatorChange(who, state.composeEnabled),
+    );
+    return;
+  }
+
+  if (kind === "sweep") {
+    const recipient = composePrincipal("compose-recipient", "The recipient");
+    if (!recipient) return;
+    await withWallet(label, () => calls.proposeSweep(recipient));
+    return;
+  }
+
+  if (kind === "next-bond") {
+    const raw = field("compose-index");
+    // 0 is meaningful here -- it clears the floor -- so an empty field and a
+    // zero are not the same answer and cannot share a check.
+    if (!/^\d+$/.test(raw)) {
+      return setState({ notice: "A bond index is a whole number, or 0 to clear the floor." });
+    }
+    await withWallet(label, () => calls.proposeNextBond(Number(raw)));
+  }
+}
+
+/**
+ * The compose form's fields, held across a render.
+ *
+ * The same rule as `wireQuote`, and it matters more here: these are
+ * uncontrolled inputs, a render replaces the element being typed into, and a
+ * 64-character code hash or a pair of contract principals is a slower thing to
+ * lose than an amount.
+ */
+const composeDraft: Record<string, string> = {};
+const COMPOSE_FIELDS = [
+  "compose-hash",
+  "compose-manager",
+  "compose-old-manager",
+  "compose-who",
+  "compose-recipient",
+  "compose-index",
+];
+function wireCompose(): void {
+  for (const id of COMPOSE_FIELDS) {
+    const input = document.getElementById(id) as HTMLInputElement | null;
+    if (!input) continue;
+    if (input.dataset.wired !== "1") {
+      input.dataset.wired = "1";
+      input.addEventListener("input", () => {
+        composeDraft[id] = input.value;
+      });
+    }
+    const held = composeDraft[id];
+    if (held !== undefined && input.value !== held) input.value = held;
+  }
 }
 
 /** What a submitted deposit is doing, in the chain's own vocabulary. */
@@ -3926,6 +4179,7 @@ function viewModel(): Scope {
   const sel = proposals.find((p) => p.id === state.sel) ?? null;
 
   const totals = state.pool?.totals ?? null;
+  const terms = state.pool?.terms ?? null;
   // The caption under this one reads "queued, fully withdrawable", so it is the
   // queue -- not the committed position, which is a different number.
   const queued = totals ? num(totals["queued-sats"]) : 0;
@@ -3950,6 +4204,19 @@ function viewModel(): Scope {
     statEpoch: live
       ? String(num(state.pool?.config?.["epoch-count"] ?? live.epoch + 1))
       : "—",
+    // What the bond actually pays, which is the first thing anyone asks and was
+    // nowhere on the page.
+    //
+    // Both numbers are pox-5's, not this pool's: `setup-bond` sets them and
+    // every staker in the bond gets the same ones. Basis points, so 300 is 3%.
+    // This card used to show the epoch index -- a number that means nothing to
+    // a reader deciding whether to deposit, and read "0" for the whole of the
+    // first epoch.
+    statRate: terms ? `${(num(terms["target-rate"]) / 100).toFixed(2).replace(/\.00$/, "")}%` : "—",
+    statRateNote: !terms
+      ? "the bond's terms could not be read"
+      : `target rate · STX worth ${(num(terms["min-ustx-ratio"]) / 100).toFixed(2).replace(/\.00$/, "")}% of your sBTC required`,
+
     // The caption the design drew read "first bond not yet bound", which stops
     // being true the moment one is.
     statEpochNote: state.pool?.live
@@ -4086,6 +4353,7 @@ function viewModel(): Scope {
     join: joinPanel(),
     l1: l1Panel(),
     early: earlyPanel(),
+    compose: composePanel(),
 
     // Which vault this page is about.
     //
@@ -4195,6 +4463,7 @@ function viewModel(): Scope {
       { call: "update-bond-registration", title: "Move the registration", body: "Only onto a hash trusted before the live epoch was staked — the emergency switch." },
       { call: "update-operator", title: "Change the seat", body: "Add or retire an operator key. The DAO cannot remove its own entry." },
       { call: "sweep-unattributed-principal", title: "Sweep the stray", body: "Move bitcoin that arrived without an announcement. Measured above everything owed." },
+      { call: "set-next-bond", title: "Aim at a later bond", body: "Set the earliest bond the pool may bind next — skip one, or aim at a particular one. 0 clears it." },
     ],
     gates: [
       { n: "1", label: "Voting period", body: "~2 days. A proposal cannot be raised and settled before anyone has looked at it." },
@@ -4420,6 +4689,7 @@ function render(): void {
   paintNotice();
 
   wireQuote();
+  wireCompose();
   wireEarly();
   wireL1();
   syncChat();

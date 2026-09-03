@@ -543,6 +543,20 @@ the function. A member who still holds a position in `vault-1` is pointed
 at `/v1/` from here — that is the whole of the migration, because there is no
 call that moves one.
 
+### The social card
+
+`og.png` is a 1200×630 card drawn by `scripts/make-og.mjs` — `pnpm run og` —
+and every page points at it absolutely, because a relative `og:image` resolves
+against the crawler rather than the site. Without it a share is the title and
+the description as grey text, which is what Discord showed.
+
+The card deliberately carries **no rate**. `target-rate` belongs to a bond and
+the next bond may carry another, while a social image is cached by every
+platform that has ever seen it: a number baked in here would go on being shown
+long after the page stopped agreeing with it. The card says what the pool is;
+the **Bond rate** stat says what it currently pays, read from pox-5's
+`get-protocol-bond` on every load.
+
 ### Post-conditions
 
 Calls where the member *sends* carry explicit post-conditions in deny mode —

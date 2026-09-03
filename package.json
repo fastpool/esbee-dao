@@ -12,7 +12,8 @@
     "dev": "pnpm run build && python3 -m http.server 8080 --directory dist",
     "icons": "node scripts/make-icons.mjs",
     "shot": "node scripts/screenshot.mjs",
-    "chat:e2e": "node scripts/chat-e2e.mjs"
+    "chat:e2e": "node scripts/chat-e2e.mjs",
+    "og": "node scripts/make-og.mjs"
   },
   "devDependencies": {
     "@noble/curves": "2.0.1",

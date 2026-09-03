@@ -60,7 +60,7 @@ const SITES = [
   { entries: [join(root, "v1", "src", "app.ts")], dir: join(out, "v1"), pages: ["v1/index.html"] },
   { entries: [join(root, "v2", "src", "app.ts")], dir: join(out, "v2"), pages: ["v2/index.html"] },
 ];
-const FILES = ["styles.css", "esbee.svg"];
+const FILES = ["styles.css", "esbee.svg", "og.png"];
 const DIRS = ["fonts", "icons"];
 
 rmSync(out, { recursive: true, force: true });

@@ -4,7 +4,30 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Esbee DAO — a hive that holds the bond</title>
-<meta name="description" content="Esbee DAO is the operator seat of a pooled sBTC + STX staker for pox-5 Bitcoin Staking Bonds, held by its members rather than by a key.">
+<meta name="description" content="Esbee DAO is the operator seat of a sBTC pool staking with Bitcoin Staking Bonds, held by its members rather than by a key.">
+<!-- What everywhere else shows instead of the page.
+
+     Without these a share is the title and the description as grey text, which
+     is what Discord and Slack fall back to and what this link looked like until
+     now. `og:image` has to be absolute -- a relative one resolves against the
+     crawler, not the site -- so the canonical host is written out here rather
+     than inferred. `scripts/make-og.mjs` draws the card; `pnpm run og`. -->
+<link rel="canonical" href="https://www.esbee-dao.org/">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Esbee DAO">
+<meta property="og:title" content="Esbee DAO — a hive that holds the bond">
+<meta property="og:description" content="Esbee DAO is the operator seat of a sBTC pool staking with Bitcoin Staking Bonds, held by its members rather than by a key.">
+<meta property="og:url" content="https://www.esbee-dao.org/">
+<meta property="og:image" content="https://www.esbee-dao.org/og.png">
+<meta property="og:image:type" content="image/png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="The Esbee mark beside the words: a hive that holds the bond.">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Esbee DAO — a hive that holds the bond">
+<meta name="twitter:description" content="Esbee DAO is the operator seat of a sBTC pool staking with Bitcoin Staking Bonds, held by its members rather than by a key.">
+<meta name="twitter:image" content="https://www.esbee-dao.org/og.png">
+<meta name="theme-color" content="#ebddc5">
 <link rel="icon" type="image/svg+xml" href="esbee.svg">
 <link rel="icon" type="image/png" sizes="32x32" href="icons/icon-32.png">
 <link rel="apple-touch-icon" sizes="180x180" href="icons/icon-180.png">
@@ -355,7 +378,12 @@ a:hover { color: var(--color-accent-700); }
 </header>
 
 <section id="top" style="position:relative;background:var(--color-surface);overflow:hidden">
-  <svg width="100%" height="100%" aria-hidden="true" style="position:absolute;inset:0;opacity:.5">
+  <!-- The comb is texture, not content, and it was competing with the one
+       paragraph on the page that has to be read: accent-coloured strokes at
+       half opacity, running straight through the words. It keeps its presence
+       at the edges and gets out of the way behind the text, which is what the
+       mask does; the paragraph below is no longer faded to meet it. -->
+  <svg width="100%" height="100%" aria-hidden="true" style="position:absolute;inset:0;opacity:.5;-webkit-mask-image:radial-gradient(120% 100% at 88% 50%, #000 30%, color-mix(in srgb, #000 22%, transparent) 68%);mask-image:radial-gradient(120% 100% at 88% 50%, #000 30%, color-mix(in srgb, #000 22%, transparent) 68%)">
     <defs>
       <pattern id="combHero" width="51.96" height="90" sc-camel-pattern-units="userSpaceOnUse">
         <g style="fill:none;stroke:var(--color-accent);stroke-width:1.3">
@@ -375,7 +403,7 @@ a:hover { color: var(--color-accent-700); }
         {{ stage.label }}
       </div>
       <h1 style="font-size:clamp(40px,7.2vw,80px);line-height:.98;letter-spacing:-0.02em;margin:0 0 clamp(14px,2.5vw,24px);max-width:14ch">A hive that holds the bond.</h1>
-      <p style="font-size:clamp(16px,1.7vw,20px);line-height:1.5;max-width:46ch;margin:0 0 clamp(22px,4vw,34px);color:color-mix(in srgb, var(--color-text) 78%, transparent)">Esbee is a pooled staker for Bitcoin Staking Bonds. Workers put in sBTC and the STX it takes to stand beside it; the pool rolls from one bond to the next without ever unwinding, and the honey is split by the shares you held while it was earned.</p>
+      <p style="font-size:clamp(16px,1.7vw,20px);line-height:1.5;max-width:46ch;margin:0 0 clamp(22px,4vw,34px);color:color-mix(in srgb, var(--color-text) 92%, transparent)">Esbee is a pooled staker for Bitcoin Staking Bonds. Workers put in sBTC and the STX it takes to stand beside it; the pool rolls from one bond to the next without ever unwinding, and the honey is split by the shares you held while it was earned.</p>
       <div style="display:flex;flex-wrap:wrap;gap:12px">
         <a class="btn btn-primary" href="#pool" style="font-size:15px;padding:12px 24px">How the pool works</a>
         <a class="btn btn-secondary" href="#vote" style="font-size:15px;padding:12px 24px">See the DAO vote</a>
@@ -402,12 +430,16 @@ a:hover { color: var(--color-accent-700); }
     <div class="card" style="background:var(--color-surface);padding:20px 22px;gap:4px">
       <span style="font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--color-accent)">Pooled sats</span>
       <span style="font-family:var(--font-heading);font-size:clamp(22px,3.4vw,36px);line-height:1.05;white-space:nowrap">{{ statSats }}</span>
-      <span class="text-muted" style="font-size:12px">queued, fully withdrawable</span>
+      <span class="text-muted" style="font-size:12px">queued, withdrawable until staked</span>
     </div>
     <div class="card" style="background:var(--color-surface);padding:20px 22px;gap:4px">
-      <span style="font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--color-accent)">Epoch</span>
-      <span style="font-family:var(--font-heading);font-size:clamp(22px,3.4vw,36px);line-height:1.05;white-space:nowrap">{{ statEpoch }}</span>
-      <span class="text-muted" style="font-size:12px">{{ statEpochNote }}</span>
+      <!-- What the bond pays, which is the question anyone arrives with. This
+           card showed the epoch index until the terms went on it; the epoch is
+           in the stage pill and the bond panel, and it was never the number a
+           reader wanted here. -->
+      <span style="font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--color-accent)">Bond rate</span>
+      <span style="font-family:var(--font-heading);font-size:clamp(22px,3.4vw,36px);line-height:1.05;white-space:nowrap">{{ statRate }}</span>
+      <span class="text-muted" style="font-size:12px">{{ statRateNote }}</span>
     </div>
     <div class="card" style="background:var(--color-surface);padding:20px 22px;gap:4px">
       <span style="font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--color-accent)">Honey paid</span>
@@ -1152,7 +1184,7 @@ a:hover { color: var(--color-accent-700); }
     </div>
   </div>
 
-  <h3 style="font-size:clamp(21px,2.8vw,30px);margin:0 0 6px">Five powers, one mandate each</h3>
+  <h3 style="font-size:clamp(21px,2.8vw,30px);margin:0 0 6px">Six powers, one mandate each</h3>
   <p class="text-muted" style="margin:0 0 22px;font-size:15px;max-width:58ch">Every proposal is a set of parameters for one operator call, raised through a typed entry point — so a mandate won for one power can never be spent on another.</p>
   <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,215px),1fr));gap:12px;margin-bottom:clamp(36px,5vw,60px)">
     <sc-for list="{{ powers }}" as="p" hint-placeholder-count="5">
@@ -1248,6 +1280,81 @@ a:hover { color: var(--color-accent-700); }
         <button class="btn btn-primary" sc-camel-on-click="{{ openWallet }}" style="font-size:14px;padding:11px 22px">Connect wallet</button>
       </sc-if>
     </div>
+
+    <!-- Raising one. `open-proposal` asserts a weight above zero and a live
+         epoch, so the form only appears when the DAO would actually take a
+         proposal from this member; the line above says why when it would not.
+         The fields are uncontrolled and held across a render by `wireCompose`,
+         the same way the deposit amount is. -->
+    <sc-if value="{{ compose.show }}" hint-placeholder-val="{{ true }}">
+      <div style="background:var(--color-bg);border-radius:28px;padding:clamp(20px,3vw,28px);margin-bottom:clamp(16px,2.5vw,24px)">
+        <div style="display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:space-between">
+          <div>
+            <h4 style="margin:0;font-size:clamp(18px,2.2vw,22px)">Raise a proposal</h4>
+            <p class="text-muted" style="margin:4px 0 0;font-size:13px">One mandate each. The hive votes; anyone may execute what carries.</p>
+          </div>
+          <button class="btn btn-secondary" sc-camel-on-click="{{ compose.toggle }}" style="font-size:13px;flex:none">{{ compose.toggleLabel }}</button>
+        </div>
+        <sc-if value="{{ compose.open }}" hint-placeholder-val="{{ true }}">
+          <div style="display:flex;flex-direction:column;gap:14px;margin-top:18px">
+            <div class="seg" style="flex-wrap:wrap">
+              <sc-for list="{{ compose.kinds }}" as="k" hint-placeholder-count="6">
+                <button class="seg-opt" sc-camel-on-click="{{ k.choose }}" style="background:{{ k.bg }};color:{{ k.fg }};border:0;font:inherit;font-size:12.5px;cursor:pointer">{{ k.label }}</button>
+              </sc-for>
+            </div>
+            <p class="text-muted" style="margin:0;font-size:13.5px;line-height:1.55;max-width:66ch">{{ compose.blurb }}</p>
+
+            <sc-if value="{{ compose.needHash }}">
+              <div>
+                <label class="text-muted" style="font-size:12px;letter-spacing:.05em;text-transform:uppercase;display:block;margin-bottom:6px" for="compose-hash">Manager code hash</label>
+                <input class="input" id="compose-hash" placeholder="0x… (64 hex characters)" autocomplete="off" spellcheck="false" style="width:100%">
+              </div>
+            </sc-if>
+            <sc-if value="{{ compose.needManagers }}">
+              <div style="display:flex;flex-direction:column;gap:12px">
+                <div>
+                  <label class="text-muted" style="font-size:12px;letter-spacing:.05em;text-transform:uppercase;display:block;margin-bottom:6px" for="compose-manager">Move the registration to</label>
+                  <input class="input" id="compose-manager" placeholder="SP….signer-manager" autocomplete="off" spellcheck="false" style="width:100%">
+                </div>
+                <div>
+                  <label class="text-muted" style="font-size:12px;letter-spacing:.05em;text-transform:uppercase;display:block;margin-bottom:6px" for="compose-old-manager">Replacing</label>
+                  <input class="input" id="compose-old-manager" placeholder="SP….signer-manager" autocomplete="off" spellcheck="false" style="width:100%">
+                </div>
+              </div>
+            </sc-if>
+            <sc-if value="{{ compose.needOperator }}">
+              <div style="display:flex;flex-direction:column;gap:12px">
+                <div>
+                  <label class="text-muted" style="font-size:12px;letter-spacing:.05em;text-transform:uppercase;display:block;margin-bottom:6px" for="compose-who">Operator address</label>
+                  <input class="input" id="compose-who" placeholder="SP…" autocomplete="off" spellcheck="false" style="width:100%">
+                </div>
+                <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center">
+                  <button class="btn btn-secondary" sc-camel-on-click="{{ compose.toggleEnabled }}" style="font-size:12.5px;flex:none">{{ compose.enabledLabel }}</button>
+                  <span class="text-muted" style="font-size:12.5px">{{ compose.enabledNote }}</span>
+                </div>
+              </div>
+            </sc-if>
+            <sc-if value="{{ compose.needRecipient }}">
+              <div>
+                <label class="text-muted" style="font-size:12px;letter-spacing:.05em;text-transform:uppercase;display:block;margin-bottom:6px" for="compose-recipient">Send the stray to</label>
+                <input class="input" id="compose-recipient" placeholder="SP…" autocomplete="off" spellcheck="false" style="width:100%">
+              </div>
+            </sc-if>
+            <sc-if value="{{ compose.needIndex }}">
+              <div>
+                <label class="text-muted" style="font-size:12px;letter-spacing:.05em;text-transform:uppercase;display:block;margin-bottom:6px" for="compose-index">Earliest bond to bind</label>
+                <input class="input" id="compose-index" inputmode="numeric" placeholder="0 clears the floor" autocomplete="off" style="width:100%">
+              </div>
+            </sc-if>
+
+            <p class="text-muted" style="margin:0;font-size:12.5px;line-height:1.55;max-width:66ch">{{ compose.hint }}</p>
+            <div>
+              <button class="btn btn-primary" sc-camel-on-click="{{ compose.submit }}" style="font-size:14px;padding:11px 22px">Raise it</button>
+            </div>
+          </div>
+        </sc-if>
+      </div>
+    </sc-if>
 
     <sc-if value="{{ noSelection }}" hint-placeholder-val="{{ true }}">
       <div style="display:flex;flex-direction:column;gap:12px">
@@ -1437,6 +1544,14 @@ a:hover { color: var(--color-accent-700); }
         <a href="media-kit.html#og" style="color:var(--color-neutral-200);text-decoration:none" style-hover="color:var(--color-accent-400)">Social &amp; OG assets</a>
         <a href="media-kit.html#voice" style="color:var(--color-neutral-200);text-decoration:none" style-hover="color:var(--color-accent-400)">Voice &amp; naming</a>
       </div>
+    </div>
+    <div>
+      <div style="font-size:11px;letter-spacing:.1em;text-transform:uppercase;opacity:.5;margin-bottom:12px">Source</div>
+      <div style="display:flex;flex-direction:column;gap:8px;font-size:14px">
+        <a href="https://github.com/fastpool/sbtc-pool-bond-staker" target="_blank" rel="noopener" style="color:var(--color-neutral-200);text-decoration:none" style-hover="color:var(--color-accent-400)">sbtc-pool-bond-staker ↗</a>
+        <a href="https://github.com/fastpool/esbee-dao" target="_blank" rel="noopener" style="color:var(--color-neutral-200);text-decoration:none" style-hover="color:var(--color-accent-400)">esbee-dao ↗</a>
+      </div>
+      <p style="margin:10px 0 0;font-size:12.5px;line-height:1.6;opacity:.6;max-width:32ch">The contracts and this site. Read them before you deposit — that is the whole point of them being here.</p>
     </div>
     <div>
       <div style="font-size:11px;letter-spacing:.1em;text-transform:uppercase;opacity:.5;margin-bottom:12px">Status</div>

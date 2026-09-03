@@ -5,6 +5,29 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Esbee DAO — vault-2, retired</title>
 <meta name="description" content="The retired Esbee DAO testnet vault. Take back the sBTC and STX that vault-2 still holds for you; the live pool is on mainnet.">
+<!-- What everywhere else shows instead of the page.
+
+     Without these a share is the title and the description as grey text, which
+     is what Discord and Slack fall back to and what this link looked like until
+     now. `og:image` has to be absolute -- a relative one resolves against the
+     crawler, not the site -- so the canonical host is written out here rather
+     than inferred. `scripts/make-og.mjs` draws the card; `pnpm run og`. -->
+<link rel="canonical" href="https://www.esbee-dao.org/v2/">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Esbee DAO">
+<meta property="og:title" content="Esbee DAO — vault-2, retired">
+<meta property="og:description" content="The retired Esbee DAO testnet vault. Take back the sBTC and STX that vault-2 still holds for you; the live pool is on mainnet.">
+<meta property="og:url" content="https://www.esbee-dao.org/v2/">
+<meta property="og:image" content="https://www.esbee-dao.org/og.png">
+<meta property="og:image:type" content="image/png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="The Esbee mark beside the words: a hive that holds the bond.">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Esbee DAO — vault-2, retired">
+<meta name="twitter:description" content="The retired Esbee DAO testnet vault. Take back the sBTC and STX that vault-2 still holds for you; the live pool is on mainnet.">
+<meta name="twitter:image" content="https://www.esbee-dao.org/og.png">
+<meta name="theme-color" content="#ebddc5">
 <!-- Everything static is shared with the live page, one directory up: one
      stylesheet, one mark, one set of icons, and a cache that is already warm
      for a reader arriving from there. -->
@@ -935,6 +958,14 @@ a:hover { color: var(--color-accent-700); }
         <a href="../media-kit.html#og" style="color:var(--color-neutral-200);text-decoration:none" style-hover="color:var(--color-accent-400)">Social &amp; OG assets</a>
         <a href="../media-kit.html#voice" style="color:var(--color-neutral-200);text-decoration:none" style-hover="color:var(--color-accent-400)">Voice &amp; naming</a>
       </div>
+    </div>
+    <div>
+      <div style="font-size:11px;letter-spacing:.1em;text-transform:uppercase;opacity:.5;margin-bottom:12px">Source</div>
+      <div style="display:flex;flex-direction:column;gap:8px;font-size:14px">
+        <a href="https://github.com/fastpool/sbtc-pool-bond-staker" target="_blank" rel="noopener" style="color:var(--color-neutral-200);text-decoration:none" style-hover="color:var(--color-accent-400)">sbtc-pool-bond-staker ↗</a>
+        <a href="https://github.com/fastpool/esbee-dao" target="_blank" rel="noopener" style="color:var(--color-neutral-200);text-decoration:none" style-hover="color:var(--color-accent-400)">esbee-dao ↗</a>
+      </div>
+      <p style="margin:10px 0 0;font-size:12.5px;line-height:1.6;opacity:.6;max-width:32ch">The contracts and this site. Read them before you deposit — that is the whole point of them being here.</p>
     </div>
     <div>
       <div style="font-size:11px;letter-spacing:.1em;text-transform:uppercase;opacity:.5;margin-bottom:12px">Status</div>

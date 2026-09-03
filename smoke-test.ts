@@ -291,13 +291,34 @@ for (const phrase of [
   "The name is not decoration",
   "How the pool works",
   "Weight is the square root of your sats",
-  "Five powers, one mandate each",
+  "Six powers, one mandate each",
   "Six gates",
   "The vote floor",
   "What the operator cannot do",
 ]) {
   check(text.includes(phrase), `keeps "${phrase}"`);
 }
+
+// Six is not a design choice, it is how many `propose-*` entry points the DAO
+// this page reads actually has -- `propose-next-bond` arrived with the `-1` and
+// `-3` sets and the page had been counting five. `v1/` and `v2/` read older
+// DAOs that really do have five, which is why they say so and are not "fixed"
+// to match.
+const POWERS = [
+  "trust-signer-manager",
+  "distrust-signer-manager",
+  "update-bond-registration",
+  "update-operator",
+  "sweep-unattributed-principal",
+  "set-next-bond",
+];
+for (const call of POWERS) {
+  check(appSource.includes(`call: "${call}"`), `the trust section lists ${call}`);
+}
+check(
+  (appSource.match(/\{ call: "/g) ?? []).length === POWERS.length,
+  "and lists nothing else as a power",
+);
 
 check(mount!.querySelectorAll("svg").length > 0, "svg icons render in their namespace");
 
@@ -1457,9 +1478,10 @@ if (entryFile) {
   // per chain, ~92 kB once the STX leg could say the member cannot afford it and
   // offer two ways to fix that, ~94 kB once the transaction toast became a card
   // with a bee on it that follows the transaction into the block) and should be
-  // read as "something heavy leaked" rather than "the page got bigger".
+  // read as "something heavy leaked" rather than "the page got bigger", ~98 kB
+  // once the vote floor could write a proposal as well as vote on one.
   check(
-    eagerBytes < 96_000,
+    eagerBytes < 102_000,
     `initial load is ${(eagerBytes / 1024).toFixed(1)} kB of ${(totalBytes / 1024).toFixed(0)} kB built`,
   );
   check(
@@ -1556,6 +1578,34 @@ for (const [file, text] of [
   check(
     !/testnet-only|mainnet has no committed shares|Testnet rehearsal/.test(text),
     `${file} makes no static claim about which chain it is on`,
+  );
+}
+
+// Every page carries a social card, and the card is a file that exists.
+//
+// Without `og:image` a share is the title and the description rendered as grey
+// text -- which is what Discord showed for this site until the card was drawn.
+// The URL has to be absolute: a relative one resolves against the crawler.
+for (const page of ["index.html", "analytics.html", "media-kit.html", "v1/index.html", "v2/index.html"]) {
+  const source = readFileSync(page, "utf8");
+  check(
+    /<meta property="og:image" content="https:\/\/[^"]+\/og\.png">/.test(source) &&
+      source.includes('name="twitter:card" content="summary_large_image"'),
+    `${page} carries a social card`,
+  );
+  check(
+    /<meta property="og:image:width" content="1200">/.test(source) &&
+      /<meta property="og:image:height" content="630">/.test(source),
+    `and states its size, so ${page} previews at full width rather than as a thumbnail`,
+  );
+}
+// The tag is only worth anything if the file it names ships.
+check(existsSync("og.png"), "og.png exists");
+if (built("dist")) {
+  check(built("dist/og.png"), "and the build copies it into dist/");
+  check(
+    statSync("dist/og.png").size > 20_000,
+    "and it is a drawn card rather than an empty rectangle",
   );
 }
 
