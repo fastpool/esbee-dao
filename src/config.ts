@@ -4,9 +4,8 @@
 // it needs the chain layer at all, and pulling stacks.js in for that decision
 // would defeat the point of code-splitting it.
 //
-// The contracts are not deployed to a fixed address yet, so this is
-// configuration. Fill in DEPLOYMENTS, or override per visit with
-// `?network=testnet&deployer=ST…`.
+// The addresses live in DEPLOYMENTS below, and a visit can point somewhere else
+// with `?network=testnet&deployer=ST…`.
 
 export type NetworkName = "testnet" | "mainnet" | "devnet";
 
@@ -145,6 +144,22 @@ export interface Deployment {
   /** What to call it where several are listed side by side. */
   label: string;
   /**
+   * The receipt tokens a member's position mints, where the deployment has any.
+   *
+   * The `-1` set mirrors every position in two non-transferable fungible
+   * tokens: `iou-bond-btc`'s supply is queued + bonded + released sats, and
+   * `iou-bond-stx`'s the same in ustx. They are minted on deposit and burned on
+   * the way back out -- and a burn is a *send by the member*, which a wallet
+   * will refuse to sign unless a post condition names it. So every call that
+   * pays a member back has to name these, and cannot name them without knowing
+   * what the deployment calls them.
+   *
+   * Absent on `vault-2` and `vault-1`, which predate the receipts entirely.
+   * There is nothing to name there, and a condition naming a contract that was
+   * never deployed is worse than no condition at all.
+   */
+  receipts?: { btc: string; stx: string };
+  /**
    * The pool this one replaced, if any.
    *
    * A vault is never migrated in place -- a member's position is sBTC and STX
@@ -157,17 +172,15 @@ export interface Deployment {
 
 // The pool's own name is not fixed: pox-5 keys a bond's allowlist on the
 // staker's principal, so a deployment takes whatever name its grant spells --
-// `vault-2` on testnet, `bond-staker` on mainnet.
+// `vault-2` on testnet, `esbee-dao-bond-staker-1` on mainnet, which is the
+// name the bond admin's `setup-bond` for bond 1 allowlisted.
 //
 // A deployment is four contracts that name each other, not one: the vault, the
 // DAO that holds its operator seat, the treasury that holds its principal and
 // the bridge that credits bitcoin into it. Testnet's second set is `-2` all the
-// way through, and mixing halves would read the wrong DAO's proposals against
-// the right pool's shares. So the names move together, from here.
-//
-// Mainnet has no address yet. Filling it in is all that switching takes: the
-// selector below is live on every network, and one with no deployer falls back
-// to the rehearsal rather than erroring.
+// way through and mainnet's is `-1`, and mixing halves would read the wrong
+// DAO's proposals against the right pool's shares. So the names move together,
+// from here.
 //
 // A *list*, primary first. More than one set of these contracts exists on
 // testnet already -- `vault-1` and `vault-2` are the same code deployed twice,
@@ -195,16 +208,32 @@ const DEPLOYMENTS: Record<NetworkName, Deployment[]> = {
       label: "vault-1",
     },
   ],
+  // Mainnet, published by SPFCGF789WX1B737VQYAQ6BG3QYVMJGPDKRKYK00 and bound to
+  // the genesis bond -- bond 1, cycle 143 -- at burn 965373, inside the 965386
+  // deadline. It has no retired predecessor: this `-1` set is mainnet's first.
   mainnet: [
-    { deployer: "", dao: "esbee-dao", pool: "bond-staker", bridge: "bond-bridge", label: "bond-staker" },
+    {
+      deployer: "SPFCGF789WX1B737VQYAQ6BG3QYVMJGPDKRKYK00",
+      dao: "esbee-dao-1",
+      pool: "esbee-dao-bond-staker-1",
+      bridge: "bond-bridge-1",
+      label: "esbee-dao-bond-staker-1",
+      receipts: { btc: "iou-bond-btc-1", stx: "iou-bond-stx-1" },
+    },
   ],
   devnet: [
-    { deployer: "", dao: "esbee-dao", pool: "bond-staker", bridge: "bond-bridge", label: "bond-staker" },
+    { deployer: "", dao: "esbee-dao-1", pool: "esbee-dao-bond-staker-1", bridge: "bond-bridge-1", label: "esbee-dao-bond-staker-1", receipts: { btc: "iou-bond-btc-1", stx: "iou-bond-stx-1" } },
   ],
 };
 
-/** Networks the page offers to switch between, in the order they are shown. */
-export const SWITCHABLE: NetworkName[] = ["testnet", "mainnet"];
+/**
+ * Networks the page offers to switch between, in the order they are shown.
+ *
+ * Mainnet first, because it is where the money is: the `-1` set is live and
+ * bound to the genesis bond, and testnet is now the rehearsal beside it rather
+ * than the only thing there is.
+ */
+export const SWITCHABLE: NetworkName[] = ["mainnet", "testnet"];
 
 const STORED_NETWORK = "esbee:network";
 
@@ -215,11 +244,15 @@ const params = new URLSearchParams(
   typeof location === "undefined" ? "" : location.search,
 );
 
-// `?network=` wins, then whatever was last chosen here, then testnet.
+// `?network=` wins, then whatever was last chosen here, then mainnet.
+//
+// Mainnet is the default now that the contracts are on it. A reader who chose
+// testnet before still gets testnet -- the stored choice is theirs, and is not
+// overridden by this changing.
 const stored =
   typeof localStorage === "undefined" ? null : localStorage.getItem(STORED_NETWORK);
 const requested = params.get("network") ?? stored;
-const network: NetworkName = isNetwork(requested) ? requested : "testnet";
+const network: NetworkName = isNetwork(requested) ? requested : "mainnet";
 const deployment = DEPLOYMENTS[network][0]!;
 
 /**
@@ -252,6 +285,13 @@ export const config = {
   label: params.get("pool") ?? deployment.label,
   /** The retired pool `v1/` is about, or "" where this network never had one. */
   retired: deployment.retired ?? "",
+  /**
+   * The receipt tokens this deployment issues, or `undefined` where it issues
+   * none. Not overridable per visit: `?pool=` points at another contract, and
+   * guessing that a differently named pool keeps identically named receipts is
+   * how a post condition ends up naming the wrong asset.
+   */
+  receipts: deployment.receipts,
 };
 
 /**

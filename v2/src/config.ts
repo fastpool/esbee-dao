@@ -1,7 +1,7 @@
 // Where the contracts are -- for the retired vault.
 //
-// This is the `v1/` copy of `src/config.ts`. The only thing it says differently
-// is which pool: `vault-1`, the contract the live page has moved off. Nothing
+// This is the `v2/` copy of `src/config.ts`. The only thing it says differently
+// is which pool: `vault-2`, the contract the live page has moved off. Nothing
 // on this page deposits, so a stale pool name here is not a hazard; it is the
 // address a member's money is still sitting at.
 //
@@ -75,23 +75,27 @@ interface Deployment {
 
 // The pool's own name is not fixed: pox-5 keys a bond's allowlist on the
 // staker's principal, so a deployment takes whatever name its grant spells.
-// `vault-1` is the one testnet retired; mainnet's first pool is the live
-// `esbee-dao-bond-staker-1`, so this page has nothing to show there.
+// `vault-2` is testnet's second vault, and the last one before mainnet:
+// `esbee-dao-bond-staker-1` is what replaced it, and it is a different chain
+// rather than a redeployment, so nothing here can be migrated -- a position in
+// `vault-2` is testnet sBTC and testnet STX that only its member can move.
 //
-// The whole set is the retired one, not just the vault: `esbee-dao` held this
-// pool's seat and `bond-bridge` credited bitcoin into it, and both were
-// redeployed alongside `vault-2`. A page about the old vault reads the old DAO,
-// because that is the one whose proposals were about this money.
+// The whole set is this page's, not just the vault: `esbee-dao-2` held this
+// pool's seat and `bond-bridge-2` credited bitcoin into it. A page about this
+// vault reads that DAO, because that is the one whose proposals were about
+// this money.
+//
+// Mainnet has no `-2` set at all, so this page has nothing to show there.
 const DEPLOYMENTS: Record<NetworkName, Deployment> = {
   testnet: {
     deployer: "STFCGF789WX1B737VQYAQ6BG3QYVMJGPDJN4TJFM",
-    dao: "esbee-dao",
-    pool: "vault-1",
-    bridge: "bond-bridge",
-    successor: "vault-2",
+    dao: "esbee-dao-2",
+    pool: "vault-2",
+    bridge: "bond-bridge-2",
+    successor: "esbee-dao-bond-staker-1",
   },
-  // Mainnet's first pool is `esbee-dao-bond-staker-1`, so there is nothing
-  // retired here to show -- only the way back to it.
+  // Mainnet never had a `-2` set: `esbee-dao-bond-staker-1` is its first pool
+  // and it is live. Nothing retired here to show -- only the way back to it.
   mainnet: { deployer: "", dao: "esbee-dao-1", pool: "", bridge: "bond-bridge-1", successor: "esbee-dao-bond-staker-1" },
   devnet: { deployer: "", dao: "esbee-dao-1", pool: "", bridge: "bond-bridge-1", successor: "esbee-dao-bond-staker-1" },
 };

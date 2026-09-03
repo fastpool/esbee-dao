@@ -345,11 +345,18 @@ check(
   "and so is the max signer fee",
 );
 
-// Two vaults exist under one DAO, so a page that does not name the one it is
-// reading is ambiguous about whose balances it is showing.
+// Several vaults exist under one DAO, so a page that does not name the one it
+// is reading is ambiguous about whose balances it is showing.
+//
+// What is asserted is the naming, not the wording: the header's "Esbee DAO
+// contract" label came off when the mainnet name arrived, and
+// `esbee-dao-bond-staker-1` is wide enough to stand on its own. The contract
+// still has to be named in the text and reachable in full, which is the part
+// a reader depends on.
 check(
-  text.includes("Esbee DAO contract") && text.includes("vault-2"),
-  "the live page names the Esbee DAO contract it talks to",
+  text.includes("vault-2") &&
+    out.includes("STFCGF789WX1B737VQYAQ6BG3QYVMJGPDJN4TJFM.vault-2"),
+  "the live page names the vault it talks to, and links it in full",
 );
 check(
   out.includes('href="v1/index.html"'),
@@ -1444,10 +1451,12 @@ if (entryFile) {
   // the L1 card said where the member is and why in words, ~74 kB once the two
   // deposit cards became one flow, ~76 kB once the L1 route became a stepper
   // that can be read backwards, ~83 kB once the route was scoped to the account
-  // holding it, ~88 kB once the bond's run-up was drawn as a ring) and should be
-  // read as "something heavy leaked" rather than "the page got bigger".
+  // holding it, ~88 kB once the bond's run-up was drawn as a ring, ~89 kB once
+  // the network claims stopped being static copy and became a sentence chosen
+  // per chain) and should be read as "something heavy leaked" rather than "the
+  // page got bigger".
   check(
-    eagerBytes < 90_000,
+    eagerBytes < 92_000,
     `initial load is ${(eagerBytes / 1024).toFixed(1)} kB of ${(totalBytes / 1024).toFixed(0)} kB built`,
   );
   check(
@@ -1499,6 +1508,50 @@ check(/pool: "vault-2"/.test(rootConfig), "the live page is pointed at vault-2")
 check(/retired: "vault-1"/.test(rootConfig), "and knows which vault it replaced");
 check(/pool: "vault-1"/.test(v1Config), "v1/ is pointed at vault-1");
 check(/successor: "vault-2"/.test(v1Config), "and knows where the live one is");
+
+// Mainnet. The contracts are published and bound to the genesis bond, so the
+// page opens on mainnet rather than on the rehearsal -- and the four names have
+// to be the deployed ones, together. Half of a `-1` set read against half of
+// another is the failure this guards: it does not error, it reads the wrong
+// DAO's proposals against the right pool's shares.
+const MAINNET_DEPLOYER = "SPFCGF789WX1B737VQYAQ6BG3QYVMJGPDKRKYK00";
+check(
+  rootConfig.includes(`deployer: "${MAINNET_DEPLOYER}"`),
+  "mainnet has a deployer, so the page has contracts to talk to there",
+);
+for (const name of [
+  "esbee-dao-1", "esbee-dao-bond-staker-1", "bond-bridge-1",
+]) {
+  check(rootConfig.includes(`"${name}"`), `mainnet names ${name}`);
+}
+check(
+  /const network: NetworkName = isNetwork\(requested\) \? requested : "mainnet"/.test(
+    rootConfig,
+  ) &&
+    /const network: NetworkName = isNetwork\(requested\) \? requested : "mainnet"/.test(
+      v1Config,
+    ),
+  "both pages default to mainnet, and share the stored choice",
+);
+check(
+  /SWITCHABLE: NetworkName\[\] = \["mainnet", "testnet"\]/.test(rootConfig),
+  "and the switcher leads with it",
+);
+
+// The claims that used to be written into the markup. "testnet-only" and
+// "mainnet has no committed shares yet" were true before the deployment and
+// are not now; a page still saying them on mainnet tells a member their vote
+// does not count when it does. So neither string may come back as copy.
+for (const [file, text] of [
+  ["index.html", html],
+  ["v1/index.html", v1Html],
+  ["analytics.html", readFileSync("analytics.html", "utf8")],
+] as const) {
+  check(
+    !/testnet-only|mainnet has no committed shares|Testnet rehearsal/.test(text),
+    `${file} makes no static claim about which chain it is on`,
+  );
+}
 
 // Nothing this page signs may ask for permission to move anything at all.
 // Every call either names what the member sends, or says that they send
@@ -1641,6 +1694,144 @@ if (built("dist/v1")) {
   );
 } else {
   ok.push("skipped v1 bundle checks (run `pnpm run build` first)");
+}
+
+/// --- the second retired vault ---------------------------------------------------
+
+// `v2/` is that page again, pointed at `vault-2`: testnet's second vault, and
+// the last one before mainnet. A copy rather than a mode of the live page for
+// the same reason `v1/` is one -- the pages are pointed at different contracts,
+// and a position in one is money no other page can touch. Mainnet's pool is not
+// a redeployment of this vault, it is a different chain, so nothing here
+// migrates: the only thing to do on this page is leave with what is yours.
+const v2Html = readFileSync("v2/index.html", "utf8");
+const v2App = readFileSync("v2/src/app.ts", "utf8");
+const v2Config = readFileSync("v2/src/config.ts", "utf8");
+
+check(/pool: "vault-2"/.test(v2Config), "v2/ is pointed at vault-2");
+check(
+  /dao: "esbee-dao-2"/.test(v2Config) && /bridge: "bond-bridge-2"/.test(v2Config),
+  "and at the `-2` DAO and bridge that went with it",
+);
+check(
+  /successor: "esbee-dao-bond-staker-1"/.test(v2Config),
+  "and knows the pool that replaced it is mainnet's",
+);
+// The reason there are three pages is that they are three contracts. Two of
+// them pointed at the same vault would be two pages competing to spend one
+// position.
+check(
+  !/pool: "vault-1"/.test(v2Config) && !/pool: "vault-2"/.test(v1Config),
+  "and the two retired pages are not pointed at the same vault",
+);
+
+for (const call of [
+  "poolCalls.withdraw",
+  "poolCalls.requestExit",
+  "poolCalls.claimPrincipal",
+  "poolCalls.claimRewards",
+]) {
+  check(v2App.includes(call), `v2/ can ${call.split(".")[1]}`);
+}
+
+const v2LoopVars = new Set(
+  [...v2Html.matchAll(/<sc-for[^>]*\sas="([^"]+)"/g)].map((m) => m[1]),
+);
+const v2Roots = new Set(
+  [...v2Html.matchAll(/\{\{([^}]*)\}\}/g)]
+    .map((m) => m[1].trim().split(".")[0])
+    .filter((r) => r && r !== "true" && r !== "false" && !v2LoopVars.has(r)),
+);
+const v2Supplied = new Set([
+  ...keysOf(v2App),
+  ...keysOf(readFileSync("v2/src/chat.ts", "utf8")),
+]);
+const v2Missing = [...v2Roots].filter((r) => !v2Supplied.has(r));
+check(
+  v2Missing.length === 0,
+  `every v2 template binding is supplied${v2Missing.length ? ` (missing: ${v2Missing.join(", ")})` : ""}`,
+);
+
+const v2Dom = parseHTML(v2Html);
+const v2Template = v2Dom.document.getElementById("tpl") as unknown as HTMLTemplateElement | null;
+const v2Mount = v2Dom.document.getElementById("app");
+check(Boolean(v2Template) && Boolean(v2Mount), "v2/index.html has #tpl and #app");
+
+const TESTNET_DEPLOYER = "STFCGF789WX1B737VQYAQ6BG3QYVMJGPDJN4TJFM";
+const v2Scope: Record<string, unknown> = {
+  ...v1Scope,
+  poolName: "vault-2",
+  poolContract: `${TESTNET_DEPLOYER}.vault-2`,
+  poolLink: `https://explorer.hiro.so/txid/${TESTNET_DEPLOYER}.vault-2?chain=testnet`,
+  successor: "esbee-dao-bond-staker-1",
+  exit: {
+    ...(v1Scope.exit as Record<string, unknown>),
+    contract: `${TESTNET_DEPLOYER}.vault-2`,
+    contractName: "vault-2",
+    contractLink: `https://explorer.hiro.so/txid/${TESTNET_DEPLOYER}.vault-2`,
+    successor: "esbee-dao-bond-staker-1",
+    emptyNote: "This address holds nothing in vault-2",
+  },
+};
+
+for (const node of renderChildren(
+  v2Template!.content,
+  v2Scope,
+  v2Dom.document as unknown as Document,
+)) {
+  v2Mount!.appendChild(node);
+}
+const v2Out = v2Mount!.innerHTML;
+const v2Text = v2Mount!.textContent!.replace(/\s+/g, " ");
+
+check(!v2Out.includes("{{"), "v2: no unresolved mustaches remain");
+check(!/<sc-(for|if)/.test(v2Out), "v2: no unresolved sc-for / sc-if remain");
+for (const phrase of [
+  "This is vault-2, the retired vault",
+  "Take your funds out",
+  "Withdraw sBTC and STX",
+  "Unstaked sBTC",
+  "Unstaked STX",
+]) {
+  check(v2Text.includes(phrase), `v2 keeps "${phrase}"`);
+}
+check(!v2Text.includes("Deposit sBTC"), "v2 offers no way in");
+check(v2Out.includes('href="../index.html"'), "v2 links back to the live vault");
+
+const v2Dead = [...v2Html.matchAll(/(?:href|src)="([^"]+)"/g)]
+  .map((m) => m[1])
+  .filter((h) => !h.includes("{{"))
+  .filter((h) => !/^(https?:|#|data:|mailto:)/.test(h))
+  .map((h) => h.split("#")[0])
+  .filter((h) => h && h !== "app.js" && !existsSync(`v2/${h}`));
+check(v2Dead.length === 0, `v2 has no dead local links${v2Dead.length ? ` (${[...new Set(v2Dead)].join(", ")})` : ""}`);
+
+if (built("dist/v2")) {
+  const v2Entry = readdirSync("dist/v2").find((f) => /^app-[A-Z0-9]+\.js$/.test(f));
+  check(Boolean(v2Entry), "dist/v2/ has a hashed entry of its own");
+  check(
+    readFileSync("dist/v2/index.html", "utf8").includes(`src="${v2Entry}"`),
+    "dist/v2/index.html names it",
+  );
+  // Built against its own vault, and against no other. This is the assertion
+  // that a copied directory earns: the copy is only worth having while it is
+  // actually pointed somewhere else.
+  const poolsIn = (dir: string): string[] =>
+    readdirSync(dir)
+      .filter((f) => f.endsWith(".js"))
+      .flatMap((f) => [...readFileSync(`${dir}/${f}`, "utf8").matchAll(/pool:"([^"]+)"/g)])
+      .map((m) => m[1]);
+  const v2Pools = poolsIn("dist/v2");
+  check(
+    v2Pools.includes("vault-2") && !v2Pools.includes("vault-1"),
+    "and the second retired page's bundle is built against vault-2",
+  );
+  check(
+    !v2Pools.includes("esbee-dao-bond-staker-1"),
+    "and never against the live mainnet pool",
+  );
+} else {
+  ok.push("skipped v2 bundle checks (run `pnpm run build` first)");
 }
 
 /// --- report ---------------------------------------------------------------------

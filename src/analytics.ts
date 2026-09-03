@@ -1343,6 +1343,13 @@ function viewModel(): Scope {
     btcApi: bitcoin().api,
     nodeApi: net().api,
     windowNote: `Every count on this page is over the last ${LOG_DEPTH} events of the contract it is about.`,
+    // The same claim as the main page's footer, drawn from the network rather
+    // than written into the markup: "testnet-only" stopped being true when the
+    // `-1` set went to mainnet.
+    statusNote:
+      config.network === "mainnet"
+        ? "Live on mainnet: the contracts are unaudited."
+        : `Rehearsal on ${config.network}: contracts unaudited, no mainnet funds.`,
   };
 }
 

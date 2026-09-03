@@ -301,7 +301,7 @@ a:hover { color: var(--color-accent-700); }
          number below is read from this contract and no other. -->
     <sc-if value="{{ poolShow }}">
       <a class="tag tag-accent" href="{{ poolLink }}" target="_blank" rel="noopener" title="{{ poolContract }}" style="flex:none;text-decoration:none;font-family:ui-monospace,monospace;gap:6px;white-space:nowrap">
-        <span style="opacity:.75;font-family:var(--font-body)">Esbee DAO contract</span>{{ poolName }} ↗
+        {{ poolName }} ↗
       </a>
     </sc-if>
     <div class="seg" style="flex:none">
@@ -1145,7 +1145,9 @@ a:hover { color: var(--color-accent-700); }
         <sc-if value="{{ dummy }}" hint-placeholder-val="{{ true }}">
           <span class="tag tag-neutral" style="font-size:12px;padding:6px 14px">Dummy proposals · nothing on chain</span>
         </sc-if>
-        <span class="tag tag-accent-2" style="font-size:12px;padding:6px 14px">Testnet rehearsal · mainnet pool has not staked</span>
+        <sc-if value="{{ rehearsalShow }}" hint-placeholder-val="{{ true }}">
+          <span class="tag tag-accent-2" style="font-size:12px;padding:6px 14px">{{ rehearsalNote }}</span>
+        </sc-if>
         <div class="seg" style="flex:none">
           <sc-for list="{{ sources }}" as="s" hint-placeholder-count="2">
             <button class="seg-opt" sc-camel-on-click="{{ s.choose }}" title="{{ s.note }}" style="background:{{ s.bg }};color:{{ s.fg }};border:0;font:inherit;font-size:12.5px;cursor:pointer">{{ s.label }}</button>
@@ -1153,7 +1155,7 @@ a:hover { color: var(--color-accent-700); }
         </div>
       </div>
     </div>
-    <p class="text-muted" style="max-width:60ch;margin:0 0 clamp(24px,4vw,38px);font-size:16px">Connect to see your weight and cast a vote. These proposals run against the testnet deployment — mainnet has no committed shares yet, so nothing here is binding.</p>
+    <p class="text-muted" style="max-width:60ch;margin:0 0 clamp(24px,4vw,38px);font-size:16px">{{ voteIntro }}</p>
 
     <div style="background:var(--color-bg);border-radius:28px;padding:clamp(20px,3vw,28px);display:flex;flex-wrap:wrap;gap:20px;align-items:center;justify-content:space-between;margin-bottom:clamp(16px,2.5vw,24px)">
       <sc-if value="{{ connected }}" hint-placeholder-val="{{ false }}">
@@ -1161,8 +1163,8 @@ a:hover { color: var(--color-accent-700); }
           <div style="display:flex;align-items:center;gap:12px">
             <span style="width:40px;height:40px;border-radius:50%;background:var(--color-accent-300);display:grid;place-items:center;font-family:var(--font-heading);font-size:15px;color:var(--color-accent-900)">SP</span>
             <div>
-              <div style="font-family:ui-monospace,monospace;font-size:13.5px">SP2J8XK…9K4T</div>
-              <div class="text-muted" style="font-size:12px">Leather · testnet</div>
+              <div style="font-family:ui-monospace,monospace;font-size:13.5px">{{ walletLabel }}</div>
+              <div class="text-muted" style="font-size:12px">{{ network }}</div>
             </div>
           </div>
           <div>
@@ -1380,7 +1382,7 @@ a:hover { color: var(--color-accent-700); }
     </div>
     <div>
       <div style="font-size:11px;letter-spacing:.1em;text-transform:uppercase;opacity:.5;margin-bottom:12px">Status</div>
-      <p style="margin:0;font-size:13.5px;line-height:1.6;opacity:.6">Pre-launch. Contracts unaudited and testnet-only. Nothing here is an offer, and the pool holds no funds.</p>
+      <p style="margin:0;font-size:13.5px;line-height:1.6;opacity:.6">{{ statusNote }}</p>
     </div>
   </div>
   <div style="position:relative;max-width:1240px;margin:0 auto;padding:16px clamp(20px,4vw,40px) clamp(24px,4vw,40px);border-top:1px solid color-mix(in srgb, var(--color-neutral-200) 14%, transparent);font-size:12.5px;opacity:.5">A hive that holds the bond.</div>

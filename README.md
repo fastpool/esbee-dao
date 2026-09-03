@@ -131,29 +131,48 @@ lazy wallet chunks and sourcemaps that only devtools asks for.
 analytics page reads the first entry, and that page reads all of them. See
 [Analytics](#analytics) for `?deployments=`.
 
-**Testnet is live**, at `STFCGF789WX1B737VQYAQ6BG3QYVMJGPDJN4TJFM` —
-`vault-2` for the pool, `esbee-dao-2` for the seat, `bond-bridge-2` for the
-bitcoin route. The header carries a testnet/mainnet switch; the choice is
-remembered, and switching reloads rather than trying to invalidate every
-address, cached read and wallet session in place.
+**Mainnet is the default**, at `SPFCGF789WX1B737VQYAQ6BG3QYVMJGPDKRKYK00` —
+`esbee-dao-bond-staker-1` for the pool, `esbee-dao-1` for the seat,
+`bond-bridge-1` for the bitcoin route. The pool was bound to the genesis bond
+— bond 1, cycle 143 — at burn 965373, inside the 965386 deadline; deposits are
+open from that block until `stake`, which cannot be called before 965962 and
+not at all after 966249.
+
+**Testnet is the rehearsal beside it**, at
+`STFCGF789WX1B737VQYAQ6BG3QYVMJGPDJN4TJFM` — `vault-2`, `esbee-dao-2`,
+`bond-bridge-2`. The header carries a mainnet/testnet switch; the choice is
+remembered and overrides the default, and switching reloads rather than trying
+to invalidate every address, cached read and wallet session in place. A reader
+who chose testnet before mainnet existed keeps testnet.
 
 **A deployment is four contracts, not one.** The vault, the DAO that holds its
 operator seat, the treasury that holds its principal and the bridge that credits
-bitcoin into it all name each other, and testnet's second set is `-2` all the
-way through. They move together in `DEPLOYMENTS`: half of one set read against
-half of the other would show the wrong DAO's proposals against the right pool's
-shares.
+bitcoin into it all name each other — mainnet's set is `-1` all the way through
+and testnet's second set is `-2`. They move together in `DEPLOYMENTS`: half of
+one set read against half of the other would show the wrong DAO's proposals
+against the right pool's shares.
 
-### The retired vault
+### The retired vaults
 
-`vault-1` still holds real positions, and no contract call moves a position from
-one vault to the other — only the member can, by taking it out of one and
-putting it into the other. So the old site stays up at **`/v1/`**, pointed at
-the old set, with one job: getting money out.
+`vault-1` and `vault-2` still hold real positions, and no contract call moves a
+position from one vault to the next — only the member can, by taking it out of
+one and putting it into the other. Mainnet makes that harder rather than easier:
+it is a different chain, so a testnet position cannot follow the pool there at
+all. So each retired site stays up, pointed at its own set, with one job:
+getting money out.
 
     v1/index.html     the same design, deposits removed
     v1/src/           its own copy of the sources, pinned to vault-1
     dist/v1/          its own bundle, built by the same script
+
+    v2/index.html     the same again, for testnet's second vault
+    v2/src/           pinned to vault-2, esbee-dao-2, bond-bridge-2
+    dist/v2/          its own bundle
+
+`v1` points at `vault-2` as its successor and `v2` points at
+`esbee-dao-bond-staker-1`, so the chain out of any old position ends on the live
+page. `SITES` in `scripts/build.mjs` is what makes each one a build of its own;
+adding a third is a line there and a directory here.
 
 It is a copy rather than a mode. The two pages are about different contracts
 holding different money, and a single page that could be pointed at either would
@@ -165,21 +184,30 @@ What it adds is the exit, in the four places a position can be sitting —
 committed shares, `claim-principal` for what an ended epoch released, and
 `claim-rewards` for the honey still owed.
 
-The live page links across to it from **Your position**, and every page names
-the contract it is reading in the header, next to the network switch.
+The live page links across to `v1` from **Your position**, and every page names
+the contract it is reading in the header, next to the network switch. Those
+links are testnet-only: mainnet's `-1` set is its first, so `retired` is unset
+there and nothing points at a vault that never existed on that chain.
 
-**Mainnet needs one line.** Fill in `deployer` for `mainnet` in
-`src/config.ts` and the switch starts working — a network with no deployer
-falls back to the rehearsal rather than erroring, which is what the switch shows
-today.
+**Every address is overridable per visit.** A network with no deployer — devnet
+— falls back to the rehearsal rather than erroring, which is what the switch
+shows for it.
 
-    ?network=mainnet                     // override the remembered choice
+    ?network=testnet                     // override the remembered choice
     ?network=testnet&deployer=ST3OTHER…  // point at a throwaway deployment
     ?blockMinutes=2.5                    // a burnchain that keeps its own pace
 
-`pool` defaults to `vault-2` on testnet and `bond-staker` on mainnet — the pool
-takes whatever name its pox-5 allowlist grant spells, so it is configuration
-rather than a constant. `dao` and `bridge` are overridable the same way.
+`pool` defaults to `esbee-dao-bond-staker-1` on mainnet and `vault-2` on
+testnet — the pool takes whatever name its pox-5 allowlist grant spells, so it
+is configuration rather than a constant. `dao` and `bridge` are overridable the
+same way.
+
+**Which chain the page is on is never written into the markup.** The rehearsal
+tag beside the vote floor, the line under it and the footer's status are all
+chosen from `config.network` in the view model, because "testnet-only" was true
+before the deployment and is a lie after it — and a page that tells a member
+their vote is not binding when it is, is worse than one that says nothing. The
+smoke test asserts none of those strings can come back as copy.
 
 ## The bond countdown
 
@@ -424,6 +452,10 @@ Four values per network, in `NETWORKS`. They belong to the sBTC deployment
 rather than to this pool, and `?btcChain=`, `?btcApi=`, `?btcExplorer=`,
 `?walletNetwork=` and `?emily=` override them for a visit.
 
+Mainnet's four are bitcoin's own: `chain: mainnet`, `mempool.space/api`,
+`mempool.space`, and sBTC's `https://sbtc-emily.com`. Testnet's are the ones
+worth explaining.
+
 | | testnet |
 | --- | --- |
 | `chain` | `regtest` — Stacks testnet is anchored to a **regtest** burnchain, not testnet4. `/v2/info` gives it away: `parent_network_id` is `0xdab5bffa`, the regtest magic, where testnet3 and testnet4 are `0x0709110b`. So its addresses are `bcrt1…`, and a `tb1…` is the wrong chain here |
@@ -515,9 +547,32 @@ call that moves one.
 
 Calls where the member *sends* carry explicit post-conditions in deny mode —
 `deposit` names exactly the sBTC and the STX it moves, so the wallet refuses
-anything else. Calls that only move assets the other way (`withdraw`, the two
-claims) have nothing for the member to over-send and use allow mode rather than
-enumerating the contract's own outgoing transfers.
+anything else.
+
+Calls that pay the member *back* are not the free case they look like. The `-1`
+pool mirrors every position in two non-transferable receipt tokens —
+`iou-bond-btc-1::bond-btc` for sats and `iou-bond-stx-1::bond-stx` for ustx —
+minted on the way in and burned on the way out, and a burn is recorded as a
+**send by the holder**. So `withdraw`, `request-exit` and `claim-principal` each
+move an asset of the member's, and the first mainnet withdrawal said so:
+
+    Post-condition check failure: Fungible asset
+    SP…KRKYK00.iou-bond-btc-1::bond-btc was moved by SP1Y…9C36 but not checked
+
+Those three now name the burn, as an upper bound, in **originator** mode. `Lte`
+rather than `Eq` because the amounts come from `get-claimable-principal`, which
+reports a *settled* record: a roll landing between that read and the block that
+mines the call can legitimately burn less, and an exact condition would abort a
+withdrawal doing exactly what it was asked. Originator rather than deny because
+deny would also demand conditions for the treasury's sBTC payout and the pool's
+STX payout — sends by *other* principals, on the very transfers the call exists
+to make.
+
+The receipt contracts are named per deployment in `DEPLOYMENTS` rather than
+hardcoded. `vault-2` and `vault-1` predate the receipts entirely, and a
+condition naming a contract that was never deployed is worse than no condition;
+where a deployment has none these calls carry `[]` under originator, which still
+says "nothing of mine moves".
 
 The inputs are uncontrolled and read when a button is pressed: a re-render
 replaces the field being typed into, and the caret would go with it. The live

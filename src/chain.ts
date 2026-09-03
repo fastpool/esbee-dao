@@ -65,6 +65,7 @@ export const here = (): Site => ({
   pool: config.pool,
   bridge: config.bridge,
   label: config.label,
+  receipts: config.receipts,
 });
 
 export const dao = (site: Site = here()): ContractId =>
@@ -410,6 +411,57 @@ export async function call(
   return result?.txid ?? result?.txId ?? null;
 }
 
+/**
+ * What a member's receipts moving looks like to their wallet.
+ *
+ * The `-1` pool mirrors every position in two non-transferable tokens, minted
+ * on the way in and burned on the way out. A burn is recorded as a *send by the
+ * holder*, so any call that pays a member back moves an asset of theirs whether
+ * or not the page thinks of it as one -- and a wallet in `originator` mode
+ * refuses to sign a transfer it was not told about:
+ *
+ *   Post-condition check failure: Fungible asset
+ *   SP…KRKYK00.iou-bond-btc-1::bond-btc was moved by SP1Y…9C36 but not checked
+ *
+ * which is what `withdraw` did on mainnet, on the day the receipts arrived.
+ *
+ * `Lte` rather than `Eq` on purpose. The amounts come from
+ * `get-claimable-principal`, which reports a *settled* record -- and settling
+ * again between that read and the block that mines this call can legitimately
+ * burn less than was read, when a roll has moved part of a queued position into
+ * the bond. An upper bound is the protection the member actually wants ("no
+ * more of mine than this leaves"), and it does not abort a withdrawal that is
+ * doing exactly what they asked.
+ *
+ * Empty where the deployment has no receipts -- `vault-2` and `vault-1` predate
+ * them -- which under `originator` still says "nothing of mine moves".
+ */
+function receiptConditions(
+  sats: number,
+  ustx: number,
+  site: Site = here(),
+): PostCondition[] {
+  const receipts = site.receipts;
+  if (!receipts) return [];
+  const me = signer();
+  const conditions: PostCondition[] = [];
+  if (sats > 0) {
+    conditions.push(
+      Pc.principal(me)
+        .willSendLte(sats)
+        .ft(`${site.deployer}.${receipts.btc}`, "bond-btc"),
+    );
+  }
+  if (ustx > 0) {
+    conditions.push(
+      Pc.principal(me)
+        .willSendLte(ustx)
+        .ft(`${site.deployer}.${receipts.stx}`, "bond-stx"),
+    );
+  }
+  return conditions;
+}
+
 /** Exactly what a deposit of `sats` moves out of the member's wallet. */
 function depositConditions(sats: number, ustx: number): PostCondition[] {
   // Both of these throw before anything is built, rather than producing a
@@ -442,9 +494,21 @@ export const poolCalls = {
    */
   stake: (manager: string, site?: Site) =>
     call(pool(site), "stake", [Cl.principal(manager)]),
-  /** Take back everything still queued. Committed shares are not touched. */
-  withdraw: () => call(pool(), "withdraw"),
-  requestExit: () => call(pool(), "request-exit"),
+  /**
+   * Take back everything still queued. Committed shares are not touched.
+   *
+   * `sats` and `ustx` are the queued position `get-claimable-principal`
+   * reports, which is what the contract burns receipts for. Mode is spelled
+   * `originator` rather than left to default, because passing conditions at all
+   * would otherwise mean `deny` -- and under deny the treasury's sBTC payout
+   * and the pool's STX payout are uncovered sends by *other* principals, so the
+   * call would abort on the very transfers it exists to make.
+   */
+  withdraw: (sats: number, ustx: number) =>
+    call(pool(), "withdraw", [], receiptConditions(sats, ustx), "originator"),
+  /** Same burn, for the queued part an exit request refunds on its way out. */
+  requestExit: (sats: number, ustx: number) =>
+    call(pool(), "request-exit", [], receiptConditions(sats, ustx), "originator"),
   cancelExit: () => call(pool(), "cancel-exit"),
   /**
    * Leave mid-term: `sats` of the committed position, back out of the bond.
@@ -471,8 +535,23 @@ export const poolCalls = {
   syncRewards: (site?: Site) => call(pool(site), "sync-rewards"),
   claimRewards: (member: string) =>
     call(pool(), "claim-rewards", [Cl.principal(member)]),
-  claimPrincipal: (member: string) =>
-    call(pool(), "claim-principal", [Cl.principal(member)]),
+  /**
+   * Released principal, and the receipts that come off with it.
+   *
+   * `claim-principal` names the member as an argument, so the signer is not
+   * always the member: anyone may finish someone else's claim. The conditions
+   * constrain the *signing account*, so they belong here only when those two
+   * are the same principal -- a stranger's signature moves nothing of theirs,
+   * and `[]` under `originator` is the right thing to say about it.
+   */
+  claimPrincipal: (member: string, sats: number, ustx: number) =>
+    call(
+      pool(),
+      "claim-principal",
+      [Cl.principal(member)],
+      member === account ? receiptConditions(sats, ustx) : [],
+      "originator",
+    ),
 };
 
 /**

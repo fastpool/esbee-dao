@@ -2586,6 +2586,23 @@ interface JoinPanel {
   faucetSbtc: () => void;
 }
 
+/**
+ * The two legs of a position, as the receipt tokens count them.
+ *
+ * `get-claimable-principal` reports a *settled* record, which is what the
+ * contract burns against -- so these are the numbers a post condition on
+ * `withdraw` or `claim-principal` has to name. Read from state on each call
+ * rather than passed in, so a button pressed long after its panel was built
+ * still names what is there now.
+ */
+function receiptLegs(leg: "queued" | "released"): [number, number] {
+  const principal = state.member?.principal ?? null;
+  return [
+    num(principal?.[`${leg}-sats`] ?? 0),
+    num(principal?.[`${leg}-ustx`] ?? 0),
+  ];
+}
+
 function joinPanel(): JoinPanel {
   const bond = state.pool?.bond ?? null;
   const burn = state.pool?.burn ?? 0;
@@ -2707,9 +2724,16 @@ function joinPanel(): JoinPanel {
     pendingTxid: state.pending ? shorten(state.pending.txid) : "",
     pendingLink: state.pending ? explorerTx(state.pending.txid) : "",
     deposit: () => void doDeposit(),
-    withdraw: poolAction("the withdrawal", (api) => api.poolCalls.withdraw()),
+    // Both of these burn the member's receipts, so both have to name what
+    // leaves. The amounts are read inside the closure rather than captured with
+    // the panel: a panel can be minutes old by the time a button on it is
+    // pressed, and a stale queued figure is a post condition that aborts a
+    // withdrawal which was doing exactly what it said.
+    withdraw: poolAction("the withdrawal", (api) =>
+      api.poolCalls.withdraw(...receiptLegs("queued")),
+    ),
     claimPrincipal: poolAction("the claim", (api) =>
-      api.poolCalls.claimPrincipal(state.account!),
+      api.poolCalls.claimPrincipal(state.account!, ...receiptLegs("released")),
     ),
     claimRewards: poolAction("the claim", (api) =>
       api.poolCalls.claimRewards(state.account!),
@@ -3699,14 +3723,15 @@ function weights(): { weight: number; hiveWeight: number } {
 /**
  * Whether the floor is showing the fixtures.
  *
- * Left to itself the page shows whatever the chain justifies, so a deployment
- * with nothing raised still explains what a proposal looks like. The switch
- * overrides that in either direction, including onto an empty live floor --
- * seeing that it is empty is the point of asking.
+ * The live floor, unless the switch says otherwise. It used to be the fixtures
+ * wherever the chain had nothing raised, which drew a populated floor over a
+ * deployment that has none -- harmless while the only deployment was a
+ * rehearsal, and not harmless on mainnet. So the page opens on what is
+ * actually there, says so when that is nothing, and keeps the switch beside it
+ * for a reader who wants to see what a proposal reads like.
  */
 function usingDummy(): boolean {
-  const live = state.floor;
-  return state.dummy ?? !(live && live.proposals.length);
+  return state.dummy ?? false;
 }
 
 /** Every proposal on the floor, decorated for the markup. */
@@ -3773,9 +3798,25 @@ function viewModel(): Scope {
               ? "linked to this address, which holds no position yet"
               : "linked to this address"
           : `linked to ${shorten(bee.address)}, which is not the address connected here`,
-    memberSatsLabel: fmt(live ? weight * weight : state.memberSats),
-    memberWeight: fmt(weight),
-    memberShare: `${((weight / (hiveWeight || 1)) * 100).toFixed(1)}%`,
+    // The member's own position -- the one thing on this floor that may never
+    // be a fixture.
+    //
+    // `weights()` falls back to `state.memberSats` and `HIVE_WEIGHT` so the
+    // dummy proposals have a weight to be sized against, and that fallback used
+    // to reach these three cards as well. A connected member whose `refresh()`
+    // had failed was shown 10,000,000 committed sats, a weight of 3,162 and
+    // 13.1% of the hive -- the rehearsal's numbers, presented as theirs, with
+    // no dummy tag anywhere near them. The proposals carry that tag; a card
+    // headed "Your weight" has nothing to carry it.
+    //
+    // So the fixture stops here. A dash reads as "not read yet", which is what
+    // a null floor means, and is the one thing that cannot be mistaken for a
+    // position.
+    memberSatsLabel: live ? fmt(weight * weight) : "—",
+    memberWeight: live ? fmt(weight) : "—",
+    memberShare: live
+      ? `${((weight / (hiveWeight || 1)) * 100).toFixed(1)}%`
+      : "—",
 
     // Connected, this opens who you are. Disconnected there is nothing to ask:
     // the wallet's own picker knows which wallets are installed and this page
@@ -3809,6 +3850,35 @@ function viewModel(): Scope {
     retiredName: config.retired,
     retiredContract: `${config.deployer}.${config.retired}`,
 
+    // Which chain the reader is on, and what that means for what they are
+    // looking at.
+    //
+    // These were three sentences of static copy that said "testnet rehearsal"
+    // and "mainnet has no committed shares yet". Both were true when mainnet
+    // had no contracts on it; neither is true now that `esbee-dao-bond-staker-1`
+    // is published and bound to the genesis bond, and a page that still says so
+    // on mainnet is telling a member their vote does not count when it does.
+    // So the claim follows the network rather than the markup.
+    network: config.network,
+    rehearsalShow: config.network !== "mainnet",
+    rehearsalNote: `${config.network} rehearsal · not mainnet money`,
+    voteIntro: !configured()
+      ? "Connect to see your weight and cast a vote. This page has no deployment " +
+        "configured, so there is no live floor to read."
+      : config.network === "mainnet"
+        ? "Connect to see your weight and cast a vote. These proposals run against " +
+          "the mainnet deployment, and a vote that carries is spent by the contract."
+        : `Connect to see your weight and cast a vote. These proposals run against ` +
+          `the ${config.network} deployment — nothing here is mainnet money, so no ` +
+          `vote here is binding.`,
+    // The footer's own line, for the same reason.
+    statusNote:
+      config.network === "mainnet"
+        ? "Live on mainnet, in the genesis bond. The contracts are unaudited. " +
+          "Nothing here is an offer, and only a member can move their own position."
+        : `Rehearsal on ${config.network}. Contracts unaudited. Nothing here is an ` +
+          `offer, and the pool holds no mainnet funds.`,
+
     // Switching network is a reload, so the choice is a link-like button rather
     // than a control that pretends to toggle state in place.
     networks: SWITCHABLE.map((name) => ({
@@ -3826,14 +3896,22 @@ function viewModel(): Scope {
     noSelection: !sel,
     dummy: usingDummy(),
     noProposals: proposals.length === 0,
-    noProposalsWhy: configured()
-      ? "Nothing has been raised on this deployment yet. Switch to dummy to see what a proposal reads like."
-      : "This page has no deployment configured, so there is no live floor to read. Switch to dummy for the rehearsal.",
+    // Three reasons the live floor can be empty, and only one of them is
+    // "nothing has been raised". A floor that was never read -- an unanswered
+    // node, a rate-limited one -- knows nothing about what is on chain, and
+    // "nothing yet" for that case is a guess wearing the clothes of a fact.
+    // This is now the default view, so it is the sentence most readers get.
+    noProposalsWhy: !configured()
+      ? "This page has no deployment configured, so there is no live floor to read. Switch to dummy for the rehearsal."
+      : !live
+        ? "The floor has not come back from the node. If this stays, the read failed rather than returned empty. Switch to dummy for the rehearsal."
+        : "Nothing has been raised on this deployment yet. Switch to dummy to see what a proposal reads like.",
     // Which of the two floors you are reading, and a way to cross over. The
     // fixtures are not on chain and no vote here is binding, so saying which is
     // which matters more than the switch itself.
     sources: [
-      { dummy: true, label: "Dummy", note: "The design's fixtures. Nothing here is on chain." },
+      // Live first because live is the default: on these switches the left
+      // seat is the one the reader is already in.
       {
         dummy: false,
         label: "Live",
@@ -3841,6 +3919,7 @@ function viewModel(): Scope {
           ? `${live.proposals.length} raised on ${config.network}`
           : "Nothing raised on chain yet.",
       },
+      { dummy: true, label: "Dummy", note: "The design's fixtures. Nothing here is on chain." },
     ].map((option) => ({
       label: option.label,
       note: option.note,

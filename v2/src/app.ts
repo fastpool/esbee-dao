@@ -1,6 +1,6 @@
 // Esbee DAO — the retired vault.
 //
-// This is the `v1/` copy of the site, and it is about `vault-1`: the pool the
+// This is the `v2/` copy of the site, and it is about `vault-2`: the pool the
 // DAO has moved off. It is a copy rather than a mode because the two vaults are
 // separate contracts holding separate money, and a page that could be pointed
 // at either would be one wrong click away from reading the wrong balances.
@@ -1037,7 +1037,7 @@ interface ExitPanel {
 }
 
 /**
- * Everything this member still has in `vault-1`, and the call that gets each
+ * Everything this member still has in `vault-2`, and the call that gets each
  * part of it out.
  *
  * Four rows because the contract has four places a position can be sitting, and

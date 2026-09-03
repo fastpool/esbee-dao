@@ -12,11 +12,11 @@
 // pages name `app.js`; the copies in `dist/` are rewritten to whatever the
 // build actually produced.
 //
-// Two sites come out of this, not one. `v1/` is the page for the retired vault,
-// with its own sources and its own bundle, and it is built exactly the same way
-// into `dist/v1/`. Its own bundle rather than a shared one: the two are pointed
-// at different contracts, and a chunk they both loaded would be a place for
-// that difference to leak.
+// Three sites come out of this, not one. `v1/` and `v2/` are the pages for the
+// retired vaults, each with its own sources and its own bundle, built exactly
+// the same way into `dist/v1/` and `dist/v2/`. Their own bundles rather than a
+// shared one: all three are pointed at different contracts, and a chunk any two
+// of them loaded would be a place for that difference to leak.
 import { execFileSync } from "node:child_process";
 import { cpSync, mkdirSync, readFileSync, rmSync, writeFileSync, statSync, readdirSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
@@ -54,7 +54,11 @@ const SITES = [
     dir: out,
     pages: ["index.html", "media-kit.html", "analytics.html"],
   },
+  // One entry per retired vault. Each is a page about money a contract still
+  // holds, so they are built separately rather than folded into the live
+  // bundle: a reader who never had a position in one should not download it.
   { entries: [join(root, "v1", "src", "app.ts")], dir: join(out, "v1"), pages: ["v1/index.html"] },
+  { entries: [join(root, "v2", "src", "app.ts")], dir: join(out, "v2"), pages: ["v2/index.html"] },
 ];
 const FILES = ["styles.css", "esbee.svg"];
 const DIRS = ["fonts", "icons"];
@@ -90,7 +94,7 @@ for (const site of SITES) {
   );
 }
 
-// 2. the static files, verbatim. One copy, at the top: `v1/index.html` reaches
+// 2. the static files, verbatim. One copy, at the top: the retired pages reach
 // up for the stylesheet, the mark and the icons rather than duplicating them.
 for (const file of FILES) cpSync(join(root, file), join(out, file));
 for (const dir of DIRS) cpSync(join(root, dir), join(out, dir), { recursive: true });
