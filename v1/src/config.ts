@@ -75,8 +75,9 @@ interface Deployment {
 
 // The pool's own name is not fixed: pox-5 keys a bond's allowlist on the
 // staker's principal, so a deployment takes whatever name its grant spells.
-// `vault-1` is the one testnet retired; mainnet's first pool is the live
-// `esbee-dao-bond-staker-1`, so this page has nothing to show there.
+// `vault-1` is the first vault testnet retired; `vault-3` is the live one now,
+// with `vault-2` retired beside this page at `v2/`. Mainnet's first pool is the
+// live `esbee-dao-bond-staker-1`, so this page has nothing to show there.
 //
 // The whole set is the retired one, not just the vault: `esbee-dao` held this
 // pool's seat and `bond-bridge` credited bitcoin into it, and both were
@@ -88,7 +89,7 @@ const DEPLOYMENTS: Record<NetworkName, Deployment> = {
     dao: "esbee-dao",
     pool: "vault-1",
     bridge: "bond-bridge",
-    successor: "vault-2",
+    successor: "vault-3",
   },
   // Mainnet's first pool is `esbee-dao-bond-staker-1`, so there is nothing
   // retired here to show -- only the way back to it.

@@ -17,10 +17,12 @@ import {
   blockMinutes,
   config,
   configured,
+  dexUrl,
   explorerBtcTx,
   explorerContract,
   explorerTx,
   hasDeployment,
+  moonpayUrl,
   net,
   onConfiguredChain,
   poolContract,
@@ -177,6 +179,17 @@ interface State {
   /** Last quoted STX leg, in uSTX, for whatever is typed in the sats field. */
   quotedFor: number;
   quotedUstx: number;
+  /**
+   * The connected account's STX, and how much of it a pox lock is holding.
+   *
+   * Read because the audience for this pool is people already stacking, whose
+   * balance is mostly locked -- and the STX leg cannot be paid out of a lock.
+   * `null` until it has been read, which is not the same as zero: a card that
+   * cannot see the balance has nothing to warn about.
+   */
+  stx: { balance: number; locked: number; spendable: number } | null;
+  /** The explainer for a member whose STX leg costs more than they can spend. */
+  topUpOpen: boolean;
   /** What the amount field is written in. Sats is the contract's own unit. */
   unit: Unit;
   /** The amount as typed, so a re-render can put it back where it was. */
@@ -290,6 +303,8 @@ const state: State = {
   historyReading: false,
   quotedFor: 0,
   quotedUstx: 0,
+  stx: null,
+  topUpOpen: false,
   unit: "sats",
   amount: "",
   earlyAmount: "",
@@ -903,8 +918,10 @@ function bondPanel(): BondPanel {
       kicker: "Next bond",
       headline: `Bond ${index}`,
       lead: waiting
-        ? `Deposits are open until burn ${fmt(start)} — ${relative(start, burn)}. ` +
-          `The pool stakes inside the window before that, and the term then runs ` +
+        ? `Deposits reach this bond until the pool stakes. \`stake\` is ` +
+          `permissionless and can land from burn ${fmt(Math.max(opens, notice))} — ` +
+          `${relative(Math.max(opens, notice), burn)} — so that block, not the ` +
+          `bond's start, is the last one anybody can count on. The term then runs ` +
           `to burn ${fmt(unlock)}, ${relative(unlock, burn)}.`
         : `This bond has started. The window to stake into it has closed.`,
       rows: [
@@ -915,9 +932,9 @@ function bondPanel(): BondPanel {
         // than one: a window that reads as open to the last block is how a bond
         // gets missed with time apparently still on the clock.
         ...(freeze
-          ? [row("pox-5 freezes the set", `burn ${fmt(freeze.from)}`, relative(freeze.from, burn), burn >= freeze.from)]
+          ? [row("Stake window closes", `burn ${fmt(freeze.from)}`, relative(freeze.from, burn), burn >= freeze.from)]
           : []),
-        row("Deposits close, bond starts", `burn ${fmt(start)}`, relative(start, burn), burn >= start),
+        row("Bond starts", `burn ${fmt(start)}`, relative(start, burn), burn >= start),
         row("Term ends", `burn ${fmt(unlock)}`, relative(unlock, burn), burn >= unlock),
       ],
       dial: bondDial(index, bound, notice, opens, start, burn, pool.cycles),
@@ -1049,6 +1066,7 @@ interface StagePill {
  */
 function stagePill(): StagePill {
   const live = { bg: "var(--color-accent-2-200)", fg: "var(--color-accent-2-800)", dot: "var(--color-accent-2-600)" };
+  const soon = { bg: "var(--color-accent-200)", fg: "var(--color-accent-800)", dot: "var(--color-accent-600)" };
   const past = { bg: "var(--color-neutral-300)", fg: "var(--color-neutral-800)", dot: "var(--color-neutral-500)" };
 
   const pool = state.pool;
@@ -1084,15 +1102,38 @@ function stagePill(): StagePill {
     if (freeze && pool.burn >= freeze.from && pool.burn < start) {
       return { label: `Stake window closed · bond ${index} passed the pool by`, ...past };
     }
+    // Deposits do not close on a clock, and counting down to the bond's start
+    // promised days nobody controls. `stake` sets `bond-bound` false and
+    // `deposit` asserts it, so the door shuts the moment anyone calls `stake`
+    // -- and `stake` is permissionless from the first block it is allowed at,
+    // which is the later of the window opening and the bind notice ending.
+    //
+    // So that block is what the countdown is for. Up to it, a deposit reaches
+    // this bond for certain: `stake` reverts ERR_TOO_EARLY before it. After
+    // it, there is no honest number to give -- only the reason there isn't.
+    const canStake = Math.max(
+      num(bond["stake-opens-at"]),
+      num(bond["notice-ends-at"]),
+    );
+    if (pool.burn < canStake) {
+      return {
+        label: `Deposits for Bond ${index} open the next ${duration(canStake - pool.burn)}`,
+        ...live,
+      };
+    }
     return pool.burn < start
       ? {
-          label: `Deposits open · bond ${index} starts ${relative(start, pool.burn)}`,
-          ...live,
+          label: `Deposits for Bond ${index} close the moment anyone stakes`,
+          ...soon,
         }
       : { label: `Bond ${index} started unstaked · awaiting a new bind`, ...past };
   }
 
-  return { label: "Pre-launch · no bond bound yet", ...live };
+  // "No bond" and "the node would not tell us about the bond" look identical
+  // from here unless they are kept apart, and only one of them is a fact.
+  return state.pool?.bondUnread
+    ? { label: "The bond could not be read from this node", ...live }
+    : { label: "Pre-launch · no bond bound yet", ...live };
 }
 
 /// --- how full the pool is --------------------------------------------------------
@@ -1392,15 +1433,90 @@ async function loadHistory(): Promise<void> {
   }
 }
 
+/**
+ * Which quote is still the current one.
+ *
+ * A quote is a network read about an amount that can change while it is in
+ * flight. Clearing the debounce timer only stops a request that has not gone
+ * out yet -- one already sent still resolves, and two in flight can land in
+ * either order. A slow read for 10,000 sats answering after a fast read for
+ * 20,000 would leave the card showing the old price under the new amount, and
+ * `quotedFor` disagreeing with the field the member is about to press Deposit
+ * under.
+ *
+ * So every quote takes a ticket, and only the newest one may write. An
+ * overtaken quote returns having done nothing -- there is nothing to report,
+ * because the question it answers is not being asked any more. That includes
+ * its errors: a stale failure must not raise a notice about an amount the
+ * member has already moved on from.
+ */
+let quoteSeq = 0;
+
 /** Quote the STX leg for an amount the member did not type. */
 async function quoteFor(sats: number): Promise<void> {
   if (!configured() || sats <= 0) return;
+  const seq = ++quoteSeq;
   try {
     const api = await chainApi();
-    setState({ quotedFor: sats, quotedUstx: Number(await api.quote(sats)) });
+    const ustx = Number(await api.quote(sats));
+    if (seq !== quoteSeq) return;
+    setState({ quotedFor: sats, quotedUstx: ustx });
   } catch (error) {
+    if (seq !== quoteSeq) return;
     setState({ notice: `Could not quote the STX leg: ${message(error)}` });
   }
+}
+
+/** A ustx amount, wherever one is written outside a panel's own formatter. */
+const stxText = (ustx: number): string => `${(ustx / 1e6).toFixed(2)} STX`;
+
+/**
+ * Whether the quoted STX leg is more STX than this member can actually spend.
+ *
+ * The gap this catches is specific and common: the people this pool is for are
+ * already stacking, and a stacker's STX is locked. 5,240 STX with 5,200 in a
+ * pox lock is 40 STX to pay a leg with, and the wallet would sign a deposit
+ * for more of it perfectly happily -- the chain is what refuses, after the fee
+ * and after the prompt.
+ *
+ * Silent until all three numbers are known. A quote of zero is nothing asked
+ * yet, and a `null` balance is a read that has not landed: neither is a reason
+ * to tell somebody they cannot afford something.
+ */
+function shortfall(): { show: boolean; short: number; need: number; have: number } {
+  const need = state.quotedUstx;
+  const have = state.stx?.spendable ?? null;
+  if (need <= 0 || have === null || have >= need) {
+    return { show: false, short: 0, need, have: have ?? 0 };
+  }
+  return { show: true, short: need - have, need, have };
+}
+
+/** The one line of it the card shows, with the way out behind a button. */
+const shortfallText = (): string => {
+  const { short, need, have } = shortfall();
+  return (
+    `Short by ${stxText(short)}. This deposit's STX leg is ${stxText(need)}, ` +
+    `and ${stxText(have)} of your STX is spendable — the rest is locked.`
+  );
+};
+
+/**
+ * Put a freshly quoted shortfall on the card, without re-rendering the page.
+ *
+ * `wireQuote` writes its own element directly because a render would replace
+ * the input under the member's caret, and this line has to follow the same
+ * rule for the same reason: it changes on every quote, and a quote lands
+ * moments after typing stops. So the row is always in the markup and this
+ * shows or hides it, rather than an `sc-if` that only a render could flip.
+ */
+function afterQuote(): void {
+  const box = document.getElementById("join-short");
+  const line = document.getElementById("join-short-text");
+  if (!box) return;
+  const { show } = shortfall();
+  if (line) line.textContent = shortfallText();
+  box.style.display = show ? "block" : "none";
 }
 
 /** What a submitted deposit is doing, in the chain's own vocabulary. */
@@ -1523,14 +1639,16 @@ function rememberedTarget(address: string): DepositTarget | null {
 /**
  * Run a wallet call and report it, returning the txid it produced.
  *
- * `openTab` is for the calls with nowhere else to show themselves. The deposit
- * has somewhere -- it watches the transaction in place -- and stealing focus to
- * a new tab on top of that is one thing too many.
+ * Every call it makes is watched to the block. There used to be an `openTab`
+ * for the ones with nowhere else to show themselves -- a new tab on the
+ * explorer, thrown over the page. They have somewhere now: the toast follows
+ * the transaction from the mempool to the block and links the explorer instead
+ * of jumping to it, which is the same information without taking the page away
+ * from someone who was in the middle of something.
  */
 async function withWallet(
   label: string,
   run: () => Promise<string | null>,
-  openTab = true,
 ): Promise<string | null> {
   if (!state.connected) {
     setState({ walletOpen: true });
@@ -1539,8 +1657,16 @@ async function withWallet(
   try {
     setState({ notice: `Confirm ${label} in your wallet…` });
     const txid = await run();
-    setState({ notice: txid ? `${label} submitted — ${txid}` : `${label} submitted` });
-    if (txid && openTab) window.open(explorerTx(txid), "_blank", "noopener");
+    // Every call gets watched, not only the deposit. `openTab` used to be the
+    // answer for the ones with nowhere to show themselves -- they have
+    // somewhere now, and a new tab thrown over the page was never a good way
+    // to say "submitted". The toast follows it to the block instead.
+    if (txid) {
+      setState({ notice: `${label} submitted`, pending: { txid, status: "pending" } });
+      watch(txid);
+    } else {
+      setState({ notice: `${label} submitted` });
+    }
     void refresh();
     return txid;
   } catch (error) {
@@ -1554,17 +1680,16 @@ async function doDeposit(): Promise<void> {
   if (sats <= 0) return setState({ notice: "Enter an amount first." });
   const api = await chainApi();
   const ustx = Number(await api.quote(sats));
-  const txid = await withWallet(
-    "the deposit",
-    () => api.poolCalls.deposit(sats, ustx),
-    false,
+  const txid = await withWallet("the deposit", () =>
+    api.poolCalls.deposit(sats, ustx),
   );
   // The field is only cleared once the wallet has come back with something.
   // A wallet that was dismissed, or a call that threw, leaves the amount where
   // the member typed it -- retyping it is the last thing they want to do.
+  // `withWallet` has already set the pending transaction and started watching
+  // it, so all that is left here is the field.
   if (!txid) return;
-  setState({ amount: "", quotedFor: 0, quotedUstx: 0, pending: { txid, status: "pending" } });
-  watch(txid);
+  setState({ amount: "", quotedFor: 0, quotedUstx: 0 });
 }
 
 /// --- following a transaction -------------------------------------------------
@@ -1594,6 +1719,19 @@ function settle(txid: string, status: string): void {
 function watch(txid: string): void {
   socket?.close();
   socket = null;
+  // Ask outright, before anything is subscribed to.
+  //
+  // `tx_update` pushes *changes*, so a transaction already carried by a block
+  // when the socket opened produces no frame at all -- and there is a real
+  // window for that: the wallet returns a txid, the page opens a socket, the
+  // socket handshakes, the subscribe goes out. A quick block inside that gap,
+  // or a page reloaded on top of a transaction that has already landed, leaves
+  // a subscription waiting for an event that has already happened, and a toast
+  // that says "in the mempool" for ever.
+  //
+  // `poll` starts with a read rather than a sleep, so this covers that case and
+  // then goes on being the backstop below.
+  void poll(txid);
   try {
     const live = new WebSocket(`${net().api.replace(/^http/, "ws")}/extended/v1/ws`);
     socket = live;
@@ -1628,22 +1766,44 @@ function watch(txid: string): void {
   }
 }
 
-/** The fallback, and the reason a blocked socket is not a stuck spinner. */
+/**
+ * The backstop, and the reason neither a blocked socket nor a missed frame is
+ * a toast stuck in the mempool.
+ *
+ * It runs alongside the subscription rather than only when one fails, because
+ * a socket that opened and missed its single update looks exactly like a socket
+ * that is still waiting -- there is nothing to catch. It costs one read now and
+ * one every few seconds until the transaction settles, and it stops the moment
+ * it does.
+ *
+ * The first checks are close together and then it backs off: a Stacks block can
+ * carry a transaction in seconds, and fifteen of them staring at a confirmed
+ * transaction is a long time to be told nothing has happened. The later ones
+ * are spaced out because by then it is a bitcoin block being waited on, and an
+ * anonymous node's rate limit is shared with everyone else reading.
+ */
 let polling = "";
 async function poll(txid: string): Promise<void> {
   if (polling === txid) return;
   polling = txid;
   try {
-    for (let tries = 0; tries < 60; tries++) {
+    for (let tries = 0; tries < 64; tries++) {
+      // Read first, sleep after. Starting with the sleep is what made an
+      // already-confirmed transaction take fifteen seconds to notice -- and
+      // made a transaction confirmed *before* the watch began invisible until
+      // the socket happened to fail.
       if (state.pending?.txid !== txid || state.pending.status !== "pending") return;
-      await new Promise((done) => setTimeout(done, 15_000));
       try {
         const response = await fetch(`${apiBase()}/extended/v1/tx/${txid}`);
         const body = (await response.json()) as { tx_status?: string };
+        // A node that has not indexed the broadcast yet answers without a
+        // status, or 404s. Neither is news; both are asked again.
         if (body.tx_status) settle(txid, body.tx_status);
+        if (body.tx_status && body.tx_status !== "pending") return;
       } catch {
-        // A node that did not answer this time is asked again in fifteen.
+        // A node that did not answer this time is asked again shortly.
       }
+      await new Promise((done) => setTimeout(done, tries < 6 ? 3_000 : 15_000));
     }
   } finally {
     polling = "";
@@ -2554,6 +2714,16 @@ interface JoinPanel {
   hasQueued: boolean;
   hasReleased: boolean;
   hasRewards: boolean;
+  /**
+   * The STX leg costs more than this member can spend, and what to say.
+   *
+   * A display value rather than a boolean behind an `sc-if`: the row is always
+   * in the markup so `afterQuote` can show it without a render, and this is
+   * what gets it right on the render that builds the card.
+   */
+  shortDisplay: string;
+  shortText: string;
+  openTopUp: () => void;
   deposit: () => void;
   withdraw: () => void;
   claimPrincipal: () => void;
@@ -2723,6 +2893,9 @@ function joinPanel(): JoinPanel {
     pendingText: pendingText(state.pending),
     pendingTxid: state.pending ? shorten(state.pending.txid) : "",
     pendingLink: state.pending ? explorerTx(state.pending.txid) : "",
+    shortDisplay: shortfall().show ? "block" : "none",
+    shortText: shortfallText(),
+    openTopUp: () => setState({ topUpOpen: true }),
     deposit: () => void doDeposit(),
     // Both of these burn the member's receipts, so both have to name what
     // leaves. The amounts are read inside the closure rather than captured with
@@ -3762,7 +3935,21 @@ function viewModel(): Scope {
     // There is no members stat: the ledger keys members by principal and never
     // counts them, so the number does not exist on chain. It was a card that
     // could only ever read as a dash, and counting them is an indexer's job.
-    statEpoch: live ? String(live.epoch) : "—",
+    // The count, not the index.
+    //
+    // The pool keys its `epochs` map from 0 and the DAO reports `epoch-count`
+    // from 1, and this tile used to show the first while the vote floor under
+    // it showed the second -- so a staked pool read "Epoch 0" at the top and
+    // "epoch 1" a screen below, for the same epoch. The page counts now,
+    // everywhere: it is what `current-epoch` answers, what every proposal is
+    // stamped with, and what a reader means by "the first epoch".
+    //
+    // `get-config` carries the count directly. `live.epoch + 1` is the same
+    // number by construction -- `get-live-epoch` is `epochs[epoch-count - 1]`
+    // -- and answers when the config is the read that did not come back.
+    statEpoch: live
+      ? String(num(state.pool?.config?.["epoch-count"] ?? live.epoch + 1))
+      : "—",
     // The caption the design drew read "first bond not yet bound", which stops
     // being true the moment one is.
     statEpochNote: state.pool?.live
@@ -3771,13 +3958,37 @@ function viewModel(): Scope {
         ? `bond ${num(state.pool.bond["bond-index"])} bound, not yet staked`
         : state.pool?.bond?.bound
           ? `bond ${num(state.pool.bond["bond-index"])} missed, awaiting a new bind`
-          : "first bond not yet bound",
+          : state.pool?.bondUnread
+            ? "the bond read did not come back from this node"
+            : "first bond not yet bound",
     statHoney: totals ? `${(num(totals["unclaimed-rewards"]) / 1e8).toFixed(4)} BTC` : "0",
 
     connected: state.connected,
     disconnected: !state.connected,
     walletOpen: state.walletOpen,
     walletLabel: state.connected ? shorten(state.account) : "Connect wallet",
+
+    // The way out of a short STX leg.
+    //
+    // A dialog rather than more lines on the card: it is a detour off the
+    // deposit -- two routes to other sites, and a reason for each -- and
+    // growing the card inline would push the amount field off a phone screen
+    // for everybody, including the people whose STX is fine.
+    topUpOpen: state.topUpOpen,
+    topUpClose: () => setState({ topUpOpen: false }),
+    topUpNeed: stxText(shortfall().need),
+    topUpHave: stxText(shortfall().have),
+    topUpShort: stxText(shortfall().short),
+    topUpLocked: stxText(state.stx?.locked ?? 0),
+    // Addressed to the connected wallet where there is one, so the member does
+    // not retype a Stacks address into a payment form.
+    moonpayUrl: moonpayUrl(state.account ?? ""),
+    moonpayShow: Boolean(moonpayUrl(state.account ?? "")),
+    dexUrl: dexUrl(),
+    dexShow: Boolean(dexUrl()),
+    // Off mainnet there is nothing to buy and nothing to swap: testnet STX has
+    // no price, and the faucet is the whole answer.
+    topUpFaucet: config.network !== "mainnet",
     profileAddress: state.account ?? "",
     // The chat's identity is a nostr key made in this browser, not the
     // wallet's. A member who has one should be able to find it from here
@@ -3812,6 +4023,46 @@ function viewModel(): Scope {
     // So the fixture stops here. A dash reads as "not read yet", which is what
     // a null floor means, and is the one thing that cannot be mistaken for a
     // position.
+    // Why all three of those can read zero, and what changes it.
+    //
+    // Weight is `get-weight`, which is quadratic in *committed* shares -- and
+    // shares are minted by `stake`, never by `deposit`. So a member who has
+    // just put 0.1 BTC into the queue reads 0 / 0 / 0.0% here, and without a
+    // word of explanation concludes their money went nowhere. The queue is the
+    // missing sentence.
+    weightNote: (() => {
+      if (!state.connected || weight > 0) return "";
+      const queuedSats = num(state.member?.principal?.["queued-sats"] ?? 0);
+      if (queuedSats <= 0) {
+        return "No committed shares yet. Weight is minted when the pool stakes " +
+          "a deposit of yours into a bond — a deposit alone does not carry a vote.";
+      }
+      const bond = state.pool?.bond?.bound
+        ? ` into bond ${num(state.pool.bond["bond-index"])}`
+        : "";
+      return `Your ${(queuedSats / 1e8).toFixed(4)} BTC is queued, not committed. ` +
+        `Shares — and the weight that comes with them — are minted when the pool ` +
+        `stakes${bond}. Until then it is withdrawable in full.`;
+    })(),
+
+    // And what it takes to raise one, which is two things the contract checks
+    // and neither of them is a button.
+    //
+    // `open-proposal` asserts `(> (get-weight tx-sender) u0)` and that a live
+    // epoch exists. Before the first `stake` both are false for everybody, so
+    // "how do I propose" has a real answer that is not "click here".
+    proposeNote: !configured()
+      ? ""
+      : !state.pool?.live
+        ? "Nobody can raise a proposal yet: the DAO refuses one until the pool " +
+          "has staked, because before that there are no shares to weigh a vote against."
+        : weight > 0
+          ? "You hold weight, so the DAO would take a proposal from you. This page " +
+            "has no form for writing one yet — the five calls are in the contract " +
+            "and wired up, and raising one today means calling the DAO directly."
+          : "Raising a proposal takes committed shares, the same as voting does. " +
+            "Deposit, wait for the roll, and the floor opens to you.",
+
     memberSatsLabel: live ? fmt(weight * weight) : "—",
     memberWeight: live ? fmt(weight) : "—",
     memberShare: live
@@ -3849,6 +4100,9 @@ function viewModel(): Scope {
     retiredShow: configured() && Boolean(config.retired),
     retiredName: config.retired,
     retiredContract: `${config.deployer}.${config.retired}`,
+    // Which page to send them to. There are two now, and the link has to move
+    // with the retirement rather than stay pointed at the first one.
+    retiredHref: config.retiredPage,
 
     // Which chain the reader is on, and what that means for what they are
     // looking at.
@@ -4051,6 +4305,10 @@ function forgetAccount(): Partial<State> {
     amount: "",
     quotedFor: 0,
     quotedUstx: 0,
+    // Both belong to the account being put down: a balance is theirs, and a
+    // shortfall is a statement about it.
+    stx: null,
+    topUpOpen: false,
     earlyAmount: "",
     // Both of these are one account's own history and one account's own
     // transaction; neither means anything under the next.
@@ -4131,6 +4389,17 @@ async function refresh(): Promise<void> {
     if (forBalance && onConfiguredChain(forBalance)) {
       void readBtcBalance(forBalance).then((sats) => setState({ btcBalance: sats }));
     }
+    // What the STX leg would come out of, and how much of it a pox lock is
+    // holding. Fired and forgotten for the same reason as the balance above:
+    // every number on the card reads without it, and it is only ever used to
+    // warn -- a failed read should say nothing, not block the page or raise a
+    // notice about a balance nobody asked to see.
+    if (state.account) {
+      void api
+        .stxBalance(state.account)
+        .then((stx) => setState({ stx }))
+        .catch(() => {});
+    }
     // Only where this member is actually on the L1 route: it costs the bitcoin
     // bundle, and most connections are for the vote floor or the sBTC card.
     if (wantsL1()) void loadL1();
@@ -4148,16 +4417,78 @@ function render(): void {
 
   mountInto(template, mount, viewModel());
 
-  const bar = document.getElementById("notice");
-  if (bar) {
-    bar.textContent = state.notice;
-    bar.hidden = !state.notice;
-  }
+  paintNotice();
 
   wireQuote();
   wireEarly();
   wireL1();
   syncChat();
+}
+
+/**
+ * What the toast is saying, and which face it wears while it says it.
+ *
+ * A transaction outranks a message: once one is in flight it is the thing the
+ * member is waiting on, and "the deposit submitted" is a worse sentence than
+ * "in the mempool" the moment the mempool has it.
+ */
+function noticeView(): { face: string; title: string; text: string; link: string } {
+  const tx = state.pending;
+  if (tx) {
+    const link = explorerTx(tx.txid);
+    if (tx.status === "pending") {
+      return { face: "pending", title: "In the mempool", text: pendingText(tx), link };
+    }
+    if (tx.status === "success") {
+      // The one moment on this page worth a small celebration, so it says
+      // something rather than reporting a status code.
+      return { face: "ok", title: "Confirmed — the hive has it", text: pendingText(tx), link };
+    }
+    return { face: "bad", title: "It did not land", text: pendingText(tx), link };
+  }
+  return { face: "plain", title: "", text: state.notice, link: "" };
+}
+
+/**
+ * Paint it, and let a dismissal stick until there is something new to say.
+ *
+ * `dismissed` holds the exact thing the member waved away rather than a flag:
+ * a flag would have to be cleared by every caller that changes the notice, and
+ * the one that forgot would be the one that swallowed a confirmation. Matching
+ * on the text means anything genuinely new comes back on its own.
+ */
+let dismissed = "";
+function paintNotice(): void {
+  const bar = document.getElementById("notice");
+  if (!bar) return;
+  const view = noticeView();
+  const signature = `${view.face}:${view.title}:${view.text}`;
+
+  const close = document.getElementById("notice-close");
+  if (close && close.dataset.wired !== "1") {
+    close.dataset.wired = "1";
+    close.addEventListener("click", () => {
+      dismissed = `${noticeView().face}:${noticeView().title}:${noticeView().text}`;
+      bar.hidden = true;
+    });
+  }
+
+  const title = document.getElementById("notice-title");
+  const text = document.getElementById("notice-text");
+  const link = document.getElementById("notice-link") as HTMLAnchorElement | null;
+  if (title) title.textContent = view.title;
+  if (text) text.textContent = view.text;
+  if (link) {
+    link.href = view.link;
+    link.hidden = !view.link;
+  }
+  // Set before `hidden` flips: the entrance animation keys off the element
+  // being shown, and it should already be wearing the right face when it runs.
+  bar.dataset.state = view.face;
+  // Re-showing a toast that is already up must not restart its animation, so
+  // `hidden` is only written when it actually changes.
+  const show = Boolean(view.title || view.text) && signature !== dismissed;
+  if (bar.hidden === show) bar.hidden = !show;
 }
 
 /**
@@ -4188,6 +4519,15 @@ function wireQuote(): void {
     state.amount = input.value;
     const sats = toSats(input.value, state.unit);
     if (quoting) clearTimeout(quoting);
+    // Every keystroke retires whatever is in flight, before anything else: the
+    // ticket is what stops an older answer overwriting a newer one, and the
+    // amount has already stopped being the one that was asked about.
+    const seq = ++quoteSeq;
+    // And the old price goes with it. Leaving `quotedFor` behind would let the
+    // shortfall warning, and anything else reading it, keep answering about a
+    // number that is no longer in the field.
+    state.quotedFor = 0;
+    state.quotedUstx = 0;
     if (sats <= 0) {
       out.textContent = "enter an amount";
       return;
@@ -4201,10 +4541,15 @@ function wireQuote(): void {
       try {
         const api = await chainApi();
         const ustx = Number(await api.quote(sats));
+        if (seq !== quoteSeq) return;
         state.quotedFor = sats;
         state.quotedUstx = ustx;
         out.textContent = `${fmt(sats)} sats needs ${(ustx / 1e6).toFixed(2)} STX`;
+        // The shortfall line is drawn from state, so a new price has to reach
+        // the card as well as this element.
+        afterQuote();
       } catch (error) {
+        if (seq !== quoteSeq) return;
         out.textContent = `could not quote: ${message(error)}`;
       }
     }, 350);

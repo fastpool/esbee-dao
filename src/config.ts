@@ -163,11 +163,19 @@ export interface Deployment {
    * The pool this one replaced, if any.
    *
    * A vault is never migrated in place -- a member's position is sBTC and STX
-   * the old contract still holds, and only the member can move it. So the
-   * retired pool keeps a page of its own at `v1/`, and this is what tells the
-   * live page there is one to point at.
+   * the old contract still holds, and only the member can move it. So each
+   * retired pool keeps a page of its own, and this is what tells the live page
+   * there is one to point at.
    */
   retired?: string;
+  /**
+   * And which page that is, spelled out rather than worked out.
+   *
+   * There are two of them now (`v1/` for `vault-1`, `v2/` for `vault-2`) and
+   * deriving the path from the contract name would be a rule that holds until
+   * the first pool not called `vault-N` -- which mainnet's already is not.
+   */
+  retiredPage?: string;
 }
 
 // The pool's own name is not fixed: pox-5 keys a bond's allowlist on the
@@ -189,6 +197,22 @@ export interface Deployment {
 // `config` below is.
 const DEPLOYMENTS: Record<NetworkName, Deployment[]> = {
   testnet: [
+    // `vault-3`, deployed and not yet bound to a bond. The same shape as
+    // mainnet's `-1` set, receipts included, which is the point of a rehearsal:
+    // it is the code that is live on mainnet, not the code that came before it.
+    {
+      deployer: "STFCGF789WX1B737VQYAQ6BG3QYVMJGPDJN4TJFM",
+      dao: "esbee-dao-3",
+      pool: "vault-3",
+      bridge: "bond-bridge-3",
+      label: "vault-3",
+      retired: "vault-2",
+      retiredPage: "v2/index.html",
+      receipts: { btc: "iou-bond-btc-3", stx: "iou-bond-stx-3" },
+    },
+    // The retired sets, newest first. `vault-2` has no receipt tokens at all --
+    // it predates them -- which is why they are named per deployment here
+    // rather than assumed from the deployer.
     {
       deployer: "STFCGF789WX1B737VQYAQ6BG3QYVMJGPDJN4TJFM",
       dao: "esbee-dao-2",
@@ -196,9 +220,9 @@ const DEPLOYMENTS: Record<NetworkName, Deployment[]> = {
       bridge: "bond-bridge-2",
       label: "vault-2",
       retired: "vault-1",
+      retiredPage: "v1/index.html",
     },
-    // The retired set. Same pool and DAO code as the one above -- the two agree
-    // function for function -- but an older bridge, which is exactly why the
+    // Older still, and an older bridge with it -- which is exactly why the
     // analytics page asks each deployment what it can do rather than assuming.
     {
       deployer: "STFCGF789WX1B737VQYAQ6BG3QYVMJGPDJN4TJFM",
@@ -283,8 +307,10 @@ export const config = {
   // The label follows `?pool=`: a visit pointed at another contract should not
   // keep calling it by the configured one's name in a list of several.
   label: params.get("pool") ?? deployment.label,
-  /** The retired pool `v1/` is about, or "" where this network never had one. */
+  /** The retired pool, or "" where this network never had one. */
   retired: deployment.retired ?? "",
+  /** And the page it lives on, for the link across from **Your position**. */
+  retiredPage: deployment.retiredPage ?? "",
   /**
    * The receipt tokens this deployment issues, or `undefined` where it issues
    * none. Not overridable per visit: `?pool=` points at another contract, and
@@ -487,11 +513,53 @@ declare const __API_PROXY__: string | undefined;
  */
 declare const __EMILY_PROXY__: string | undefined;
 
+/**
+ * The MoonPay partner key, for the "buy some STX" route out of a shortfall.
+ *
+ * MoonPay is a partner rather than a search result, and the partnership is the
+ * key: with one, the link opens the widget already pinned to STX and already
+ * addressed to the member's wallet, so nobody lands on a bitcoin form and
+ * nobody retypes a Stacks address by hand. It is set on the deploy, never in
+ * the repo -- the same trade `__API_PROXY__` makes above -- and without it the
+ * link falls back to MoonPay's own public STX page, which works for everyone
+ * and just asks a little more of the reader.
+ */
+declare const __MOONPAY_KEY__: string | undefined;
+
 const PROXY = typeof __API_PROXY__ === "string" ? __API_PROXY__ : "";
 const EMILY_PROXY = typeof __EMILY_PROXY__ === "string" ? __EMILY_PROXY__ : "";
 
 export const apiBase = (): string =>
   PROXY ? `${PROXY}/${config.network}` : net().api;
+
+const MOONPAY_KEY = typeof __MOONPAY_KEY__ === "string" ? __MOONPAY_KEY__ : "";
+
+/**
+ * Where "buy some STX" goes, addressed to this member where it can be.
+ *
+ * Testnet STX is not for sale anywhere, and pointing a rehearsal at a card
+ * form would be a bill for play money -- so on any other network this is the
+ * faucet's job and the link is empty, which the card reads as "do not offer
+ * it".
+ */
+export const moonpayUrl = (address: string): string => {
+  if (config.network !== "mainnet") return "";
+  if (!MOONPAY_KEY) return "https://www.moonpay.com/buy/stx";
+  const to = address ? `&walletAddress=${encodeURIComponent(address)}` : "";
+  return `https://buy.moonpay.com/?apiKey=${encodeURIComponent(MOONPAY_KEY)}&currencyCode=stx${to}`;
+};
+
+/**
+ * And where "swap what you already hold" goes.
+ *
+ * A member short of STX is, by definition, holding sBTC -- they were about to
+ * deposit some -- so the second way out is a swap rather than a purchase, and
+ * it settles in minutes without a card or an account. Bitflow because it pairs
+ * sBTC against STX directly; any DEX that does would serve, which is why this
+ * is one constant rather than a list.
+ */
+export const dexUrl = (): string =>
+  config.network === "mainnet" ? "https://app.bitflow.finance/trade" : "";
 export const explorerTx = (txid: string): string =>
   `${net().explorer}/txid/${txid}?chain=${config.network}`;
 

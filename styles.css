@@ -316,6 +316,10 @@ textarea.input { min-height: 90px; resize: vertical; }
   width: min(440px, 100%); display: flex; flex-direction: column; gap: var(--space-3);
   padding: var(--space-4); border-radius: var(--radius-lg);
   background: var(--color-surface); box-shadow: var(--shadow-lg);
+  /* Taller than the phone it is on is the normal case for the longer dialogs,
+     so they scroll inside themselves rather than off the top of the screen
+     where the close button cannot be reached. */
+  max-height: min(88vh, 100%); overflow-y: auto; overscroll-behavior: contain;
 }
 .dialog-title {
   font-family: var(--font-heading); font-weight: var(--font-heading-weight);
@@ -333,10 +337,121 @@ textarea.input { min-height: 90px; resize: vertical; }
 /* ══════════════════════════════════════════════════════════════════════════
    The discussion panel — src/chat.ts renders it from #chat-tpl.
    ══════════════════════════════════════════════════════════════════════ */
-/* The transaction notice shares the bottom edge with the button; on a phone
-   there is no room beside it, so it sits above. */
-#notice { bottom: 18px; }
-@media (max-width: 560px) { #notice { bottom: 74px; } }
+/* ── the transaction toast ────────────────────────────────────────────────
+   It shares the bottom edge with the chat button; on a phone there is no room
+   beside it, so it sits above.
+
+   A card rather than a line of text. This is the only thing on the page that
+   says a transaction landed, and a grey sentence at the bottom of a long page
+   is a thing people scroll past -- so it arrives with a small movement, keeps
+   an explorer link and a way to dismiss it, and carries a bee whose state is
+   the transaction's. */
+#notice {
+  bottom: 18px;
+  position: fixed; left: 50%; transform: translateX(-50%); z-index: 80;
+  display: flex; align-items: center; gap: 11px;
+  max-width: min(94vw, 62ch);
+  padding: 11px 12px; border-radius: 20px;
+  border: 1px solid var(--color-divider);
+  background: var(--color-surface); color: var(--color-text);
+  box-shadow: var(--shadow-lg);
+  font: 14px/1.45 var(--font-body);
+  overflow-wrap: anywhere;
+}
+/* `display: flex` above is an author rule and the `hidden` attribute is only a
+   UA one, so the rule beat the attribute and the bar could never hide: an empty
+   toast stayed on screen as a lone close button floating over the page. Author
+   styles have to put it back, and `#notice[hidden]` outranks `#notice`. */
+#notice[hidden] { display: none; }
+/* Restarts whenever the element is shown again, which is exactly when it is
+   worth noticing, and never on the re-renders in between. */
+#notice:not([hidden]) { animation: notice-in 0.36s cubic-bezier(0.2, 0.85, 0.3, 1.15) both; }
+@keyframes notice-in {
+  from { opacity: 0; transform: translate(-50%, 16px) scale(0.96); }
+  to   { opacity: 1; transform: translate(-50%, 0) scale(1); }
+}
+.notice-art { flex: none; width: 52px; height: 34px; }
+.notice-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.notice-title {
+  font-family: var(--font-heading); font-weight: var(--font-heading-weight);
+  font-size: 14.5px;
+}
+.notice-title:empty { display: none; }
+.notice-text { font-size: 13px; opacity: 0.82; }
+.notice-text:empty { display: none; }
+.notice-link {
+  flex: none; font-size: 12.5px; white-space: nowrap;
+  text-decoration: none; color: var(--color-accent-700);
+}
+.notice-close {
+  flex: none; border: 0; background: none; cursor: pointer; color: inherit;
+  font: inherit; font-size: 13px; line-height: 1; padding: 6px 7px;
+  border-radius: 999px; opacity: 0.5;
+}
+.notice-close:hover { opacity: 1; background: color-mix(in srgb, var(--color-text) 9%, transparent); }
+
+/* The bee itself. Drawn once in the markup; everything below is state. */
+#notice .body { fill: var(--color-accent-400); }
+#notice .head { fill: var(--color-accent-900); }
+#notice .stripes,
+#notice .antennae { fill: none; stroke: var(--color-accent-900); stroke-width: 1.6; stroke-linecap: round; }
+#notice .wing {
+  fill: color-mix(in srgb, var(--color-neutral-100) 80%, transparent);
+  stroke: var(--color-accent-900); stroke-width: 0.8;
+}
+#notice .cell { fill: none; stroke: var(--color-accent-600); stroke-width: 1.4; stroke-linejoin: round; opacity: 0.35; }
+
+/* In the mempool: still in the air, wings going. */
+#notice[data-state="pending"] .bee { animation: bee-hover 1.7s ease-in-out infinite; }
+#notice[data-state="pending"] .wings { animation: bee-wings 0.17s ease-in-out infinite; transform-origin: 34px 12px; }
+@keyframes bee-hover { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-2.4px); } }
+@keyframes bee-wings { 0%, 100% { transform: scaleY(1); } 50% { transform: scaleY(0.5); } }
+
+/* Confirmed: the comb fills, cell by cell, and the bee dances twice over it.
+   A waggle rather than confetti -- it is the dance a bee actually does when it
+   comes back with something, which is a nicer thing to have on the page than
+   paper. */
+#notice[data-state="ok"] {
+  background: color-mix(in srgb, var(--color-accent) 13%, var(--color-surface));
+  border-color: color-mix(in srgb, var(--color-accent) 38%, transparent);
+}
+#notice[data-state="ok"] .cell { animation: cell-fill 0.5s ease-out both; }
+#notice[data-state="ok"] .cell:nth-child(1) { animation-delay: 0.06s; }
+#notice[data-state="ok"] .cell:nth-child(2) { animation-delay: 0.24s; }
+#notice[data-state="ok"] .cell:nth-child(3) { animation-delay: 0.42s; }
+@keyframes cell-fill {
+  from { fill: transparent; opacity: 0.35; }
+  to   { fill: var(--color-accent-400); opacity: 1; }
+}
+#notice[data-state="ok"] .bee { animation: bee-waggle 1.05s ease-in-out 0.1s 2; transform-origin: 34px 19px; }
+@keyframes bee-waggle {
+  0%, 100% { transform: rotate(0) translateY(0); }
+  25% { transform: rotate(-9deg) translateY(-1.6px); }
+  75% { transform: rotate(9deg) translateY(-1.6px); }
+}
+
+/* Didn't land: the bee sits down, and nothing moves. */
+#notice[data-state="bad"] { border-color: color-mix(in srgb, var(--color-accent-700) 42%, transparent); }
+#notice[data-state="bad"] .body { fill: var(--color-neutral-400); }
+#notice[data-state="bad"] .head { fill: var(--color-neutral-700); }
+#notice[data-state="bad"] .stripes,
+#notice[data-state="bad"] .antennae { stroke: var(--color-neutral-700); }
+
+/* A message with no transaction behind it has no bee to show. */
+#notice[data-state="plain"] .notice-art { display: none; }
+
+@media (prefers-reduced-motion: reduce) {
+  #notice:not([hidden]), #notice .bee, #notice .wings, #notice .cell { animation: none !important; }
+  #notice[data-state="ok"] .cell { fill: var(--color-accent-400); opacity: 1; }
+}
+@media (max-width: 560px) {
+  /* Wrapping rather than dropping anything: on a narrow screen the explorer
+     link takes a line of its own instead of squeezing the message that
+     explains why anyone would follow it. */
+  #notice { bottom: 74px; gap: 8px 9px; padding: 10px; flex-wrap: wrap; }
+  .notice-body { flex: 1 1 60%; }
+  .notice-link { margin-left: 61px; }
+}
 .chat-fab {
   position: fixed; right: 18px; bottom: 18px; z-index: 70;
   display: inline-flex; align-items: center; gap: 8px;

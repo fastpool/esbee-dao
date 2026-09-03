@@ -1198,7 +1198,9 @@ function viewModel(): Scope {
       .slice()
       .reverse()
       .map((epoch) => ({
-        index: String(epoch.index),
+        // Counted, not indexed: the contract keys these from 0 and every
+        // other epoch number a reader sees on either page starts at 1.
+        index: String(epoch.index + 1),
         bond: fmt(epoch["bond-index"]),
         staked: written(epoch["staked-sats"]),
         ustx: stx(epoch["staked-ustx"]),

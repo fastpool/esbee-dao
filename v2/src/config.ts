@@ -92,7 +92,7 @@ const DEPLOYMENTS: Record<NetworkName, Deployment> = {
     dao: "esbee-dao-2",
     pool: "vault-2",
     bridge: "bond-bridge-2",
-    successor: "esbee-dao-bond-staker-1",
+    successor: "vault-3",
   },
   // Mainnet never had a `-2` set: `esbee-dao-bond-staker-1` is its first pool
   // and it is live. Nothing retired here to show -- only the way back to it.

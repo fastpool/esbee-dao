@@ -486,15 +486,17 @@ function bondPanel(): BondPanel {
       kicker: "Next bond",
       headline: `Bond ${num(bond["bond-index"])}`,
       lead: waiting
-        ? `Deposits are open until burn ${fmt(start)} — ${relative(start, burn)}. ` +
-          `The pool stakes inside the window before that, and the term then runs ` +
+        ? `Deposits reach this bond until the pool stakes. \`stake\` is ` +
+          `permissionless and can land from burn ${fmt(Math.max(opens, notice))} — ` +
+          `${relative(Math.max(opens, notice), burn)} — so that block, not the ` +
+          `bond's start, is the last one anybody can count on. The term then runs ` +
           `to burn ${fmt(unlock)}, ${relative(unlock, burn)}.`
         : `This bond has started. The window to stake into it has closed.`,
       rows: [
         row("Bound at", `burn ${fmt(num(bond["bound-at-height"]))}`, relative(num(bond["bound-at-height"]), burn), true),
         row("Notice ends", `burn ${fmt(notice)}`, relative(notice, burn), burn >= notice),
         row("Stake window opens", `burn ${fmt(opens)}`, relative(opens, burn), burn >= opens),
-        row("Deposits close, bond starts", `burn ${fmt(start)}`, relative(start, burn), burn >= start),
+        row("Bond starts", `burn ${fmt(start)}`, relative(start, burn), burn >= start),
         row("Term ends", `burn ${fmt(unlock)}`, relative(unlock, burn), burn >= unlock),
       ],
     };
@@ -592,6 +594,7 @@ interface StagePill {
  */
 function stagePill(): StagePill {
   const live = { bg: "var(--color-accent-2-200)", fg: "var(--color-accent-2-800)", dot: "var(--color-accent-2-600)" };
+  const soon = { bg: "var(--color-accent-200)", fg: "var(--color-accent-800)", dot: "var(--color-accent-600)" };
   const past = { bg: "var(--color-neutral-300)", fg: "var(--color-neutral-800)", dot: "var(--color-neutral-500)" };
 
   const pool = state.pool;
@@ -616,10 +619,29 @@ function stagePill(): StagePill {
     const start = num(bond["start-height"]);
     // A bond that has started without the pool in it is not a stage the pool
     // can act on: `bind-bond` may replace it, so the badge says so plainly.
+    // Deposits do not close on a clock, and counting down to the bond's start
+    // promised days nobody controls. `stake` sets `bond-bound` false and
+    // `deposit` asserts it, so the door shuts the moment anyone calls `stake`
+    // -- and `stake` is permissionless from the first block it is allowed at,
+    // which is the later of the window opening and the bind notice ending.
+    //
+    // So that block is what the countdown is for. Up to it, a deposit reaches
+    // this bond for certain: `stake` reverts ERR_TOO_EARLY before it. After
+    // it, there is no honest number to give -- only the reason there isn't.
+    const canStake = Math.max(
+      num(bond["stake-opens-at"]),
+      num(bond["notice-ends-at"]),
+    );
+    if (pool.burn < canStake) {
+      return {
+        label: `Deposits for Bond ${index} open the next ${duration(canStake - pool.burn)}`,
+        ...live,
+      };
+    }
     return pool.burn < start
       ? {
-          label: `Deposits open · bond ${index} starts ${relative(start, pool.burn)}`,
-          ...live,
+          label: `Deposits for Bond ${index} close the moment anyone stakes`,
+          ...soon,
         }
       : { label: `Bond ${index} started unstaked · awaiting a new bind`, ...past };
   }
@@ -1254,7 +1276,21 @@ function viewModel(): Scope {
     // There is no members stat: the ledger keys members by principal and never
     // counts them, so the number does not exist on chain. It was a card that
     // could only ever read as a dash, and counting them is an indexer's job.
-    statEpoch: live ? String(live.epoch) : "—",
+    // The count, not the index.
+    //
+    // The pool keys its `epochs` map from 0 and the DAO reports `epoch-count`
+    // from 1, and this tile used to show the first while the vote floor under
+    // it showed the second -- so a staked pool read "Epoch 0" at the top and
+    // "epoch 1" a screen below, for the same epoch. The page counts now,
+    // everywhere: it is what `current-epoch` answers, what every proposal is
+    // stamped with, and what a reader means by "the first epoch".
+    //
+    // `get-config` carries the count directly. `live.epoch + 1` is the same
+    // number by construction -- `get-live-epoch` is `epochs[epoch-count - 1]`
+    // -- and answers when the config is the read that did not come back.
+    statEpoch: live
+      ? String(num(state.pool?.config?.["epoch-count"] ?? live.epoch + 1))
+      : "—",
     // The caption the design drew read "first bond not yet bound", which stops
     // being true the moment one is.
     statEpochNote: state.pool?.live

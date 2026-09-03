@@ -305,6 +305,33 @@ export async function readOnly(
   return plain(cvToValue(hexToCV(json.result), true));
 }
 
+/**
+ * A member's STX, split into what they can spend and what is locked.
+ *
+ * The split is the whole point. Most people who would join this pool are
+ * already stacking somewhere -- that is the audience -- and a stacker's balance
+ * is mostly locked: 5,240 STX with 5,200 of it in a pox lock leaves 40 to pay a
+ * deposit's STX leg with. A page that showed the total would be telling them
+ * they can afford something the chain will refuse, and the refusal costs a fee
+ * and a wallet prompt to discover.
+ *
+ * `locked` unlocks on its own schedule and nothing here can hurry it, so this
+ * is only ever used to say "not from this balance, not yet" and to offer the
+ * two ways to get more.
+ */
+export async function stxBalance(
+  who: string,
+): Promise<{ balance: number; locked: number; spendable: number }> {
+  const response = await fetch(`${apiBase()}/extended/v1/address/${who}/stx`);
+  const json = (await response.json()) as { balance?: string; locked?: string };
+  const balance = Number(json.balance ?? 0);
+  const locked = Number(json.locked ?? 0);
+  // Never negative: an inbound balance the index has not settled can make
+  // `locked` momentarily exceed `balance`, and "you can spend -3 STX" is worse
+  // than "you can spend nothing".
+  return { balance, locked, spendable: Math.max(balance - locked, 0) };
+}
+
 /** The chain tip, for turning the contract's burn heights into "1d 6h left". */
 export async function burnHeight(): Promise<number> {
   const info = (await (await fetch(`${apiBase()}/v2/info`)).json()) as {
@@ -1475,6 +1502,18 @@ export interface PoolState {
   config: Record<string, Plain> | null;
   /** The next bond, and where the chain is relative to its deadlines. */
   bond: BoundBond | null;
+  /**
+   * Whether `bond` is null because there is none, or because the node could
+   * not answer.
+   *
+   * They are not the same sentence and the page must not confuse them. A
+   * `get-bound-bond` that walks pox-5 can exceed a node's read-only budget --
+   * testnet's `vault-3` does, at 204,314 against a 200,000 read_length ceiling
+   * -- and the answer comes back as an error rather than as "no bond". Telling
+   * a member "no bond bound yet" on the strength of that would be inventing a
+   * fact out of a failure.
+   */
+  bondUnread: boolean;
   /** What the next `stake` would commit against the bound bond's allocation. */
   preview: StakePreview | null;
   burn: number;
@@ -1488,13 +1527,19 @@ export interface PoolState {
  * The pool's own numbers: the stats in the header, and the bond behind the
  * countdown -- the one it is staked into, or the one it is waiting on.
  */
+/** The one read here that is allowed to come back as "the node could not". */
+const UNREAD = Symbol("unread");
+
 export async function loadPool(site: Site = here()): Promise<PoolState | null> {
   if (!site.deployer) return null;
   const [totals, live, cfg, bond, preview, burn, cycles] = await Promise.all([
     readOnly(pool(site), "get-pool"),
     readOnly(pool(site), "get-live-epoch"),
     readOnly(pool(site), "get-config"),
-    readOnly(pool(site), "get-bound-bond"),
+    // Allowed to fail rather than taking the whole read down with it: it is
+    // one card on the page, and losing the pool's totals, the live epoch and
+    // the config along with it leaves nothing on screen at all.
+    readOnly(pool(site), "get-bound-bond").catch(() => UNREAD),
     // `get-stake-preview` reverts on a pool that has finished rather than
     // answering, so it is the one read here that is allowed to come back empty.
     readOnly(pool(site), "get-stake-preview").catch(() => null),
@@ -1507,7 +1552,8 @@ export async function loadPool(site: Site = here()): Promise<PoolState | null> {
     totals: totals as Record<string, Plain> | null,
     live: live as unknown as LiveEpoch | null,
     config: cfg as Record<string, Plain> | null,
-    bond: bond as unknown as BoundBond | null,
+    bond: bond === UNREAD ? null : (bond as unknown as BoundBond | null),
+    bondUnread: bond === UNREAD,
     preview: preview as unknown as StakePreview | null,
     burn,
     schedule: await loadSchedule(burn, site).catch(() => null),

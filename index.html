@@ -21,13 +21,40 @@ a:hover { color: var(--color-accent-700); }
 <body>
 <div id="app"></div>
 <!-- Wallet and transaction feedback. Outside the template so a re-render
-     cannot clear it mid-transaction. -->
-<div id="notice" hidden role="status" aria-live="polite"
-     style="position:fixed;left:50%;transform:translateX(-50%);z-index:80;
-            max-width:min(92vw,64ch);padding:10px 16px;border-radius:16px;
-            background:var(--color-surface);color:var(--color-text);
-            box-shadow:var(--shadow-lg);font:14px/1.45 var(--font-body);
-            overflow-wrap:anywhere"></div>
+     cannot clear it mid-transaction.
+
+     It used to be one line of grey text, which is a poor way to tell somebody
+     their money moved: `src/app.ts` paints it, and the bee is the transaction's
+     own state -- hovering while it is in the mempool, and settling onto a comb
+     that fills with honey when the block carries it. All of that is CSS on
+     `data-state`, so the paint stays a matter of setting three strings. -->
+<div id="notice" hidden role="status" aria-live="polite" data-state="plain">
+  <span class="notice-art" aria-hidden="true">
+    <svg viewBox="0 0 52 34" width="52" height="34" style="display:block;overflow:visible">
+      <g class="comb">
+        <path class="cell" d="M6 11.8h6l3 5.2-3 5.2H6l-3-5.2z"></path>
+        <path class="cell" d="M16 6h6l3 5.2-3 5.2h-6l-3-5.2z"></path>
+        <path class="cell" d="M16 17.6h6l3 5.2-3 5.2h-6l-3-5.2z"></path>
+      </g>
+      <g class="bee">
+        <g class="wings">
+          <ellipse class="wing" cx="30" cy="11.4" rx="6" ry="3.8"></ellipse>
+          <ellipse class="wing" cx="35.4" cy="12.2" rx="4.4" ry="2.9"></ellipse>
+        </g>
+        <ellipse class="body" cx="34" cy="19" rx="9" ry="6.2"></ellipse>
+        <path class="stripes" d="M31 13.6v10.8M35.6 14.7v8.6"></path>
+        <circle class="head" cx="42.6" cy="17.6" r="3.5"></circle>
+        <path class="antennae" d="M43.6 14.4l1.4-2.8M45.4 15.1l2.4-2"></path>
+      </g>
+    </svg>
+  </span>
+  <span class="notice-body">
+    <span id="notice-title" class="notice-title"></span>
+    <span id="notice-text" class="notice-text"></span>
+  </span>
+  <a id="notice-link" class="notice-link" target="_blank" rel="noopener" hidden>Explorer ↗</a>
+  <button id="notice-close" class="notice-close" type="button" aria-label="Dismiss">✕</button>
+</div>
 <!-- The discussion. Its own mount and template, rendered by src/chat.ts on its
      own schedule: a message arriving must not re-render the page, and a page
      re-render must not wipe the log. -->
@@ -204,7 +231,21 @@ a:hover { color: var(--color-accent-700); }
         <sc-if value="{{ sheetBackup }}">
           <div class="chat-sheet-head"><span>Back up this key</span><button class="btn btn-ghost" sc-camel-on-click="{{ closeSheet }}" style="font-size:13px;padding:2px 8px">✕</button></div>
           <p style="margin:0;font-size:13.5px;line-height:1.5">Anyone holding this secret can write as you. Keep it somewhere private; paste it into another browser, or a Nostr app, to be the same person there.</p>
-          <code style="font-size:12px;overflow-wrap:anywhere;padding:10px 12px;background:var(--color-surface);border-radius:var(--radius-md);display:block">{{ nsec }}</code>
+          <!-- Covered until it is asked for. Copy works either way, so the key
+               can go straight into a password manager without ever being on
+               screen. -->
+          <div style="display:flex;gap:8px;align-items:stretch">
+            <code style="flex:1;min-width:0;font-size:12px;overflow-wrap:anywhere;padding:10px 12px;background:var(--color-surface);border-radius:var(--radius-md);display:block">{{ nsecText }}</code>
+            <button class="btn btn-ghost" sc-camel-on-click="{{ toggleNsec }}" aria-label="{{ revealLabel }}" title="{{ revealLabel }}" style="flex:none;padding:0 12px;border-radius:var(--radius-md);display:flex;align-items:center">
+              <sc-if value="{{ nsecHidden }}">
+                <svg width="19" height="19" sc-camel-view-box="0 0 24 24" aria-hidden="true" style="display:block"><path d="M2 12s3.6-6.5 10-6.5S22 12 22 12s-3.6 6.5-10 6.5S2 12 2 12Z" style="fill:none;stroke:currentColor;stroke-width:1.7;stroke-linejoin:round"></path><circle cx="12" cy="12" r="2.8" style="fill:none;stroke:currentColor;stroke-width:1.7"></circle></svg>
+              </sc-if>
+              <sc-if value="{{ nsecShown }}">
+                <svg width="19" height="19" sc-camel-view-box="0 0 24 24" aria-hidden="true" style="display:block"><path d="M2 12s3.6-6.5 10-6.5c1.7 0 3.2.5 4.5 1.1M22 12s-3.6 6.5-10 6.5c-1.7 0-3.2-.5-4.5-1.1" style="fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round"></path><path d="M4 4l16 16" style="fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round"></path></svg>
+              </sc-if>
+            </button>
+          </div>
+          <p class="text-muted" style="margin:-4px 0 0;font-size:12px;line-height:1.5">Hidden until you press the eye, so it is never on screen by accident.</p>
           <div style="display:flex;gap:8px"><button class="btn btn-secondary" sc-camel-on-click="{{ copyNsec }}" style="font-size:13px">Copy</button><button class="btn btn-ghost" sc-camel-on-click="{{ openIdentity }}" style="font-size:13px">Back</button></div>
         </sc-if>
 
@@ -519,21 +560,21 @@ a:hover { color: var(--color-accent-700); }
       <div style="display:flex;gap:6px;align-items:stretch;flex-wrap:wrap">
         <div style="flex:1 1 180px;background:var(--color-accent-200);border-radius:20px;padding:16px 20px">
           <div style="font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--color-accent-800);opacity:.8">Bond N</div>
-          <div style="font-family:var(--font-heading);font-size:20px;margin-top:4px">Epoch 0</div>
+          <div style="font-family:var(--font-heading);font-size:20px;margin-top:4px">Epoch 1</div>
         </div>
         <div style="flex:0 0 auto;display:grid;place-items:center;padding:0 4px">
           <div style="font-family:var(--font-heading);font-size:12px;color:var(--color-accent);writing-mode:horizontal-tb;text-align:center">roll ⟶</div>
         </div>
         <div style="flex:1 1 180px;background:var(--color-accent-300);border-radius:20px;padding:16px 20px">
           <div style="font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--color-accent-800);opacity:.8">Bond N+6</div>
-          <div style="font-family:var(--font-heading);font-size:20px;margin-top:4px">Epoch 1</div>
+          <div style="font-family:var(--font-heading);font-size:20px;margin-top:4px">Epoch 2</div>
         </div>
         <div style="flex:0 0 auto;display:grid;place-items:center;padding:0 4px">
           <div style="font-family:var(--font-heading);font-size:12px;color:var(--color-accent);text-align:center">roll ⟶</div>
         </div>
         <div style="flex:1 1 180px;background:var(--color-accent-200);border-radius:20px;padding:16px 20px">
           <div style="font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--color-accent-800);opacity:.8">Bond N+12</div>
-          <div style="font-family:var(--font-heading);font-size:20px;margin-top:4px">Epoch 2</div>
+          <div style="font-family:var(--font-heading);font-size:20px;margin-top:4px">Epoch 3</div>
         </div>
       </div>
       <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,230px),1fr));gap:16px;margin-top:22px">
@@ -581,6 +622,16 @@ a:hover { color: var(--color-accent-700); }
           </sc-if>
           <div style="display:flex;justify-content:space-between;gap:10px;font-size:13px;padding:9px 2px">
             <span class="text-muted">STX leg</span><span id="join-quote" style="font-family:var(--font-heading);text-align:right">{{ join.quote }}</span>
+          </div>
+          <!-- The leg measured against what the member can actually spend.
+               Always in the markup and shown by `afterQuote` rather than by an
+               `sc-if`: it changes with every quote, and a render to flip it
+               would take the caret out of the amount field above. -->
+          <div id="join-short" style="display:{{ join.shortDisplay }}">
+            <div style="display:flex;flex-wrap:wrap;gap:10px 14px;align-items:center;justify-content:space-between;padding:12px 14px;border-radius:18px;background:color-mix(in srgb, var(--color-accent) 12%, transparent)">
+              <p id="join-short-text" style="flex:1 1 210px;margin:0;font-size:12.5px;line-height:1.5">{{ join.shortText }}</p>
+              <button class="btn btn-secondary" sc-camel-on-click="{{ join.openTopUp }}" style="font-size:12.5px;flex:none;white-space:nowrap">Get more STX</button>
+            </div>
           </div>
           <!-- What the member is holding, in both of the things they could pay
                with. The choice below is mostly a question about these two
@@ -962,7 +1013,7 @@ a:hover { color: var(--color-accent-700); }
         </div>
         <p class="text-muted" style="margin:12px 0 0;font-size:13px;line-height:1.55">A queued deposit is withdrawable on demand and carries no vote. It becomes committed shares at the roll, and only then does it earn.</p>
         <sc-if value="{{ retiredShow }}">
-          <p style="margin:10px 0 0;font-size:13px;line-height:1.55">Still holding a position in <span style="font-family:ui-monospace,monospace">{{ retiredName }}</span>? Nothing moves between the two contracts on its own — <a href="v1/index.html" style="color:var(--color-accent-800)">take it out there</a>, then deposit it here.</p>
+          <p style="margin:10px 0 0;font-size:13px;line-height:1.55">Still holding a position in <span style="font-family:ui-monospace,monospace">{{ retiredName }}</span>? Nothing moves between the two contracts on its own — <a href="{{ retiredHref }}" style="color:var(--color-accent-800)">take it out there</a>, then deposit it here.</p>
         </sc-if>
       </div>
     </sc-if>
@@ -1155,7 +1206,11 @@ a:hover { color: var(--color-accent-700); }
         </div>
       </div>
     </div>
-    <p class="text-muted" style="max-width:60ch;margin:0 0 clamp(24px,4vw,38px);font-size:16px">{{ voteIntro }}</p>
+    <p class="text-muted" style="max-width:60ch;margin:0 0 10px;font-size:16px">{{ voteIntro }}</p>
+    <!-- What it takes to raise one. The contract wants weight and a live epoch,
+         and before the first roll nobody has either -- so the answer to "how do
+         I propose" is a sentence, not a button. -->
+    <p class="text-muted" style="max-width:60ch;margin:0 0 clamp(24px,4vw,38px);font-size:13.5px;line-height:1.55;opacity:.75">{{ proposeNote }}</p>
 
     <div style="background:var(--color-bg);border-radius:28px;padding:clamp(20px,3vw,28px);display:flex;flex-wrap:wrap;gap:20px;align-items:center;justify-content:space-between;margin-bottom:clamp(16px,2.5vw,24px)">
       <sc-if value="{{ connected }}" hint-placeholder-val="{{ false }}">
@@ -1180,6 +1235,9 @@ a:hover { color: var(--color-accent-700); }
             <div style="font-family:var(--font-heading);font-size:22px">{{ memberShare }}</div>
           </div>
         </div>
+        <!-- Three zeros with nothing beside them read as "my deposit is gone".
+             This is the sentence that says where it actually is. -->
+        <p class="text-muted" style="flex:1 1 100%;margin:0;font-size:12.5px;line-height:1.5;max-width:64ch">{{ weightNote }}</p>
         <button class="btn btn-secondary" sc-camel-on-click="{{ disconnect }}" style="font-size:13px">Disconnect</button>
       </sc-if>
       <sc-if value="{{ disconnected }}" hint-placeholder-val="{{ true }}">
@@ -1433,6 +1491,63 @@ a:hover { color: var(--color-accent-700); }
         <button class="btn btn-secondary" sc-camel-on-click="{{ disconnect }}" style="font-size:13px">Disconnect</button>
         <button class="btn btn-primary" sc-camel-on-click="{{ switchAccount }}" style="font-size:13px">Switch account</button>
       </div>
+    </div>
+  </div>
+</sc-if>
+
+<!-- Two ways out of a short STX leg, and the reason there is one at all.
+     A dialog because it is a detour: two links off this site, and the member
+     comes back to the same amount afterwards. -->
+<sc-if value="{{ topUpOpen }}" hint-placeholder-val="{{ false }}">
+  <div class="dialog-backdrop" style="z-index:70">
+    <div class="dialog" style="gap:14px;width:min(520px,100%)">
+      <div style="display:flex;gap:12px;align-items:flex-start;justify-content:space-between">
+        <div class="dialog-title" style="line-height:1.2">More STX, two ways</div>
+        <button class="btn btn-ghost" sc-camel-on-click="{{ topUpClose }}" aria-label="Close" style="font-size:15px;padding:2px 9px;flex:none;line-height:1.2">✕</button>
+      </div>
+
+      <p class="dialog-body" style="margin:0;line-height:1.55">A deposit has two legs. The sBTC is the position; the STX beside it is what
+        pox-5 asks a staker to put up with it, and it has to be STX you can spend.</p>
+
+      <!-- The three numbers, so the size of the problem is not a guess. -->
+      <div style="display:flex;flex-direction:column;gap:1px;background:var(--color-divider);border-radius:16px;overflow:hidden">
+        <div style="display:flex;justify-content:space-between;gap:12px;padding:10px 14px;background:var(--color-bg);font-size:13.5px"><span class="text-muted">This deposit's STX leg</span><span style="font-family:var(--font-heading)">{{ topUpNeed }}</span></div>
+        <div style="display:flex;justify-content:space-between;gap:12px;padding:10px 14px;background:var(--color-bg);font-size:13.5px"><span class="text-muted">Spendable now</span><span style="font-family:var(--font-heading)">{{ topUpHave }}</span></div>
+        <div style="display:flex;justify-content:space-between;gap:12px;padding:10px 14px;background:var(--color-bg);font-size:13.5px"><span class="text-muted">Locked by stacking</span><span style="font-family:var(--font-heading)">{{ topUpLocked }}</span></div>
+        <div style="display:flex;justify-content:space-between;gap:12px;padding:11px 14px;background:color-mix(in srgb, var(--color-accent) 12%, transparent);font-size:13.5px"><span>Short by</span><span style="font-family:var(--font-heading)">{{ topUpShort }}</span></div>
+      </div>
+
+      <p class="text-muted" style="margin:0;font-size:12.5px;line-height:1.5">Locked STX comes back when your stacking cycle ends; nothing here can hurry it.
+        Until then it pays for nothing, which is why the two routes below are the short way round.</p>
+
+      <sc-if value="{{ moonpayShow }}">
+        <a href="{{ moonpayUrl }}" target="_blank" rel="noopener" style="display:flex;gap:13px;align-items:flex-start;padding:14px;border-radius:18px;border:1px solid var(--color-divider);text-decoration:none;color:inherit" style-hover="border-color:var(--color-accent)">
+          <span aria-hidden="true" style="font-size:19px;line-height:1.2;flex:none">💳</span>
+          <span style="flex:1;min-width:0">
+            <span style="display:block;font-family:var(--font-heading);font-size:15px;margin-bottom:3px">Buy STX with MoonPay ↗</span>
+            <span class="text-muted" style="display:block;font-size:12.5px;line-height:1.5">Card or bank transfer, straight to this wallet. MoonPay is our partner, so the
+              form opens already set to STX and already addressed to you. Takes minutes, and asks for ID the first time.</span>
+          </span>
+        </a>
+      </sc-if>
+
+      <sc-if value="{{ dexShow }}">
+        <a href="{{ dexUrl }}" target="_blank" rel="noopener" style="display:flex;gap:13px;align-items:flex-start;padding:14px;border-radius:18px;border:1px solid var(--color-divider);text-decoration:none;color:inherit" style-hover="border-color:var(--color-accent)">
+          <span aria-hidden="true" style="font-size:19px;line-height:1.2;flex:none">🔁</span>
+          <span style="flex:1;min-width:0">
+            <span style="display:block;font-family:var(--font-heading);font-size:15px;margin-bottom:3px">Swap some sBTC for STX ↗</span>
+            <span class="text-muted" style="display:block;font-size:12.5px;line-height:1.5">You are already holding sBTC — that is what you came to deposit. Swapping a little
+              of it on a DEX needs no card and no account, and settles in a block or two. Remember to leave enough sBTC for the deposit itself.</span>
+          </span>
+        </a>
+      </sc-if>
+
+      <sc-if value="{{ topUpFaucet }}">
+        <p class="text-muted" style="margin:0;font-size:12.5px;line-height:1.5">This is not mainnet, so there is nothing to buy and nothing worth swapping —
+          the faucets on this page are where testnet STX comes from.</p>
+      </sc-if>
+
+      <p class="text-muted" style="margin:0;font-size:12.5px;line-height:1.5">Your amount is still in the field. Come back when the STX lands and press Deposit.</p>
     </div>
   </div>
 </sc-if>

@@ -88,6 +88,10 @@ for (const site of SITES) {
       // to Hiro directly, anonymously. `API_PROXY=` in the environment overrides
       // both, for a build that is deployed somewhere else again.
       `--define:__API_PROXY__=${API_PROXY}`,
+      // The MoonPay partner key, from the deploy's environment. Empty is the
+      // normal case for a local build, and the card falls back to MoonPay's
+      // public STX page rather than to a widget that would only error.
+      `--define:__MOONPAY_KEY__=${JSON.stringify(process.env.MOONPAY_KEY ?? "")}`,
       `--define:__EMILY_PROXY__=${EMILY_PROXY}`,
     ],
     { stdio: "inherit" },

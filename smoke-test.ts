@@ -205,7 +205,7 @@ const scope: Record<string, unknown> = {
     cancelExit: () => {},
   },
   stage: {
-    label: "Deposits open · bond 3 starts in 10d 7h",
+    label: "Deposits for Bond 3 open the next 10 days 7 hours",
     bg: "var(--color-accent-2-200)",
     fg: "var(--color-accent-2-800)",
     dot: "var(--color-accent-2-600)",
@@ -259,12 +259,13 @@ const scope: Record<string, unknown> = {
     { name: "mainnet", label: "mainnet", note: "not deployed", bg: "transparent", fg: "#201e1d", choose: () => {} },
   ],
   poolShow: true,
-  poolName: "vault-2",
-  poolContract: "STFCGF789WX1B737VQYAQ6BG3QYVMJGPDJN4TJFM.vault-2",
-  poolLink: "https://explorer.hiro.so/txid/STFCGF789WX1B737VQYAQ6BG3QYVMJGPDJN4TJFM.vault-2?chain=testnet",
+  poolName: "vault-3",
+  poolContract: "STFCGF789WX1B737VQYAQ6BG3QYVMJGPDJN4TJFM.vault-3",
+  poolLink: "https://explorer.hiro.so/txid/STFCGF789WX1B737VQYAQ6BG3QYVMJGPDJN4TJFM.vault-3?chain=testnet",
   retiredShow: true,
-  retiredName: "vault-1",
-  retiredContract: "STFCGF789WX1B737VQYAQ6BG3QYVMJGPDJN4TJFM.vault-1",
+  retiredName: "vault-2",
+  retiredHref: "v2/index.html",
+  retiredContract: "STFCGF789WX1B737VQYAQ6BG3QYVMJGPDJN4TJFM.vault-2",
 };
 
 const template = document.getElementById("tpl") as unknown as HTMLTemplateElement | null;
@@ -354,12 +355,12 @@ check(
 // still has to be named in the text and reachable in full, which is the part
 // a reader depends on.
 check(
-  text.includes("vault-2") &&
-    out.includes("STFCGF789WX1B737VQYAQ6BG3QYVMJGPDJN4TJFM.vault-2"),
+  text.includes("vault-3") &&
+    out.includes("STFCGF789WX1B737VQYAQ6BG3QYVMJGPDJN4TJFM.vault-3"),
   "the live page names the vault it talks to, and links it in full",
 );
 check(
-  out.includes('href="v1/index.html"'),
+  out.includes('href="v2/index.html"'),
   "and points a member with a position in the retired one at its page",
 );
 
@@ -1453,10 +1454,12 @@ if (entryFile) {
   // that can be read backwards, ~83 kB once the route was scoped to the account
   // holding it, ~88 kB once the bond's run-up was drawn as a ring, ~89 kB once
   // the network claims stopped being static copy and became a sentence chosen
-  // per chain) and should be read as "something heavy leaked" rather than "the
-  // page got bigger".
+  // per chain, ~92 kB once the STX leg could say the member cannot afford it and
+  // offer two ways to fix that, ~94 kB once the transaction toast became a card
+  // with a bee on it that follows the transaction into the block) and should be
+  // read as "something heavy leaked" rather than "the page got bigger".
   check(
-    eagerBytes < 92_000,
+    eagerBytes < 96_000,
     `initial load is ${(eagerBytes / 1024).toFixed(1)} kB of ${(totalBytes / 1024).toFixed(0)} kB built`,
   );
   check(
@@ -1504,10 +1507,13 @@ const v1App = readFileSync("v1/src/app.ts", "utf8");
 const v1Config = readFileSync("v1/src/config.ts", "utf8");
 const rootConfig = readFileSync("src/config.ts", "utf8");
 
-check(/pool: "vault-2"/.test(rootConfig), "the live page is pointed at vault-2");
-check(/retired: "vault-1"/.test(rootConfig), "and knows which vault it replaced");
+check(/pool: "vault-3"/.test(rootConfig), "the live page is pointed at vault-3");
+check(
+  /retired: "vault-2"/.test(rootConfig) && /retiredPage: "v2\/index\.html"/.test(rootConfig),
+  "and knows which vault it replaced, and which page that one lives on",
+);
 check(/pool: "vault-1"/.test(v1Config), "v1/ is pointed at vault-1");
-check(/successor: "vault-2"/.test(v1Config), "and knows where the live one is");
+check(/successor: "vault-3"/.test(v1Config), "and knows where the live one is");
 
 // Mainnet. The contracts are published and bound to the genesis bond, so the
 // page opens on mainnet rather than on the rehearsal -- and the four names have
@@ -1552,6 +1558,36 @@ for (const [file, text] of [
     `${file} makes no static claim about which chain it is on`,
   );
 }
+
+// Epochs are counted, not indexed, wherever a reader sees one.
+//
+// The two contracts disagree on purpose: the pool keys its `epochs` map from 0
+// and the DAO's `current-epoch` reports the count from 1. The page read the
+// first in its headline tile and the second on the vote floor beneath it, so a
+// staked pool said "Epoch 0" and "epoch 1" at once. Nothing here may go back to
+// the raw index.
+for (const file of ["src/app.ts", "v1/src/app.ts", "v2/src/app.ts"]) {
+  const source = readFileSync(file, "utf8");
+  check(
+    !/statEpoch: live \? String\(live\.epoch\)/.test(source) &&
+      /statEpoch: live\s*\n\s*\? String\(num\(state\.pool\?\.config\?\.\["epoch-count"\]/.test(source),
+    `${file} shows the epoch count, not the pool's 0-based index`,
+  );
+}
+check(
+  /index: String\(epoch\.index \+ 1\)/.test(readFileSync("src/analytics.ts", "utf8")),
+  "and the analytics table counts them the same way",
+);
+
+// The toast is laid out with `display: flex`, which is an author rule, while
+// `hidden` is only a UA one -- so the rule silently beat the attribute and the
+// bar could not hide. What was left on screen was its close button, alone, over
+// everything else on the page. Author styles have to hand `hidden` back.
+const css = readFileSync("styles.css", "utf8");
+check(
+  /#notice\[hidden\]\s*\{[^}]*display:\s*none/.test(css),
+  "the transaction toast can still be hidden, despite being a flex row",
+);
 
 // Nothing this page signs may ask for permission to move anything at all.
 // Every call either names what the member sends, or says that they send
@@ -1606,13 +1642,13 @@ const v1Scope: Record<string, unknown> = {
   poolName: "vault-1",
   poolContract: "STFCGF789WX1B737VQYAQ6BG3QYVMJGPDJN4TJFM.vault-1",
   poolLink: "https://explorer.hiro.so/txid/STFCGF789WX1B737VQYAQ6BG3QYVMJGPDJN4TJFM.vault-1?chain=testnet",
-  successor: "vault-2",
+  successor: "vault-3",
   bridge: { reveal: () => {}, confirm: () => {}, cancel: () => {} },
   exit: {
     contract: "STFCGF789WX1B737VQYAQ6BG3QYVMJGPDJN4TJFM.vault-1",
     contractName: "vault-1",
     contractLink: "https://explorer.hiro.so/txid/STFCGF789WX1B737VQYAQ6BG3QYVMJGPDJN4TJFM.vault-1",
-    successor: "vault-2",
+    successor: "vault-3",
     connected: true, disconnected: true, connect: () => {},
     wrongNetwork: true, networkWarning: "Your wallet is a mainnet address",
     unstakedSats: "0.1000 BTC", unstakedUstx: "5.00 STX",
@@ -1687,10 +1723,10 @@ if (built("dist/v1")) {
   // condition at the contract everyone is leaving.
   const livePools = poolOf("dist");
   check(
-    livePools.indexOf("vault-2") !== -1 &&
-      (livePools.indexOf("vault-1") === -1 ||
-        livePools.indexOf("vault-2") < livePools.indexOf("vault-1")),
-    "while the live page's bundle leads with vault-2",
+    livePools.indexOf("vault-3") !== -1 &&
+      (livePools.indexOf("vault-2") === -1 ||
+        livePools.indexOf("vault-3") < livePools.indexOf("vault-2")),
+    "while the live page's bundle leads with vault-3",
   );
 } else {
   ok.push("skipped v1 bundle checks (run `pnpm run build` first)");
@@ -1714,8 +1750,8 @@ check(
   "and at the `-2` DAO and bridge that went with it",
 );
 check(
-  /successor: "esbee-dao-bond-staker-1"/.test(v2Config),
-  "and knows the pool that replaced it is mainnet's",
+  /successor: "vault-3"/.test(v2Config),
+  "and knows the live testnet pool is vault-3",
 );
 // The reason there are three pages is that they are three contracts. Two of
 // them pointed at the same vault would be two pages competing to spend one

@@ -77,6 +77,16 @@ interface State {
   loading: boolean;
   failed: string;
   sheet: Sheet;
+  /**
+   * Whether the backup sheet is actually showing the secret.
+   *
+   * Opening a sheet called "Back up this key" is not the same as asking for the
+   * key to be on screen. The sheet gets opened in rooms, on trains, and on a
+   * shared screen, and a secret that anyone holding it can write as you should
+   * not arrive uninvited -- so it starts covered every time and takes a
+   * deliberate press to uncover.
+   */
+  nsecShown: boolean;
   notice: string;
   busy: string;
   lastSeen: number;
@@ -87,6 +97,14 @@ interface State {
 const STORE_SEEN = "esbee:chat:seen";
 const STORE_NAME = "esbee:chat:name";
 const SHOWN = 200;
+
+/**
+ * What stands in for the secret key while it is covered.
+ *
+ * `nsec1` and then a fixed run of dots: enough for a reader to recognise what
+ * is behind the cover, and not so much as to say how long the real one is.
+ */
+const NSEC_MASK = `nsec1${"•".repeat(26)}`;
 
 const state: State = {
   open: false,
@@ -106,6 +124,7 @@ const state: State = {
   loading: true,
   failed: "",
   sheet: "none",
+  nsecShown: false,
   notice: "",
   busy: "",
   lastSeen: Number(localStorage.getItem(STORE_SEEN) ?? 0) || Math.floor(Date.now() / 1000),
@@ -871,9 +890,18 @@ function viewModel(): Scope {
     verifyLabel: !h?.account ? "Connect a wallet to verify" : known ? "Verify again" : "Verify with your wallet",
     verify: () => (h?.account ? void verify() : h?.openWallet()),
     openBring: () => setState({ sheet: "bring", notice: "" }),
-    openBackup: () => setState({ sheet: "backup", notice: "" }),
+    openBackup: () => setState({ sheet: "backup", nsecShown: false, notice: "" }),
     canBackup: Boolean(nsec),
-    nsec,
+    // Masked by default, and the mask is a fixed shape rather than the real
+    // one: a row of dots as long as the key would quietly publish its length.
+    nsecText: state.nsecShown ? nsec : NSEC_MASK,
+    nsecShown: state.nsecShown,
+    nsecHidden: !state.nsecShown,
+    toggleNsec: () => setState({ nsecShown: !state.nsecShown }),
+    revealLabel: state.nsecShown ? "Hide the secret key" : "Show the secret key",
+    // Copy works while it is still covered, which is the safer order: a member
+    // can put the key straight into a password manager without it ever having
+    // been on screen.
     copyNsec: () => void copy(nsec, "Secret key"),
     newKey: () => {
       if (confirm("Start over with a new key? Messages you sent stay under the old one, and it is gone from this browser unless you backed it up.")) {
