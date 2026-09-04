@@ -29,6 +29,7 @@
 // same code -- the two bridges on testnet already differ -- and a section that
 // cannot be read is left out rather than shown broken.
 import { mountInto, type Scope } from "./render.js";
+import { mountNav } from "./nav.js";
 import {
   SWITCHABLE,
   blockMinutes,
@@ -1360,8 +1361,11 @@ function viewModel(): Scope {
 function render(): void {
   const template = document.getElementById("tpl") as HTMLTemplateElement | null;
   const mount = document.getElementById("app");
+  const navMount = document.getElementById("nav");
   if (!template || !mount) return;
-  mountInto(template, mount, viewModel());
+  const scope = viewModel();
+  if (navMount) mountNav("analytics", navMount, scope);
+  mountInto(template, mount, scope);
 
   const bar = document.getElementById("notice");
   if (bar) {

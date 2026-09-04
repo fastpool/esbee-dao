@@ -52,7 +52,10 @@ const SITES = [
   {
     entries: [join(root, "src", "app.ts"), join(root, "src", "analytics.ts")],
     dir: out,
-    pages: ["index.html", "media-kit.html", "analytics.html"],
+    // `app.html` runs the same `app.ts` as `index.html`: one bundle, two
+    // templates, the deposit card living on the page a member goes to in order
+    // to use it.
+    pages: ["index.html", "app.html", "media-kit.html", "analytics.html"],
   },
   // One entry per retired vault. Each is a page about money a contract still
   // holds, so they are built separately rather than folded into the live

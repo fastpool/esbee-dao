@@ -335,6 +335,129 @@ textarea.input { min-height: 90px; resize: vertical; }
 
 
 /* ══════════════════════════════════════════════════════════════════════════
+   The site header — src/nav.ts renders it into #nav on every page.
+   ══════════════════════════════════════════════════════════════════════ */
+/* Two bars, and the split is the point. The top one is where you are and who
+   you are -- the three pages and the wallet -- and it never wraps, so the
+   wallet button cannot fall onto a line of its own. The bottom one is what the
+   page is made of and what it is reading: its sections, the network, the
+   vault. Those were all in the top bar, and between them the contract name
+   (twenty monospace characters) and the network switcher took more width than
+   the nav did, which is what pushed the wallet down on a 1280px laptop.
+
+   On a phone only the top bar sticks. A 232px header on a 780px screen was
+   spending a third of the viewport on furniture the reader had already read;
+   the sections scroll away with the page and come back at the top of it. */
+/* `position: sticky` never leaves its parent's box, and `#nav` is exactly as
+   tall as the header inside it -- so the header would scroll away with the
+   mount that holds it and stick to nothing. `display: contents` drops that box
+   and hands the sticky element the page to travel down. */
+#nav { display: contents; }
+.site-head { position: sticky; top: 0; z-index: 40; }
+.site-bar, .site-sub {
+  background: color-mix(in srgb, var(--color-bg) 88%, transparent);
+  backdrop-filter: blur(12px);
+  border-bottom: 1px solid color-mix(in srgb, var(--color-text) 8%, transparent);
+}
+.site-bar-in, .site-sub-in {
+  max-width: 1240px; margin: 0 auto;
+  padding: 10px clamp(20px, 4vw, 40px);
+  display: flex; align-items: center;
+}
+.site-bar-in { gap: clamp(10px, 2vw, 22px); min-height: 36px; }
+.site-brand {
+  display: flex; align-items: center; gap: 10px; flex: none;
+  text-decoration: none; color: var(--color-text);
+}
+.site-brand:hover { color: var(--color-text); }
+.site-brand-name { font-family: var(--font-heading); font-size: 21px; letter-spacing: -0.01em; }
+
+/* The nav takes the slack, and gives it back by scrolling rather than
+   wrapping: a second row of links is a second row of header. */
+.site-nav {
+  display: flex; align-items: center; gap: clamp(10px, 2vw, 22px);
+  flex: 1 1 auto; min-width: 0; font-size: 14px;
+  overflow-x: auto; scrollbar-width: none; -ms-overflow-style: none;
+}
+.site-nav::-webkit-scrollbar { display: none; }
+.site-nav a { text-decoration: none; color: var(--color-text); white-space: nowrap; }
+.site-nav a:hover { color: var(--color-accent-700); }
+.site-nav .btn { font-size: 13.5px; padding: 6px 14px; }
+/* The page you are on, said twice: in the colour and in the rule under it.
+   Colour alone is not a state anyone can see in greyscale, and roughly one
+   man in twelve reads accent and text as the same brown. */
+.site-nav a[aria-current="page"] {
+  color: var(--color-accent);
+  box-shadow: inset 0 -2px 0 var(--color-accent);
+}
+.site-nav .btn[aria-current="page"] { box-shadow: none; }
+.site-wallet { flex: none; font-size: 14px; padding: 8px 16px; white-space: nowrap; }
+
+.site-sub-in { gap: clamp(10px, 2vw, 18px); font-size: 13px; padding-block: 6px; overflow-x: auto; }
+.site-sub-links, .site-ctx { display: flex; align-items: center; gap: clamp(8px, 1.6vw, 14px); }
+.site-sub-links a {
+  text-decoration: none; color: var(--color-text); white-space: nowrap; opacity: 0.62;
+}
+.site-sub-links a:hover { opacity: 1; color: var(--color-accent-700); }
+.site-ctx { flex: none; margin-left: auto; }
+.site-ctx .seg-opt { padding: 4px 11px; font-size: 12.5px; }
+.site-contract {
+  white-space: nowrap; text-decoration: none;
+  font-family: ui-monospace, monospace; font-size: 11.5px;
+}
+
+/* Anchors land below the header rather than under it. The two numbers are the
+   header's own height plus air, and they differ because on a phone only the
+   top bar is still there when the jump lands. */
+[id] { scroll-margin-top: 112px; }
+
+@media (max-width: 719px) {
+  [id] { scroll-margin-top: 70px; }
+  /* Same reason as `#nav` above: it is `.site-bar` that sticks down here, and
+     it cannot do it from inside a box its own height. */
+  .site-head { display: contents; }
+  .site-bar { position: sticky; top: 0; z-index: 40; }
+  /* The mark carries the brand once the wordmark stops fitting beside three
+     links and a wallet button. */
+  .site-brand-name { display: none; }
+  /* Two pills side by side read as two buttons, and only one of them is the
+     action. Down here Participate is a link like its neighbours. */
+  .site-nav .btn {
+    padding: 0; border: 0; background: none; font: inherit; font-size: 14px;
+    color: var(--color-text);
+  }
+  .site-nav .btn:hover { background: none; color: var(--color-accent-700); }
+  .site-nav .btn[aria-current="page"] {
+    color: var(--color-accent); box-shadow: inset 0 -2px 0 var(--color-accent);
+  }
+  .site-wallet { font-size: 13px; padding: 7px 13px; }
+  /* Nothing is pushed to the right on a strip that scrolls, and the fade says
+     the strip scrolls. */
+  .site-ctx { margin-left: 4px; }
+  .site-sub-in { mask-image: linear-gradient(to right, #000 calc(100% - 24px), transparent); }
+}
+
+/* Three links and a wallet button stop fitting somewhere around here. Every
+   number below buys back a few pixels so that a 390px phone -- which is most
+   of them -- still shows all three whole. Narrower than that the row scrolls,
+   and the fade on its right edge is what says so: a link cut off against a
+   hard edge reads as broken, the same link fading out reads as more. */
+@media (max-width: 460px) {
+  .site-bar-in, .site-sub-in { padding-inline: 14px; }
+  .site-bar-in { gap: 8px; }
+  .site-nav { gap: 8px; font-size: 13px; }
+  .site-nav .btn { font-size: 13px; }
+  .site-wallet { font-size: 12.5px; padding: 6px 12px; }
+}
+/* 390px is where the three fit exactly. Below it the row scrolls, and the fade
+   on its right edge is what says so: a link cut off against a hard edge reads
+   as broken, the same link fading out reads as more. */
+@media (max-width: 389px) {
+  .site-nav { mask-image: linear-gradient(to right, #000 calc(100% - 24px), transparent); }
+}
+
+
+/* ══════════════════════════════════════════════════════════════════════════
    The discussion panel — src/chat.ts renders it from #chat-tpl.
    ══════════════════════════════════════════════════════════════════════ */
 /* ── the transaction toast ────────────────────────────────────────────────

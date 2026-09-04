@@ -16,18 +16,24 @@ const ok: string[] = [];
 const check = (cond: unknown, label: string) => (cond ? ok : fail).push(label);
 
 const html = readFileSync("index.html", "utf8");
+// The deposit card is a page of its own now, rendered by this same view model
+// from a template of its own -- so its bindings are the same question, asked of
+// the same source, and are checked together with the home page's.
+const joinHtml = readFileSync("app.html", "utf8");
 const appSource = readFileSync("src/app.ts", "utf8");
 const chatSource = readFileSync("src/chat.ts", "utf8");
+const navSource = readFileSync("src/nav.ts", "utf8");
 
 /// --- 1. every binding the design uses is supplied ---------------------------
 
 // Roots of every `{{ … }}` in the template, minus the loop variables the
 // runtime introduces itself.
+const bothPages = `${html}\n${joinHtml}`;
 const loopVars = new Set(
-  [...html.matchAll(/<sc-for[^>]*\sas="([^"]+)"/g)].map((m) => m[1]),
+  [...bothPages.matchAll(/<sc-for[^>]*\sas="([^"]+)"/g)].map((m) => m[1]),
 );
 const roots = new Set(
-  [...html.matchAll(/\{\{([^}]*)\}\}/g)]
+  [...bothPages.matchAll(/\{\{([^}]*)\}\}/g)]
     .map((m) => m[1].trim().split(".")[0])
     .filter((r) => r && r !== "true" && r !== "false" && !loopVars.has(r)),
 );
@@ -84,6 +90,14 @@ const scope: Record<string, unknown> = {
   statSats: "0", statEpoch: "—", statHoney: "0",
   statEpochNote: "bond 3 bound, not yet staked",
   connected: true, disconnected: false, walletOpen: true,
+  posShow: true,
+  joinCta: "Your position →",
+  position: [
+    { label: "queued", value: "10,000,000 sats" },
+    { label: "committed", value: "0 sats" },
+    { label: "released", value: "0 sats" },
+    { label: "honey", value: "0 sats" },
+  ],
   walletLabel: "SP2J8XK…9K4T",
   profileAddress: "ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM",
   switchAccount: () => {},
@@ -107,10 +121,10 @@ const scope: Record<string, unknown> = {
     connect: () => {},
     closedWhy: "closed because", depositTo: "ST1.bond-treasury",
     quote: "10,000,000 sats needs 5.00 STX", balance: "1.0000 BTC",
-    amount: "10000000", amountLabel: "Amount in sats", placeholder: "10000000",
-    satsFg: "var(--color-text)", satsLine: "underline",
-    sbtcFg: "var(--color-neutral-700)", sbtcLine: "none",
-    showSats: () => {}, showSbtc: () => {}, useMax: () => {}, maxHint: "use all",
+    amount: "10000000", placeholder: "10000000",
+    unitLabel: "sats", unitHint: "Written in sats", toggleUnit: () => {},
+    altAmount: "= 0.1 BTC",
+    useMax: () => {}, maxHint: "use all",
     useBtcMax: () => {}, btcMaxHint: "use all",
     underway: true, underwayNote: "This deposit is already committed to on chain",
     pickCursor: "default",
@@ -277,11 +291,164 @@ for (const node of renderChildren(template!.content, scope, document as unknown 
 }
 const out = mount!.innerHTML;
 
+// The nav is rendered separately by mountNav, not as part of the main template.
+const { mountNav } = await import("./src/nav.js");
+const navEl = document.createElement("div");
+mountNav("home", navEl as unknown as Element, scope);
+const navOut = navEl.innerHTML;
+const navText = navEl.textContent!.replace(/\s+/g, " ");
+
+/// --- 2b. the header, on all three pages ------------------------------------
+
+// The header is two bars and the split is load-bearing. Everything that is
+// wide -- the contract name, the network switcher -- lives on the lower one,
+// so that the upper one holds the wallet button on a single line at any width;
+// putting either of them back beside the wallet is what pushed it onto a row
+// of its own on a 1280px laptop, and onto a 232px stack on a phone.
+for (const page of ["home", "analytics", "participate"] as const) {
+  const el = document.createElement("div");
+  mountNav(page, el as unknown as Element, scope);
+  const bar = el.querySelector(".site-bar");
+  const sub = el.querySelector(".site-sub");
+  check(Boolean(bar) && Boolean(sub), `${page}: the header is a bar and a context strip`);
+  check(
+    bar!.querySelectorAll(".site-wallet").length === 1 &&
+      !bar!.querySelector(".seg") &&
+      !bar!.querySelector(".site-contract"),
+    `${page}: the top bar carries the wallet, and nothing wide beside it`,
+  );
+  check(
+    Boolean(sub!.querySelector(".seg")) && Boolean(sub!.querySelector(".site-contract")),
+    `${page}: the network and the contract are on the strip below`,
+  );
+  // Exactly one link says it is the page you are on -- and it says so with an
+  // underline as well as a colour, which `styles.css` draws off this attribute.
+  check(
+    el.querySelectorAll('.site-nav a[aria-current="page"]').length === 1,
+    `${page}: one nav link is marked as the current page`,
+  );
+  check(
+    el.querySelectorAll(".site-nav a").length === 3,
+    `${page}: and the site nav is the three pages, not four`,
+  );
+}
+
+// The mark on the page you are already on scrolls; anywhere else it navigates.
+const brandHref = (page: "home" | "analytics" | "participate"): string => {
+  const el = document.createElement("div");
+  mountNav(page, el as unknown as Element, scope);
+  return el.querySelector(".site-brand")!.getAttribute("href")!;
+};
+check(brandHref("home") === "#top", "the mark scrolls to the top of the home page");
+check(
+  brandHref("analytics") === "index.html" && brandHref("participate") === "index.html",
+  "and goes home from the other two",
+);
+
+// The sub-nav is the sections of the page it is on, and they have to exist.
+const sectionIds = (markup: string): Set<string> =>
+  new Set([...markup.matchAll(/\sid="([^"]+)"/g)].map((m) => m[1]));
+for (const [page, markup] of [["home", html], ["analytics", readFileSync("analytics.html", "utf8")]] as const) {
+  const el = document.createElement("div");
+  mountNav(page, el as unknown as Element, scope);
+  const ids = sectionIds(markup);
+  const links = [...el.querySelectorAll(".site-sub-links a")].map((a) => a.getAttribute("href")!);
+  check(links.length > 0, `${page}: the strip lists the page's sections`);
+  check(
+    links.every((h) => h.startsWith("#") && ids.has(h.slice(1))),
+    `${page}: and every one of them lands on a section that is there`,
+  );
+}
+
+// The header is 99px on a laptop and 55px on a phone, and an anchor that lands
+// under it lands on nothing. The offsets are in `styles.css`, once, rather
+// than inline on each heading where they went stale.
+const headCss = readFileSync("styles.css", "utf8");
+check(headCss.includes("[id] { scroll-margin-top:"), "anchors clear the sticky header");
+check(
+  !/scroll-margin-top/.test(html) && !/scroll-margin-top/.test(joinHtml),
+  "and no page still carries its own stale offset",
+);
+
 check(out.length > 20_000, `rendered ${out.length} bytes of markup`);
 check(!out.includes("{{"), "no unresolved mustaches remain");
 check(!/<sc-(for|if)/.test(out), "no unresolved sc-for / sc-if remain");
 check(!out.includes("hint-placeholder"), "canvas-only hint attributes are dropped");
 check(!out.includes("__claude_design_branding"), "canvas branding is not present");
+
+/// --- 2a. the deposit page ---------------------------------------------------
+
+// `app.html` is where the join lives now: the amount, both routes, the position
+// and the way out, rendered by the same bundle and the same view model as the
+// home page from a template of its own. Everything asserted about the deposit
+// below is asserted against this page, because that is the page it is on.
+const joinDom = parseHTML(joinHtml);
+const joinDoc = joinDom.document as unknown as Document;
+const joinTemplate = joinDom.document.getElementById("tpl") as unknown as HTMLTemplateElement | null;
+const joinMount = joinDom.document.getElementById("app");
+check(Boolean(joinTemplate) && Boolean(joinMount), "app.html has #tpl and #app");
+check(
+  Boolean(joinDom.document.getElementById("notice")),
+  "and a notice bar outside its template, so a re-render cannot clear it",
+);
+for (const node of renderChildren(joinTemplate!.content, scope, joinDoc)) {
+  joinMount!.appendChild(node);
+}
+const joinOut = joinMount!.innerHTML;
+const joinText = joinMount!.textContent!.replace(/\s+/g, " ");
+check(joinOut.length > 10_000, `the deposit page rendered ${joinOut.length} bytes of markup`);
+check(!joinOut.includes("{{"), "no unresolved mustaches on the deposit page");
+check(!/<sc-(for|if)/.test(joinOut), "no unresolved sc-for / sc-if on the deposit page");
+check(!joinOut.includes("sc-camel-"), "and no sc-camel-* attributes survive there either");
+
+// The two pages divide the visit: one explains the pool, the other is where a
+// member acts on it. A deposit field left behind on the home page would be a
+// second one, reading the same state through a second set of ids.
+check(!mount!.querySelector("#join-sats"), "the home page no longer carries the amount field");
+check(
+  !mount!.textContent!.includes("Withdraw queued") &&
+    !mount!.textContent!.includes("claimable principal"),
+  "nor the position card and its claims, which went with it",
+);
+check(html.includes('href="app.html"'), "and it points at the page they went to");
+
+// The account dialog is titled "Your account" and its buttons are Close,
+// Disconnect and Switch account. Opened by somebody with no wallet connected
+// it is an empty address, four zeros and a Disconnect button -- a dead end.
+// So the Connect button beside the sBTC balance, which is only on the page
+// while disconnected, has to raise the wallet's own prompt instead.
+check(
+  /connect: \(\) => void doConnect\(\),/.test(appSource),
+  "the deposit card's Connect button raises the wallet prompt, not the account dialog",
+);
+check(
+  !/connect: \(\) => setState\(\{ walletOpen: true \}\)/.test(appSource),
+  "and never the account dialog, which has no way to connect in it",
+);
+
+// The position card and the deposit card are the same colour on the same
+// section. Touching, they read as one card with a rule through it.
+{
+  const between = joinHtml.slice(
+    joinHtml.indexOf("Your position"),
+    joinHtml.indexOf('id="join-sats"'),
+  );
+  check(
+    /<div style="height:clamp\([^"]*\)"><\/div>\s*<\/sc-if>/.test(between),
+    "and it is set off from the position above it, when there is one",
+  );
+}
+
+// Bitflow's own mark rather than a generic arrows emoji, cropped to the mark:
+// the wordmark that ships beside it in their brand file is not wanted here.
+check(
+  joinHtml.includes('fill="#00D1AC"') && !joinHtml.includes("🔁"),
+  "the swap route wears Bitflow's mark",
+);
+check(
+  navSource.includes('"index.html"') && navSource.includes('"#pool"') && navSource.includes('"#trust"'),
+  "which points back at what explains them",
+);
 
 /// --- 3. the design's content actually survived --------------------------------
 
@@ -348,10 +515,10 @@ check(
 // logo as a file, and bitcoin's as the mark bitcoin.org put in the public
 // domain, drawn inline so it costs no request and stays sharp at any size.
 check(
-  out.includes('src="icons/sbtc.png"') && built("icons/sbtc.png"),
+  joinOut.includes('src="icons/sbtc.png"') && built("icons/sbtc.png"),
   "the sBTC balance carries the sBTC logo",
 );
-check(out.includes("#F7931A"), "and the bitcoin balance carries bitcoin's own");
+check(joinOut.includes("#F7931A"), "and the bitcoin balance carries bitcoin's own");
 
 // The card talks about the reclaim lock before `l1.ts` is loaded, so it keeps
 // its own copy of the number. Two copies of a constant is one too many unless
@@ -376,12 +543,12 @@ check(
 // still has to be named in the text and reachable in full, which is the part
 // a reader depends on.
 check(
-  text.includes("vault-3") &&
-    out.includes("STFCGF789WX1B737VQYAQ6BG3QYVMJGPDJN4TJFM.vault-3"),
+  navText.includes("vault-3") &&
+    navOut.includes("STFCGF789WX1B737VQYAQ6BG3QYVMJGPDJN4TJFM.vault-3"),
   "the live page names the vault it talks to, and links it in full",
 );
 check(
-  out.includes('href="v2/index.html"'),
+  joinOut.includes('href="v2/index.html"'),
   "and points a member with a position in the retired one at its page",
 );
 
@@ -389,11 +556,11 @@ check(
 // one address -- and only then asks which way the member is paying. So the
 // route-specific halves are behind a choice, and the phrases below are checked
 // against a render that has made it.
-const routed = document.createElement("div");
+const routed = joinDom.document.createElement("div");
 for (const node of renderChildren(
-  template!.content,
+  joinTemplate!.content,
   { ...scope, join: { ...(scope.join as object), l1Route: true, unchosen: false } },
-  document as unknown as Document,
+  joinDoc,
 )) {
   routed.appendChild(node);
 }
@@ -402,10 +569,10 @@ const routedText = routed.textContent!.replace(/\s+/g, " ");
 // The join controls the member actually presses. `btc-sats` is deliberately
 // absent: there is one amount field now, because the STX leg is the same
 // number whichever way the sats arrive.
-for (const id of ["join-sats", "join-quote", "btc-address"]) {
-  check(Boolean(mount!.querySelector(`#${id}`)), `the join form has #${id}`);
+for (const id of ["join-sats", "join-unit", "join-alt", "join-quote", "btc-address"]) {
+  check(Boolean(joinMount!.querySelector(`#${id}`)), `the join form has #${id}`);
 }
-check(!mount!.querySelector("#btc-sats"), "and asks the amount once, not once per route");
+check(!joinMount!.querySelector("#btc-sats"), "and asks the amount once, not once per route");
 for (const id of ["btc-txid", "btc-vout"]) {
   check(Boolean(routed.querySelector(`#${id}`)), `the L1 route has #${id}`);
 }
@@ -425,7 +592,7 @@ check(
 // Bridge v2 commits to the address the bitcoin comes from, not to the
 // transaction -- so the card asks for an address and an amount up front, and
 // its third step is a deposit this page can actually make.
-check(text.includes("Your bitcoin address"), 'the card asks "Your bitcoin address" before the choice');
+check(joinText.includes("Your bitcoin address"), 'the card asks "Your bitcoin address" before the choice');
 // A cancelled or replaced route must not leave its deposit attached to the
 // next one, or the card waits on a transaction that has nothing to do with the
 // commitment now standing.
@@ -473,19 +640,27 @@ check(text.includes("Your bitcoin address"), 'the card asks "Your bitcoin addres
   );
 }
 
-// The header is sticky, and stays that way only while nothing above it makes a
-// scroll container: `overflow-x: hidden` on an ancestor is enough to make a
-// sticky descendant stick to that ancestor instead of the viewport, which
-// looks exactly like the sticky never being there.
+// The header is sticky, and stays that way only while nothing around it takes
+// the travel away. Two things can: `overflow-x: hidden` on an ancestor makes it
+// stick to that ancestor instead of the viewport, and a parent box no taller
+// than the header itself leaves it nowhere to stick *to* -- which is what the
+// `#nav` mount would be, being exactly the header's height. Both look exactly
+// like the sticky never having been there.
+for (const page of ["index.html", "app.html"]) {
+  check(
+    /min-height:100vh;overflow-x:clip/.test(readFileSync(page, "utf8")),
+    `nothing above ${page}'s sticky header turns itself into a scroll container`,
+  );
+}
 check(
-  /min-height:100vh;overflow-x:clip/.test(readFileSync("index.html", "utf8")),
-  "nothing above the sticky header turns itself into a scroll container",
+  /#nav\s*\{[^}]*display:\s*contents/.test(headCss),
+  "and the mount it renders into is not a box it has to stick inside",
 );
 
 // A step's header carries the press that folds it; its body must not be inside
 // that header, or every Copy button and every disclosure inside an open step
 // bubbles up and closes the step the member was reading.
-const markup = readFileSync("index.html", "utf8");
+const markup = joinHtml;
 for (const n of [1, 2, 3, 4, 5]) {
   const from = markup.indexOf(`l1.s${n}.open`);
   const to = markup.indexOf(`l1.s${n}.now`);
@@ -529,9 +704,9 @@ check(
 // route: what it holds is finished, and a member reading it is not working the
 // deposit that is still open.
 check(
-  text.includes("Your deposits") &&
-    text.includes("Credited to the pool") &&
-    text.includes("0.5 BTC"),
+  joinText.includes("Your deposits") &&
+    joinText.includes("Credited to the pool") &&
+    joinText.includes("0.5 BTC"),
   "a member can see what they have done here before, with both transactions linked",
 );
 check(
@@ -539,9 +714,9 @@ check(
   "and it is not inside the route that made them",
 );
 // Step 4's own body, which needs the member to be standing on step 4.
-const waiting = document.createElement("div");
+const waiting = joinDom.document.createElement("div");
 for (const node of renderChildren(
-  template!.content,
+  joinTemplate!.content,
   {
     ...scope,
     join: { ...(scope.join as object), l1Route: true, unchosen: false },
@@ -551,7 +726,7 @@ for (const node of renderChildren(
       s4: { ...((scope.l1 as Record<string, any>).s4 as object), now: true, live: true },
     },
   },
-  document as unknown as Document,
+  joinDoc,
 )) {
   waiting.appendChild(node);
 }
@@ -568,10 +743,10 @@ check(
   routedText.includes("Give up and take the STX back"),
   "the way out is offered apart from the steps, not as one of them",
 );
-check(!text.includes("3 · Broadcast"), "and no longer calls the third step a broadcast");
+check(!joinText.includes("3 · Broadcast"), "and no longer calls the third step a broadcast");
 // Three legs, three faucets: a reader on testnet who holds none of them can
 // still work either route through to the end.
-check(text.includes("Get BTC"), "the L1 card offers the bitcoin faucet");
+check(joinText.includes("Get BTC"), "the L1 card offers the bitcoin faucet");
 // The faucet pays a bitcoin address, and Hiro's pays testnet ones. A page about
 // testnet that prompts for `bc1q…` is asking for a request that cannot succeed.
 const configSource = readFileSync("src/config.ts", "utf8");
@@ -598,7 +773,7 @@ check(
   "and a bitcoin txid links to a bitcoin explorer of its own",
 );
 check(
-  out.includes("mempool.bitcoin.regtest.hiro.so/tx/"),
+  joinOut.includes("mempool.bitcoin.regtest.hiro.so/tx/"),
   "the L1 card links the bitcoin it can see — the faucet's payment and the deposit",
 );
 const appSourceFaucets = readFileSync("src/app.ts", "utf8");
@@ -675,7 +850,7 @@ check(
 // Leaving mid-term is `vault-2`'s one new power, and the card is mostly about
 // what it costs -- so the costs are what is worth asserting, not the button.
 for (const id of ["early-sats", "early-hint"]) {
-  check(Boolean(mount!.querySelector(`#${id}`)), `the early exit has #${id}`);
+  check(Boolean(joinMount!.querySelector(`#${id}`)), `the early exit has #${id}`);
 }
 for (const phrase of [
   "Leave before the term is up",
@@ -685,10 +860,10 @@ for (const phrase of [
   "Sync rewards first",
   "released principal",
 ]) {
-  check(text.includes(phrase), `the early exit says "${phrase}"`);
+  check(joinText.includes(phrase), `the early exit says "${phrase}"`);
 }
 check(
-  mount!.querySelectorAll("button").length >= 8,
+  joinMount!.querySelectorAll("button").length >= 8,
   "deposit, withdraw, the three bridge steps and the claims are all buttons",
 );
 // Without this the marks keep their user-space size and get clipped -- a broken
@@ -832,7 +1007,7 @@ check(
 const { existsSync } = await import("node:fs");
 // `app.js` is a name the build resolves to a content-hashed file, so it is
 // checked against dist/ in the bundle section rather than here.
-const deadLinks = [...html.matchAll(/(?:href|src)="([^"]+)"/g)]
+const deadLinks = [...`${html}\n${joinHtml}`.matchAll(/(?:href|src)="([^"]+)"/g)]
   .map((m) => m[1])
   // A binding is a URL the view model supplies at render time; there is no file
   // on disk to check it against.
@@ -847,7 +1022,7 @@ check(deadLinks.length === 0, `no dead local links${deadLinks.length ? ` (${[...
 // The name is a word, not initials. Nothing on the site spells the S+B
 // derivation out -- not in the copy, not as a lockup, not in the mark's
 // description.
-const pages = ["index.html", "media-kit.html", "analytics.html", "v1/index.html"].map((f) =>
+const pages = ["index.html", "app.html", "media-kit.html", "analytics.html", "v1/index.html"].map((f) =>
   readFileSync(f, "utf8"),
 );
 for (const banned of ["S · B", "S-B", "S + B", "gives S and B", "an S and a B", "into initials"]) {
@@ -1479,9 +1654,10 @@ if (entryFile) {
   // offer two ways to fix that, ~94 kB once the transaction toast became a card
   // with a bee on it that follows the transaction into the block) and should be
   // read as "something heavy leaked" rather than "the page got bigger", ~98 kB
-  // once the vote floor could write a proposal as well as vote on one.
+  // once the vote floor could write a proposal as well as vote on one, ~103 kB
+  // once the shared nav component was extracted into src/nav.ts.
   check(
-    eagerBytes < 102_000,
+    eagerBytes < 110_000,
     `initial load is ${(eagerBytes / 1024).toFixed(1)} kB of ${(totalBytes / 1024).toFixed(0)} kB built`,
   );
   check(
@@ -1500,6 +1676,11 @@ if (entryFile) {
   const deployed = readFileSync("dist/index.html", "utf8");
   check(deployed.includes(`src="${entryFile}"`), "dist/index.html names the hashed entry");
   check(!deployed.includes('src="app.js"'), "and not the unhashed placeholder");
+  // The deposit page runs the *same* entry -- one bundle, two templates -- so a
+  // reader who followed the button from the home page downloads nothing twice.
+  const joinDeployed = readFileSync("dist/app.html", "utf8");
+  check(joinDeployed.includes(`src="${entryFile}"`), "dist/app.html names that same entry");
+  check(!joinDeployed.includes('src="app.js"'), "and not the unhashed placeholder either");
   // The keeper's page is a second entry beside it, hashed and rewritten the
   // same way -- and built from the same chunks, which is why it is one esbuild
   // call and not two.

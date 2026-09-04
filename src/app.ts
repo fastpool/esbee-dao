@@ -10,6 +10,7 @@
 // The fixtures are not invented state: every proposal below is one of the five
 // calls the contract actually has, and the copy describes what that call does.
 import { mountInto, type Scope } from "./render.js";
+import { mountNav, type Page } from "./nav.js";
 import {
   addressExample,
   apiBase,
@@ -1385,6 +1386,36 @@ const fromSats = (sats: number, unit: Unit): string =>
     : (sats / SATS_PER_BTC).toFixed(8).replace(/\.?0+$/, "");
 
 const satsField = (): number => toSats(field("join-sats"), state.unit);
+
+/**
+ * The same amount in the unit the field is *not* written in.
+ *
+ * The one check nobody can do in their head: sats and BTC are eight zeros
+ * apart, and a mistyped unit reads as a perfectly reasonable number either
+ * way. "" for an empty or nonsense field, so the line takes no room until
+ * there is something to say.
+ */
+const altText = (value: string): string => {
+  const sats = toSats(value, state.unit);
+  if (sats <= 0) return "";
+  return state.unit === "sats"
+    ? `= ${fromSats(sats, "sbtc")} BTC`
+    : `= ${fmt(sats)} sats`;
+};
+
+/**
+ * Change the unit under a caret, without a render.
+ *
+ * `switchUnit` goes through `setState`, which replaces the input the member is
+ * typing into and takes the caret with it -- fine for a button press, fatal
+ * mid-word. This writes the one thing on screen that has to change, and leaves
+ * the rest to the next render.
+ */
+function showUnit(unit: Unit): void {
+  state.unit = unit;
+  const label = document.getElementById("join-unit");
+  if (label) label.textContent = unit === "sats" ? "sats" : "BTC";
+}
 
 /**
  * Change what the field is written in without changing what it says.
@@ -2983,14 +3014,13 @@ interface JoinPanel {
   claimRewards: () => void;
   /** The amount field: what it is written in, and what is in it. */
   amount: string;
-  amountLabel: string;
   placeholder: string;
-  satsFg: string;
-  satsLine: string;
-  sbtcFg: string;
-  sbtcLine: string;
-  showSats: () => void;
-  showSbtc: () => void;
+  /** The unit, written inside the box and pressable to convert. */
+  unitLabel: string;
+  unitHint: string;
+  toggleUnit: () => void;
+  /** And the same amount in the other unit, for the render that draws it. */
+  altAmount: string;
   useMax: () => void;
   useBtcMax: () => void;
   maxHint: string;
@@ -3045,7 +3075,11 @@ function joinPanel(): JoinPanel {
     closed: !open,
     connected: state.connected,
     disconnected: !state.connected,
-    connect: () => setState({ walletOpen: true }),
+    // The wallet prompt, not the account dialog. This button is only on the
+    // page when there is no wallet connected, and the account dialog has
+    // nothing in it for that reader: an empty address, four zeros, and a
+    // Disconnect button. `openWallet` in the header makes the same choice.
+    connect: () => void doConnect(),
     closedWhy: !configured()
       ? "This page has no deployment configured, so nothing here would be sent."
       : !bond?.bound
@@ -3059,7 +3093,7 @@ function joinPanel(): JoinPanel {
       lockedSats() !== null
         ? `${written(lockedSats()!)} needs ${stx(lockedUstx() ?? 0)}`
         : state.quotedFor > 0
-          ? `${fmt(state.quotedFor)} sats needs ${stx(state.quotedUstx)}`
+          ? `${written(state.quotedFor)} needs ${stx(state.quotedUstx)}`
           : "enter an amount",
     balance: m ? btc(m.sbtc) : "—",
     // Past the commit the amount is the bridge's, not the field's. Said in
@@ -3118,18 +3152,18 @@ function joinPanel(): JoinPanel {
     hasReleased: releasedSats > 0,
     hasRewards: (m?.rewards ?? 0) > 0,
     amount: state.amount,
+    placeholder: state.unit === "sats" ? "10000000" : "0.1",
     // BTC rather than sBTC, whichever route is taken: the amount is bitcoin
     // either way, and sBTC is what it is wearing on this side of the bridge.
-    amountLabel: state.unit === "sats" ? "Amount in sats" : "Amount in BTC",
-    placeholder: state.unit === "sats" ? "10000000" : "0.1",
-    // A quiet pair of words rather than a control: which unit the field is in
-    // matters, but not as much as anything else on this card.
-    satsFg: state.unit === "sats" ? "var(--color-text)" : "var(--color-neutral-700)",
-    satsLine: state.unit === "sats" ? "underline" : "none",
-    sbtcFg: state.unit === "sbtc" ? "var(--color-text)" : "var(--color-neutral-700)",
-    sbtcLine: state.unit === "sbtc" ? "underline" : "none",
-    showSats: () => switchUnit("sats"),
-    showSbtc: () => switchUnit("sbtc"),
+    // Written in the box, because a unit stated anywhere else is a unit that
+    // can be typed past.
+    unitLabel: state.unit === "sats" ? "sats" : "BTC",
+    unitHint:
+      state.unit === "sats"
+        ? "Written in sats. Press to write it in BTC — or just type a decimal point."
+        : "Written in BTC. Press to write it in sats.",
+    toggleUnit: () => switchUnit(state.unit === "sats" ? "sbtc" : "sats"),
+    altAmount: altText(state.amount),
     useMax: () => useWholeBalance("sbtc"),
     useBtcMax: () => useWholeBalance("l1"),
     // Only worth offering where there is something to spend and the amount is
@@ -4171,12 +4205,37 @@ function proposalList(): ProposalView[] {
   return source.map((p) => decorate(p, weight, hiveWeight, dummy));
 }
 
+/**
+ * This member's position, as the strip under the header says it.
+ *
+ * Four numbers and no explanation -- the card down in the deposit section is
+ * where each of them is spelled out. Written in whichever unit the amount
+ * field is being read in, so the page says sats or BTC in one voice.
+ *
+ * Empty for a wallet holding none of them, which is what keeps the strip off
+ * the page for a reader who has not deposited: a row of zeros under the nav is
+ * furniture, and the top of the page is the most expensive room on it.
+ */
+function positionRows(): { label: string; value: string }[] {
+  const m = state.member;
+  const settled = m?.settled ?? null;
+  const rows = [
+    { label: "queued", sats: settled ? num(settled["queued-sats"]) : 0 },
+    { label: "committed", sats: settled ? num(settled["bonded-sats"]) : 0 },
+    { label: "released", sats: m?.principal ? num(m.principal["released-sats"]) : 0 },
+    { label: "honey", sats: m?.rewards ?? 0 },
+  ];
+  if (!state.connected || rows.every((row) => row.sats <= 0)) return [];
+  return rows.map((row) => ({ label: row.label, value: written(row.sats) }));
+}
+
 function viewModel(): Scope {
   const live = state.floor;
   const bee = beeIdentity();
   const { weight, hiveWeight } = weights();
   const proposals = proposalList();
   const sel = proposals.find((p) => p.id === state.sel) ?? null;
+  const position = positionRows();
 
   const totals = state.pool?.totals ?? null;
   const terms = state.pool?.terms ?? null;
@@ -4232,6 +4291,13 @@ function viewModel(): Scope {
 
     connected: state.connected,
     disconnected: !state.connected,
+    // The strip under the header, and whether there is anything to put in it.
+    position,
+    posShow: position.length > 0,
+    // What the home page's button to `app.html` says. A member with sats in
+    // the pool is not being invited to join it -- they are being pointed back
+    // at what they already hold, which is a different sentence.
+    joinCta: position.length > 0 ? "Your position →" : "Deposit bitcoin →",
     walletOpen: state.walletOpen,
     walletLabel: state.connected ? shorten(state.account) : "Connect wallet",
 
@@ -4682,9 +4748,12 @@ async function refresh(): Promise<void> {
 function render(): void {
   const template = document.getElementById("tpl") as HTMLTemplateElement | null;
   const mount = document.getElementById("app");
+  const navMount = document.getElementById("nav");
   if (!template || !mount) return;
 
-  mountInto(template, mount, viewModel());
+  const scope = viewModel();
+  if (navMount) mountNav((document.body.dataset.page ?? "home") as Page, navMount, scope);
+  mountInto(template, mount, scope);
 
   paintNotice();
 
@@ -4773,6 +4842,7 @@ let quoting: ReturnType<typeof setTimeout> | null = null;
 function wireQuote(): void {
   const input = document.getElementById("join-sats") as HTMLInputElement | null;
   const out = document.getElementById("join-quote");
+  const alt = document.getElementById("join-alt");
   if (!input || !out || input.dataset.wired === "1") return;
   input.dataset.wired = "1";
 
@@ -4787,7 +4857,16 @@ function wireQuote(): void {
     // Held so a re-render can put it back; not `setState`, which would replace
     // the element under the caret.
     state.amount = input.value;
+    // A decimal point can only mean BTC. A satoshi is the smallest unit there
+    // is, so a fraction of one is not a number anyone means to type -- and a
+    // member who has typed one has already said which unit they are in. Taking
+    // them at their word costs nothing: what they typed is left exactly as
+    // typed, and only the unit beside it moves.
+    if (state.unit === "sats" && input.value.includes(".")) showUnit("sbtc");
     const sats = toSats(input.value, state.unit);
+    // The other unit, on every keystroke: this is the line that catches a
+    // deposit eight zeros away from the one that was meant.
+    if (alt) alt.textContent = altText(input.value);
     if (quoting) clearTimeout(quoting);
     // Every keystroke retires whatever is in flight, before anything else: the
     // ticket is what stops an older answer overwriting a newer one, and the
@@ -4814,7 +4893,7 @@ function wireQuote(): void {
         if (seq !== quoteSeq) return;
         state.quotedFor = sats;
         state.quotedUstx = ustx;
-        out.textContent = `${fmt(sats)} sats needs ${(ustx / 1e6).toFixed(2)} STX`;
+        out.textContent = `${written(sats)} needs ${(ustx / 1e6).toFixed(2)} STX`;
         // The shortfall line is drawn from state, so a new price has to reach
         // the card as well as this element.
         afterQuote();
@@ -4901,7 +4980,11 @@ render();
 // The discussion panel, beside the page rather than in it. What it needs from
 // here is the wallet and the proposals; what it gives back is a place to talk
 // about them. Its own network layer loads once the page has painted.
-mountChat(() => ({
+//
+// Only where the page kept a mount for it. `app.html` runs this same bundle
+// for the deposit card and has no discussion on it, and `mountChat` opens
+// relay sockets whether or not there is anything to render them into.
+if (document.getElementById("chat")) mountChat(() => ({
   account: state.account,
   connected: state.connected,
   configured: configured(),

@@ -52,7 +52,8 @@ a:hover { color: var(--color-accent-700); }
 .lede { max-width: 66ch; margin: 0 0 22px; font-size: 15px; line-height: 1.6; color: color-mix(in srgb, var(--color-text) 60%, transparent); }
 </style>
 </head>
-<body>
+<body data-page="analytics">
+<div id="nav"></div>
 <div id="app"></div>
 <!-- Wallet and transaction feedback. Outside the template so a re-render
      cannot clear it mid-transaction. -->
@@ -66,34 +67,6 @@ a:hover { color: var(--color-accent-700); }
 <template id="tpl">
 <div style="background:var(--color-bg);color:var(--color-text);font-family:var(--font-body);min-height:100vh;overflow-x:clip">
 
-<header style="position:sticky;top:0;z-index:40;background:color-mix(in srgb, var(--color-bg) 88%, transparent);backdrop-filter:blur(12px);border-bottom:1px solid color-mix(in srgb, var(--color-text) 8%, transparent)">
-  <div style="max-width:1240px;margin:0 auto;padding:12px clamp(20px,4vw,40px);display:flex;align-items:center;gap:clamp(12px,3vw,32px);flex-wrap:wrap">
-    <a href="index.html" style="display:flex;align-items:center;gap:10px;text-decoration:none;color:var(--color-text);margin-right:auto">
-      <svg width="34" height="34" sc-camel-view-box="0 0 64 64" style="display:block">
-        <path d="M32 3 L59 18 L59 46 L32 61 L5 46 L5 18 Z" style="fill:var(--color-surface);stroke:var(--color-text);stroke-width:3.4;stroke-linejoin:round"></path>
-        <ellipse cx="20" cy="26" rx="8" ry="4.4" transform="rotate(-32 20 26)" style="fill:var(--color-text);opacity:.22"></ellipse>
-        <ellipse cx="44" cy="26" rx="8" ry="4.4" transform="rotate(32 44 26)" style="fill:var(--color-text);opacity:.22"></ellipse>
-        <ellipse cx="32" cy="38" rx="9.5" ry="13" style="fill:var(--color-accent)"></ellipse>
-        <path d="M23.6 33 h16.8 M24.4 42 h15.2" style="stroke:var(--color-text);stroke-width:3.2;stroke-linecap:round"></path>
-        <circle cx="32" cy="24" r="5.4" style="fill:var(--color-text)"></circle>
-      </svg>
-      <span style="font-family:var(--font-heading);font-size:21px;letter-spacing:-0.01em">Esbee<span style="color:var(--color-accent)">.</span></span>
-    </a>
-    <nav style="display:flex;align-items:center;gap:clamp(10px,2vw,24px);flex-wrap:wrap;font-size:14px">
-      <a href="index.html#pool" style="text-decoration:none;color:var(--color-text);white-space:nowrap" style-hover="color:var(--color-accent)">The Pool</a>
-      <a href="index.html#vote" style="text-decoration:none;color:var(--color-text);white-space:nowrap" style-hover="color:var(--color-accent)">Vote</a>
-      <a href="analytics.html" aria-current="page" style="text-decoration:none;color:var(--color-accent);white-space:nowrap">Analytics</a>
-      <a href="#work" style="text-decoration:none;color:var(--color-text);white-space:nowrap" style-hover="color:var(--color-accent)">Open work</a>
-      <a href="#epochs" style="text-decoration:none;color:var(--color-text);white-space:nowrap" style-hover="color:var(--color-accent)">Epochs</a>
-    </nav>
-    <div class="seg" style="flex:none">
-      <sc-for list="{{ networks }}" as="n">
-        <button class="seg-opt" sc-camel-on-click="{{ n.choose }}" title="{{ n.note }}" style="background:{{ n.bg }};color:{{ n.fg }};border:0;font:inherit;font-size:12.5px;cursor:pointer">{{ n.label }}</button>
-      </sc-for>
-    </div>
-    <button class="btn btn-primary" sc-camel-on-click="{{ openWallet }}" style="font-size:14px;padding:9px 18px;white-space:nowrap">{{ walletLabel }}</button>
-  </div>
-</header>
 
 <!-- ── what this page is ─────────────────────────────────────────────────── -->
 <section id="top" class="sec" style="padding-bottom:clamp(16px,2.4vw,26px)">
@@ -508,7 +481,7 @@ a:hover { color: var(--color-accent-700); }
       <div style="font-size:11px;letter-spacing:.1em;text-transform:uppercase;opacity:.5;margin-bottom:12px">Elsewhere</div>
       <div style="display:flex;flex-direction:column;gap:8px;font-size:14px">
         <a href="index.html" style="color:var(--color-neutral-200);text-decoration:none" style-hover="color:var(--color-accent-400)">The pool</a>
-        <a href="index.html#join" style="color:var(--color-neutral-200);text-decoration:none" style-hover="color:var(--color-accent-400)">Join it</a>
+        <a href="app.html" style="color:var(--color-neutral-200);text-decoration:none" style-hover="color:var(--color-accent-400)">Join it</a>
         <a href="media-kit.html" style="color:var(--color-neutral-200);text-decoration:none" style-hover="color:var(--color-accent-400)">Media kit</a>
       </div>
     </div>
