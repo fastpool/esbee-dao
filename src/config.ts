@@ -544,7 +544,7 @@ const MOONPAY_KEY = typeof __MOONPAY_KEY__ === "string" ? __MOONPAY_KEY__ : "";
  */
 export const moonpayUrl = (address: string): string => {
   if (config.network !== "mainnet") return "";
-  if (!MOONPAY_KEY) return "https://www.moonpay.com/buy/stx";
+  if (!MOONPAY_KEY) return "https://buy.moonpay.com/v2/buy?baseCurrencyCode=usd&currencyCode=stx";
   const to = address ? `&walletAddress=${encodeURIComponent(address)}` : "";
   return `https://buy.moonpay.com/?apiKey=${encodeURIComponent(MOONPAY_KEY)}&currencyCode=stx${to}`;
 };
