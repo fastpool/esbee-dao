@@ -763,6 +763,13 @@ a:hover { color: var(--color-accent-700); }
 
         <sc-if value="{{ join.l1Route }}">
           <p class="text-muted" style="margin:0;font-size:14px;line-height:1.6">You commit to the address the bitcoin will come from, reveal it a block later, and then send. Nothing has to be built before the first two steps — the address is one you already have.</p>
+          <div style="display:flex;gap:10px;align-items:flex-start;padding:13px 15px;border-radius:var(--radius-md);background:color-mix(in srgb, var(--color-accent) 8%, var(--color-surface));border:1px solid color-mix(in srgb, var(--color-accent-400) 40%, transparent)">
+            <span aria-hidden="true" style="font-size:16px;flex:none;flex-grow:0">⚠️</span>
+            <p style="margin:0;font-size:13px;line-height:1.55;flex:1">
+              This L1 deposit route is mainly a demo of what is possible. Bridging Bitcoin L1 is easier with the <a href="https://sbtc.stacks.co" target="_blank" rel="noopener" style="text-decoration:underline">sBTC bridge</a>.
+              The L1 deposit route here carries a real risk: a race condition means we have to trust the operator not to sweep the deposited sBTC before it is claimed on Stacks (see <a href="https://github.com/fastpool/sbtc-pool-bond-staker/issues/8">issue #8</a>).
+            </p>
+          </div>
           <!-- Where the member actually is, read from the bridge against the
                address in the field. Absent until there is something to read: to
                a reader without a wallet the five steps are an explanation, and
